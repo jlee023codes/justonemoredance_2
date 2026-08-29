@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Just One More Dance",
+    "slug": "just-one-more-dance",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": { "resizeMode": "contain", "backgroundColor": "#16101d" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.yourname.justonemoredance" },
+    "android": { "package": "com.yourname.justonemoredance" }
+  }
+}
