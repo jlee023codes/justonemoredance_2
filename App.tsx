@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -20,56 +20,80 @@ import {
 } from "./src/components/DanceDetailsModal";
 import { VenuePicker } from "./src/components/VenuePicker";
 import { colors } from "./src/styles";
+import { AuthScreen } from "./src/components/AuthScreen";
+import { ProfileScreen } from "./src/components/ProfileScreen";
+import { supabase } from "./src/lib/supabase";
+import { loadProgress, saveProgress } from "./src/services/progress";
+import { Session } from "@supabase/supabase-js";
+// A received dance is deliberately separate from the app's reference catalog.
+const sampleFriendDance: Dance = {
+  id: "friends-two-step",
+  name: "Friends Two-Step",
+  defaultSong: "Neon Moon — Brooks & Dunn",
+  difficulty: "Beginner",
+  details: "32 count • 4 wall • shared by a friend",
+  venueSongs: [],
+  songSwaps: [],
+};
+
 export default function App() {
   const [tab, setTab] = useState<AppTab>("Home"),
     [venueId, setVenueId] = useState("anywhere"),
     [query, setQuery] = useState(""),
     [progress, setProgress] = useState<Record<string, DanceProgress>>({}),
+    [receivedDances, setReceivedDances] = useState<Dance[]>([]),
     [selected, setSelected] = useState<Dance | null>(null),
     [picker, setPicker] = useState(false),
     [share, setShare] = useState(false),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [session, setSession] = useState<Session | null>(null),
+    [authLoading, setAuthLoading] = useState(true);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthLoading(false); });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (!session) return;
+    loadProgress(session.user.id).then(setProgress).catch((error) => setMessage(`Could not load saved dances: ${error.message}`));
+  }, [session]);
   const venueName = venues.find((v) => v.id === venueId)?.name ?? "Everywhere";
   const learnedCount = Object.values(progress).filter(
     (p) => p.status === "learned",
   ).length;
-  const want = dances.filter((d) => progress[d.id]?.status === "want"),
-    learned = dances.filter((d) => progress[d.id]?.status === "learned"),
+  // The Home catalog is always the original dance data. Learning and friend lists may include received dances.
+  const learningCatalog = [...dances, ...receivedDances];
+  const want = learningCatalog.filter((d) => progress[d.id]?.status === "want"),
+    learned = learningCatalog.filter((d) => progress[d.id]?.status === "learned"),
     friends = want.filter((d) => progress[d.id]?.fromFriend);
-  const filtered = dances.filter((d) =>
-    (d.name + " " + d.defaultSong).toLowerCase().includes(query.toLowerCase()),
-  );
+  const filtered = dances.filter((dance) => {
+    const matchesVenue = venueId === "anywhere" || dance.venueSongs.some((song) => song.venueId === venueId);
+    const matchesSearch = (dance.name + " " + dance.defaultSong).toLowerCase().includes(query.toLowerCase());
+    return matchesVenue && matchesSearch;
+  });
   const songFor = (d: Dance) =>
     d.venueSongs.find((v) => v.venueId === venueId)?.song ?? d.defaultSong;
+  if (authLoading) return <SafeAreaView style={s.safe}><Text style={s.loading}>Loading your dance list…</Text></SafeAreaView>;
+  if (!session) return <AuthScreen />;
   const save = (dance: Dance, status: LearningStatus, entry: DanceEntry) => {
-    setProgress((current) => ({
-      ...current,
-      [dance.id]: {
-        danceId: dance.id,
-        status,
-        personalVenueId:
-          entry.venueId === "anywhere" ? undefined : entry.venueId,
-        personalSongSwap: entry.songSwap || undefined,
-        fromFriend: current[dance.id]?.fromFriend,
-      },
-    }));
+    const next: DanceProgress = { danceId: dance.id, status, personalVenueId: entry.venueId === "anywhere" ? undefined : entry.venueId, personalSongSwap: entry.songSwap || undefined, fromFriend: progress[dance.id]?.fromFriend };
+    setProgress((current) => ({ ...current, [dance.id]: next }));
+    void saveProgress(session.user.id, next).catch((error) => setMessage(`Could not save your dance: ${error.message}`));
     setSelected(null);
   };
   const receive = () => {
-    const incoming = [dances[2], dances[3]];
+    // Domino is already in the reference catalog, so it is an overlap—not a friend-only dance.
+    // A real backend would merge any new song swaps for that dance here.
+    const incoming = [dances[2], sampleFriendDance];
+    const catalogIds = new Set(dances.map((dance) => dance.id));
+    const friendOnly = incoming.filter((dance) => !catalogIds.has(dance.id));
+    setReceivedDances((current) => [...current, ...friendOnly.filter((dance) => !current.some((item) => item.id === dance.id))]);
     setProgress((current) => ({
       ...current,
-      ...Object.fromEntries(
-        incoming
-          .filter((d) => !current[d.id])
-          .map((d) => [
-            d.id,
-            { danceId: d.id, status: "want" as const, fromFriend: true },
-          ]),
-      ),
+      ...Object.fromEntries(friendOnly.filter((dance) => !current[dance.id]).map((dance) => [dance.id, { danceId: dance.id, status: "want" as const, fromFriend: true }])),
     }));
     setShare(false);
-    setMessage("Friend list merged — new dances are in “From friends”.");
+    setMessage("List merged — Domino already exists in your catalog; Friends Two-Step was added under “From friends”.");
   };
   const list = tab === "Want to learn" ? want : learned;
   const achievement =
@@ -87,7 +111,14 @@ export default function App() {
         <Text style={s.logo}>JUST ONE MORE</Text>
         <Text style={s.dance}>DANCE</Text>
       </View>
-      {tab === "Home" ? (
+      {tab === "Profile" ? (
+        <ProfileScreen
+          email={session.user.is_anonymous ? undefined : session.user.email}
+          learnedCount={learnedCount}
+          wantCount={want.length}
+          onSignOut={() => void supabase.auth.signOut()}
+        />
+      ) : tab === "Home" ? (
         <ScrollView
           contentContainerStyle={s.content}
           keyboardShouldPersistTaps="handled"
@@ -164,7 +195,7 @@ export default function App() {
             ))}
           {!list.length && (
             <Text style={s.empty}>
-              Nothing here yet — choose a dance from Home.
+              Nothing here yet — choose a dance from Ho me.
             </Text>
           )}
         </ScrollView>
@@ -209,6 +240,7 @@ export default function App() {
 }
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
+  loading: { color: colors.ink, textAlign: "center", marginTop: 100, fontSize: 16 },
   header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
   logo: {
     color: colors.gold,
