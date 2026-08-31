@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { dances, venues } from "./src/data";
+import { venues } from "./src/data";
 import { Dance, DanceProgress, LearningStatus } from "./src/types";
 import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
@@ -47,7 +47,10 @@ export default function App() {
     [share, setShare] = useState(false),
     [message, setMessage] = useState(""),
     [session, setSession] = useState<Session | null>(null),
-    [authLoading, setAuthLoading] = useState(true);
+    [authLoading, setAuthLoading] = useState(true),
+    [dances, setDances] = useState<Dance[]>([]),
+    [dataLoading, setDataLoading] = useState(true);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -66,6 +69,111 @@ export default function App() {
         setMessage(`Could not load saved dances: ${error.message}`),
       );
   }, [session]);
+
+  // useEffect(() => {
+  //   const fetchDances = async () => {
+  //     setDataLoading(true);
+
+  //     const { data, error } = await supabase
+  //       .from("dances")
+  //       .select(`
+  //         id,
+  //         name,
+  //         default_song,
+  //         difficulty,
+  //         details,
+  //         dance_venue_songs (
+  //           venue_id,
+  //           song_name,
+  //           venues (
+  //             id,
+  //             name
+  //           )
+  //         )
+  //       `);
+  // console.log("RAW SUPABASE DATA:", JSON.stringify(data, null, 2));
+
+  //     if (error) {
+  //       console.error("Error loading dances:", error);
+  //       setDataLoading(false);
+  //       return;
+  //     }
+
+  //     const formattedDances: Dance[] = (data ?? []).map((dance) => ({
+  //       id: dance.id,
+  //       name: dance.name,
+  //       defaultSong: dance.default_song,
+  //       difficulty: dance.difficulty,
+  //       details: dance.details ?? undefined,
+
+  //       venueSongs: (dance.dance_venue_songs ?? []).map((venueSong) => ({
+  //         venueId: venueSong.venue_id,
+  //         venueName: venueSong.venues?.[0]?.name ?? "",
+  //         song: venueSong.song_name,
+  //       })),
+
+  //       songSwaps: [],
+  //     }));
+
+  //     setDances(formattedDances);
+  //     setDataLoading(false);
+  //   };
+
+  //   fetchDances();
+  // }, []);
+
+  useEffect(() => {
+    const fetchDances = async () => {
+      setDataLoading(true);
+
+      const { data: danceData, error: danceError } = await supabase
+        .from("dances")
+        .select("*");
+
+      const { data: venueSongData, error: venueSongError } = await supabase
+        .from("dance_venue_songs")
+        .select("*");
+
+      console.log("DANCES:", JSON.stringify(danceData, null, 2));
+      console.log("VENUE SONGS:", JSON.stringify(venueSongData, null, 2));
+      console.log("DANCE ERROR:", danceError);
+      console.log("VENUE SONG ERROR:", venueSongError);
+
+      if (danceError || venueSongError) {
+        console.error("Error loading data:", danceError || venueSongError);
+        setDataLoading(false);
+        return;
+      }
+
+      const formattedDances: Dance[] = (danceData ?? []).map((dance) => ({
+        id: dance.id,
+        name: dance.name,
+        defaultSong: dance.default_song,
+        difficulty: dance.difficulty,
+        details: dance.details ?? undefined,
+
+        venueSongs: (venueSongData ?? [])
+          .filter((vs) => vs.dance_id === dance.id)
+          .map((vs) => ({
+            venueId: vs.venue_id,
+            venueName: "", // temporary
+            song: vs.song_name,
+          })),
+
+        songSwaps: [],
+      }));
+
+      console.log(
+        "FORMATTED DANCES:",
+        JSON.stringify(formattedDances, null, 2),
+      );
+
+      setDances(formattedDances);
+      setDataLoading(false);
+    };
+
+    fetchDances();
+  }, []);
 
   const venueName = venues.find((v) => v.id === venueId)?.name ?? "Everywhere";
   const learnedCount = Object.values(progress).filter(
