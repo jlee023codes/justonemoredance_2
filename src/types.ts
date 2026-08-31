@@ -19,7 +19,7 @@ export type Dance = {
   name: string;
   defaultSong: string;
   difficulty: 'Beginner' | 'Improver' | 'Intermediate' | 'Advanced';
-  details: string;
+  details?: string;
   venueSongs: VenueSong[];
   songSwaps: SongSwap[];
 };

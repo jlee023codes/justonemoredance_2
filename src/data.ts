@@ -1,5 +1,14 @@
 import { Dance } from "./types";
 
+export const venues = [
+  { id: "anywhere", name: "Everywhere" },
+  { id: "starlight", name: "Starlight Saloon" },
+  { id: "boot-scoot", name: "Boot Scoot Social" },
+  { id: "copper", name: "The Copper Room" },
+  { id: "cancun-cantina", name: "Cancun Cantina" },
+  { id: "neon-boots", name: "Neon Boots" },
+];
+
 export const dances: Dance[] = [
   {
     id: "a-bar-song",
@@ -167,21 +176,4 @@ export const dances: Dance[] = [
     venueSongs: [],
     songSwaps: [],
   },
-];
-
-/** Derived from venue-specific songs and swaps in the dance catalog. */
-export const venues = [
-  { id: "anywhere", name: "Everywhere" },
-  ...Array.from(
-    new Map(
-      dances
-        .flatMap((dance) => [
-          ...dance.venueSongs.map(({ venueId, venueName }) => [venueId, venueName] as const),
-          ...dance.songSwaps.map(({ venueId, venueName }) => venueId ? [venueId, venueName] as const : null),
-        ])
-        .filter((venue): venue is readonly [string, string] => venue !== null),
-    ).entries(),
-  )
-    .map(([id, name]) => ({ id, name }))
-    .sort((a, b) => a.name.localeCompare(b.name)),
 ];

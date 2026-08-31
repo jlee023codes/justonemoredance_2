@@ -49,14 +49,24 @@ export default function App() {
     [session, setSession] = useState<Session | null>(null),
     [authLoading, setAuthLoading] = useState(true);
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthLoading(false); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => setSession(nextSession),
+    );
     return () => listener.subscription.unsubscribe();
   }, []);
   useEffect(() => {
     if (!session) return;
-    loadProgress(session.user.id).then(setProgress).catch((error) => setMessage(`Could not load saved dances: ${error.message}`));
+    loadProgress(session.user.id)
+      .then(setProgress)
+      .catch((error) =>
+        setMessage(`Could not load saved dances: ${error.message}`),
+      );
   }, [session]);
+
   const venueName = venues.find((v) => v.id === venueId)?.name ?? "Everywhere";
   const learnedCount = Object.values(progress).filter(
     (p) => p.status === "learned",
@@ -64,21 +74,40 @@ export default function App() {
   // The Home catalog is always the original dance data. Learning and friend lists may include received dances.
   const learningCatalog = [...dances, ...receivedDances];
   const want = learningCatalog.filter((d) => progress[d.id]?.status === "want"),
-    learned = learningCatalog.filter((d) => progress[d.id]?.status === "learned"),
+    learned = learningCatalog.filter(
+      (d) => progress[d.id]?.status === "learned",
+    ),
     friends = want.filter((d) => progress[d.id]?.fromFriend);
   const filtered = dances.filter((dance) => {
-    const matchesVenue = venueId === "anywhere" || dance.venueSongs.some((song) => song.venueId === venueId);
-    const matchesSearch = (dance.name + " " + dance.defaultSong).toLowerCase().includes(query.toLowerCase());
+    const matchesVenue =
+      venueId === "anywhere" ||
+      dance.venueSongs.some((song) => song.venueId === venueId);
+    const matchesSearch = (dance.name + " " + dance.defaultSong)
+      .toLowerCase()
+      .includes(query.toLowerCase());
     return matchesVenue && matchesSearch;
   });
   const songFor = (d: Dance) =>
     d.venueSongs.find((v) => v.venueId === venueId)?.song ?? d.defaultSong;
-  if (authLoading) return <SafeAreaView style={s.safe}><Text style={s.loading}>Loading your dance list…</Text></SafeAreaView>;
+  if (authLoading)
+    return (
+      <SafeAreaView style={s.safe}>
+        <Text style={s.loading}>Loading your dance list…</Text>
+      </SafeAreaView>
+    );
   if (!session) return <AuthScreen />;
   const save = (dance: Dance, status: LearningStatus, entry: DanceEntry) => {
-    const next: DanceProgress = { danceId: dance.id, status, personalVenueId: entry.venueId === "anywhere" ? undefined : entry.venueId, personalSongSwap: entry.songSwap || undefined, fromFriend: progress[dance.id]?.fromFriend };
+    const next: DanceProgress = {
+      danceId: dance.id,
+      status,
+      personalVenueId: entry.venueId === "anywhere" ? undefined : entry.venueId,
+      personalSongSwap: entry.songSwap || undefined,
+      fromFriend: progress[dance.id]?.fromFriend,
+    };
     setProgress((current) => ({ ...current, [dance.id]: next }));
-    void saveProgress(session.user.id, next).catch((error) => setMessage(`Could not save your dance: ${error.message}`));
+    void saveProgress(session.user.id, next).catch((error) =>
+      setMessage(`Could not save your dance: ${error.message}`),
+    );
     setSelected(null);
   };
   const receive = () => {
@@ -87,13 +116,27 @@ export default function App() {
     const incoming = [dances[2], sampleFriendDance];
     const catalogIds = new Set(dances.map((dance) => dance.id));
     const friendOnly = incoming.filter((dance) => !catalogIds.has(dance.id));
-    setReceivedDances((current) => [...current, ...friendOnly.filter((dance) => !current.some((item) => item.id === dance.id))]);
+    setReceivedDances((current) => [
+      ...current,
+      ...friendOnly.filter(
+        (dance) => !current.some((item) => item.id === dance.id),
+      ),
+    ]);
     setProgress((current) => ({
       ...current,
-      ...Object.fromEntries(friendOnly.filter((dance) => !current[dance.id]).map((dance) => [dance.id, { danceId: dance.id, status: "want" as const, fromFriend: true }])),
+      ...Object.fromEntries(
+        friendOnly
+          .filter((dance) => !current[dance.id])
+          .map((dance) => [
+            dance.id,
+            { danceId: dance.id, status: "want" as const, fromFriend: true },
+          ]),
+      ),
     }));
     setShare(false);
-    setMessage("List merged — Domino already exists in your catalog; Friends Two-Step was added under “From friends”.");
+    setMessage(
+      "List merged — Domino already exists in your catalog; Friends Two-Step was added under “From friends”.",
+    );
   };
   const list = tab === "Want to learn" ? want : learned;
   const achievement =
@@ -240,7 +283,12 @@ export default function App() {
 }
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  loading: { color: colors.ink, textAlign: "center", marginTop: 100, fontSize: 16 },
+  loading: {
+    color: colors.ink,
+    textAlign: "center",
+    marginTop: 100,
+    fontSize: 16,
+  },
   header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
   logo: {
     color: colors.gold,
