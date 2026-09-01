@@ -133,9 +133,10 @@ export async function searchDances(
   const data = await callProxy<RawListResponse<RawDance>>("/dances/search", {
     query: query || undefined,
     limit: opts.limit ?? 25,
-    sort: "relevance", // matches BootStepper's own default ordering
+    sortBy: "relevance", // matches BootStepper's own default ordering
   });
   const raw = data.results ?? data.items ?? data.dances ?? [];
+  console.log("raw data: ", raw);
   return raw.map(adaptDance);
 }
 
