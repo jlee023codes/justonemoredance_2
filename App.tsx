@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -10,22 +10,20 @@ import {
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { venues } from "./src/data";
 import { Dance, DanceProgress, LearningStatus } from "./src/types";
 import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
-import {
-  DanceDetailsModal,
-  DanceEntry,
-} from "./src/components/DanceDetailsModal";
-import { VenuePicker } from "./src/components/VenuePicker";
+import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
+import { MyVenuesScreen } from "./src/components/MyVenuesScreen";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
 import { supabase } from "./src/lib/supabase";
-import { loadProgress, saveProgress } from "./src/services/progress";
+import { loadProgress } from "./src/services/progress";
+import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
-// A received dance is deliberately separate from the app's reference catalog.
+
+// A received dance is deliberately separate from the app's BootStepper-backed catalog.
 const sampleFriendDance: Dance = {
   id: "friends-two-step",
   name: "Friends Two-Step",
@@ -36,20 +34,39 @@ const sampleFriendDance: Dance = {
   songSwaps: [],
 };
 
+// Falls back to whatever was snapshotted at save time if a dance can't be
+// resolved from BootStepper right now (offline, removed upstream, etc).
+function danceFromProgress(progress: DanceProgress): Dance {
+  return {
+    id: progress.danceId,
+    name: progress.danceName ?? "Dance",
+    defaultSong: progress.danceSong ?? "",
+    difficulty: progress.danceDifficulty ?? "Beginner",
+    details: "",
+    venueSongs: [],
+    songSwaps: [],
+  };
+}
+
 export default function App() {
   const [tab, setTab] = useState<AppTab>("Home"),
-    [venueId, setVenueId] = useState("anywhere"),
     [query, setQuery] = useState(""),
     [progress, setProgress] = useState<Record<string, DanceProgress>>({}),
     [receivedDances, setReceivedDances] = useState<Dance[]>([]),
     [selected, setSelected] = useState<Dance | null>(null),
-    [picker, setPicker] = useState(false),
     [share, setShare] = useState(false),
     [message, setMessage] = useState(""),
     [session, setSession] = useState<Session | null>(null),
     [authLoading, setAuthLoading] = useState(true),
-    [dances, setDances] = useState<Dance[]>([]),
-    [dataLoading, setDataLoading] = useState(true);
+    // Search results shown on the Home tab, straight from BootStepper —
+    // Home always searches the full catalog ("everywhere"), with no venue
+    // filter. Venue association happens per-dance, in the details modal.
+    [searchResults, setSearchResults] = useState<Dance[]>([]),
+    [searchLoading, setSearchLoading] = useState(true),
+    // Every Dance object we've seen from any source (search, direct fetch by
+    // id, received/friend dances) — lets Want/Learned resolve a full Dance
+    // even when it's not in the current Home search results.
+    [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({});
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -61,6 +78,7 @@ export default function App() {
     );
     return () => listener.subscription.unsubscribe();
   }, []);
+
   useEffect(() => {
     if (!session) return;
     loadProgress(session.user.id)
@@ -70,133 +88,75 @@ export default function App() {
       );
   }, [session]);
 
-  // useEffect(() => {
-  //   const fetchDances = async () => {
-  //     setDataLoading(true);
-
-  //     const { data, error } = await supabase
-  //       .from("dances")
-  //       .select(`
-  //         id,
-  //         name,
-  //         default_song,
-  //         difficulty,
-  //         details,
-  //         dance_venue_songs (
-  //           venue_id,
-  //           song_name,
-  //           venues (
-  //             id,
-  //             name
-  //           )
-  //         )
-  //       `);
-  // console.log("RAW SUPABASE DATA:", JSON.stringify(data, null, 2));
-
-  //     if (error) {
-  //       console.error("Error loading dances:", error);
-  //       setDataLoading(false);
-  //       return;
-  //     }
-
-  //     const formattedDances: Dance[] = (data ?? []).map((dance) => ({
-  //       id: dance.id,
-  //       name: dance.name,
-  //       defaultSong: dance.default_song,
-  //       difficulty: dance.difficulty,
-  //       details: dance.details ?? undefined,
-
-  //       venueSongs: (dance.dance_venue_songs ?? []).map((venueSong) => ({
-  //         venueId: venueSong.venue_id,
-  //         venueName: venueSong.venues?.[0]?.name ?? "",
-  //         song: venueSong.song_name,
-  //       })),
-
-  //       songSwaps: [],
-  //     }));
-
-  //     setDances(formattedDances);
-  //     setDataLoading(false);
-  //   };
-
-  //   fetchDances();
-  // }, []);
+  const mergeIntoCache = (dances: Dance[]) => {
+    if (!dances.length) return;
+    setCatalogCache((current) => {
+      const next = { ...current };
+      for (const dance of dances) next[dance.id] = dance;
+      return next;
+    });
+  };
 
   useEffect(() => {
-    const fetchDances = async () => {
-      setDataLoading(true);
+    mergeIntoCache(receivedDances);
+  }, [receivedDances]);
 
-      const { data: danceData, error: danceError } = await supabase
-        .from("dances")
-        .select("*");
+  // Debounced search against BootStepper. An empty query asks for their
+  // default/relevance ordering, so Home always shows something.
+  const searchRequestId = useRef(0);
+  useEffect(() => {
+    if (!session) return;
+    const requestId = ++searchRequestId.current;
+    setSearchLoading(true);
+    const timer = setTimeout(() => {
+      searchDances(query)
+        .then((results) => {
+          if (searchRequestId.current !== requestId) return; // stale
+          setSearchResults(results);
+          mergeIntoCache(results);
+          setSearchLoading(false);
+        })
+        .catch((error) => {
+          if (searchRequestId.current !== requestId) return;
+          setSearchLoading(false);
+          setMessage(`Could not load dances from BootStepper: ${error.message}`);
+        });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [query, session]);
 
-      const { data: venueSongData, error: venueSongError } = await supabase
-        .from("dance_venue_songs")
-        .select("*");
+  // Resolve any dance ids saved in progress that aren't already cached —
+  // covers opening straight to "Want to learn" / "Learned" without having
+  // searched for those dances first in this session.
+  useEffect(() => {
+    const missingIds = Object.keys(progress).filter(
+      (id) => !catalogCache[id] && !receivedDances.some((d) => d.id === id),
+    );
+    if (!missingIds.length) return;
+    getDancesByIds(missingIds)
+      .then(mergeIntoCache)
+      .catch(() => {
+        // Silently fall back to the progress snapshot — see danceFromProgress.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress, catalogCache, receivedDances]);
 
-      console.log("DANCES:", JSON.stringify(danceData, null, 2));
-      console.log("VENUE SONGS:", JSON.stringify(venueSongData, null, 2));
-      console.log("DANCE ERROR:", danceError);
-      console.log("VENUE SONG ERROR:", venueSongError);
+  const resolveDance = (id: string): Dance =>
+    catalogCache[id] ??
+    receivedDances.find((d) => d.id === id) ??
+    danceFromProgress(progress[id]);
 
-      if (danceError || venueSongError) {
-        console.error("Error loading data:", danceError || venueSongError);
-        setDataLoading(false);
-        return;
-      }
-
-      const formattedDances: Dance[] = (danceData ?? []).map((dance) => ({
-        id: dance.id,
-        name: dance.name,
-        defaultSong: dance.default_song,
-        difficulty: dance.difficulty,
-        details: dance.details ?? undefined,
-
-        venueSongs: (venueSongData ?? [])
-          .filter((vs) => vs.dance_id === dance.id)
-          .map((vs) => ({
-            venueId: vs.venue_id,
-            venueName: "", // temporary
-            song: vs.song_name,
-          })),
-
-        songSwaps: [],
-      }));
-
-      console.log(
-        "FORMATTED DANCES:",
-        JSON.stringify(formattedDances, null, 2),
-      );
-
-      setDances(formattedDances);
-      setDataLoading(false);
-    };
-
-    fetchDances();
-  }, []);
-
-  const venueName = venues.find((v) => v.id === venueId)?.name ?? "Everywhere";
   const learnedCount = Object.values(progress).filter(
     (p) => p.status === "learned",
   ).length;
-  // The Home catalog is always the original dance data. Learning and friend lists may include received dances.
-  const learningCatalog = [...dances, ...receivedDances];
-  const want = learningCatalog.filter((d) => progress[d.id]?.status === "want"),
-    learned = learningCatalog.filter(
-      (d) => progress[d.id]?.status === "learned",
-    ),
+  const want = Object.values(progress)
+      .filter((p) => p.status === "want")
+      .map((p) => resolveDance(p.danceId)),
+    learned = Object.values(progress)
+      .filter((p) => p.status === "learned")
+      .map((p) => resolveDance(p.danceId)),
     friends = want.filter((d) => progress[d.id]?.fromFriend);
-  const filtered = dances.filter((dance) => {
-    const matchesVenue =
-      venueId === "anywhere" ||
-      dance.venueSongs.some((song) => song.venueId === venueId);
-    const matchesSearch = (dance.name + " " + dance.defaultSong)
-      .toLowerCase()
-      .includes(query.toLowerCase());
-    return matchesVenue && matchesSearch;
-  });
-  const songFor = (d: Dance) =>
-    d.venueSongs.find((v) => v.venueId === venueId)?.song ?? d.defaultSong;
+
   if (authLoading)
     return (
       <SafeAreaView style={s.safe}>
@@ -204,47 +164,58 @@ export default function App() {
       </SafeAreaView>
     );
   if (!session) return <AuthScreen />;
-  const save = (dance: Dance, status: LearningStatus, entry: DanceEntry) => {
-    const next: DanceProgress = {
-      danceId: dance.id,
-      status,
-      personalVenueId: entry.venueId === "anywhere" ? undefined : entry.venueId,
-      personalSongSwap: entry.songSwap || undefined,
-      fromFriend: progress[dance.id]?.fromFriend,
-    };
-    setProgress((current) => ({ ...current, [dance.id]: next }));
-    void saveProgress(session.user.id, next).catch((error) =>
-      setMessage(`Could not save your dance: ${error.message}`),
-    );
-    setSelected(null);
+
+  const handleProgressChange = (
+    danceId: string,
+    next: DanceProgress | null,
+  ) => {
+    setProgress((current) => {
+      const updated = { ...current };
+      if (next) updated[danceId] = next;
+      else delete updated[danceId];
+      return updated;
+    });
   };
+
+  const openDance = (dance: Dance) => {
+    mergeIntoCache([dance]);
+    setSelected(dance);
+  };
+
   const receive = () => {
-    // Domino is already in the reference catalog, so it is an overlap—not a friend-only dance.
-    // A real backend would merge any new song swaps for that dance here.
-    const incoming = [dances[2], sampleFriendDance];
-    const catalogIds = new Set(dances.map((dance) => dance.id));
-    const friendOnly = incoming.filter((dance) => !catalogIds.has(dance.id));
+    // Demo/sample data for the "share my list" flow. Uses whatever's
+    // currently in the Home search results as a stand-in "you already have
+    // this one" example, since the catalog is no longer a fixed local list.
+    const overlap = searchResults[0];
+    const incoming = overlap ? [overlap, sampleFriendDance] : [sampleFriendDance];
+    const alreadyOwned = new Set(
+      Object.keys(progress).filter((id) => !progress[id]?.fromFriend),
+    );
+    const friendOnly = incoming.filter((dance) => !alreadyOwned.has(dance.id));
+    mergeIntoCache(friendOnly);
     setReceivedDances((current) => [
       ...current,
       ...friendOnly.filter(
         (dance) => !current.some((item) => item.id === dance.id),
       ),
     ]);
-    setProgress((current) => ({
-      ...current,
-      ...Object.fromEntries(
-        friendOnly
-          .filter((dance) => !current[dance.id])
-          .map((dance) => [
-            dance.id,
-            { danceId: dance.id, status: "want" as const, fromFriend: true },
-          ]),
-      ),
-    }));
+    setProgress((current) => {
+      const next = { ...current };
+      for (const dance of friendOnly) {
+        if (!next[dance.id]) {
+          next[dance.id] = {
+            danceId: dance.id,
+            status: "want",
+            fromFriend: true,
+            danceName: dance.name,
+            danceSong: dance.defaultSong,
+            danceDifficulty: dance.difficulty,
+          };
+        }
+      }
+      return next;
+    });
     setShare(false);
-    setMessage(
-      "List merged — Domino already exists in your catalog; Friends Two-Step was added under “From friends”.",
-    );
   };
   const list = tab === "Want to learn" ? want : learned;
   const achievement =
@@ -269,16 +240,18 @@ export default function App() {
           wantCount={want.length}
           onSignOut={() => void supabase.auth.signOut()}
         />
+      ) : tab === "My Venues" ? (
+        <MyVenuesScreen
+          userId={session.user.id}
+          progress={progress}
+          onOpenDance={openDance}
+        />
       ) : tab === "Home" ? (
         <ScrollView
           contentContainerStyle={s.content}
           keyboardShouldPersistTaps="handled"
         >
           <Text style={s.greeting}>Find your next favorite step ✨</Text>
-          <Pressable style={s.venue} onPress={() => setPicker(true)}>
-            <Text style={s.venueLabel}>VENUE</Text>
-            <Text style={s.venueValue}>{venueName} ▾</Text>
-          </Pressable>
           <TextInput
             value={query}
             onChangeText={setQuery}
@@ -287,15 +260,21 @@ export default function App() {
             style={s.search}
           />
           <Text style={s.section}>DANCES</Text>
-          {filtered.map((d) => (
+          {searchLoading && !searchResults.length && (
+            <Text style={s.empty}>Loading dances…</Text>
+          )}
+          {searchResults.map((d) => (
             <DanceCard
               key={d.id}
               dance={d}
-              song={songFor(d)}
+              song={d.defaultSong}
               progress={progress[d.id]}
-              onPress={() => setSelected(d)}
+              onPress={() => openDance(d)}
             />
           ))}
+          {!searchLoading && !searchResults.length && (
+            <Text style={s.empty}>No dances found — try a different search.</Text>
+          )}
           <Pressable style={s.share} onPress={() => setShare(true)}>
             <Text style={s.shareText}>↗ SHARE MY LIST</Text>
           </Pressable>
@@ -321,9 +300,9 @@ export default function App() {
                 <DanceCard
                   key={d.id}
                   dance={d}
-                  song={songFor(d)}
+                  song={d.defaultSong}
                   progress={progress[d.id]}
-                  onPress={() => setSelected(d)}
+                  onPress={() => openDance(d)}
                 />
               ))}
             </>
@@ -339,35 +318,25 @@ export default function App() {
               <DanceCard
                 key={d.id}
                 dance={d}
-                song={songFor(d)}
+                song={d.defaultSong}
                 progress={progress[d.id]}
-                onPress={() => setSelected(d)}
+                onPress={() => openDance(d)}
               />
             ))}
           {!list.length && (
             <Text style={s.empty}>
-              Nothing here yet — choose a dance from Ho me.
+              Nothing here yet — choose a dance from Home.
             </Text>
           )}
         </ScrollView>
       )}
       <BottomTabs activeTab={tab} onChange={setTab} />
-      <VenuePicker
-        visible={picker}
-        title="Choose a venue"
-        selectedVenueId={venueId}
-        onSelect={(id) => {
-          setVenueId(id);
-          setPicker(false);
-        }}
-        onClose={() => setPicker(false)}
-      />
       <DanceDetailsModal
         dance={selected}
-        defaultVenueId={venueId}
+        userId={session.user.id}
         progress={selected ? progress[selected.id] : undefined}
         onClose={() => setSelected(null)}
-        onSave={save}
+        onProgressChange={handleProgressChange}
       />
       <Modal visible={share} transparent animationType="fade">
         <View style={s.overlay}>
@@ -416,24 +385,6 @@ const s = StyleSheet.create({
     fontSize: 21,
     fontWeight: "700",
     marginBottom: 18,
-  },
-  venue: {
-    backgroundColor: "#33243f",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 13,
-  },
-  venueLabel: {
-    color: colors.gold,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-  },
-  venueValue: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 3,
   },
   search: {
     backgroundColor: colors.card,
