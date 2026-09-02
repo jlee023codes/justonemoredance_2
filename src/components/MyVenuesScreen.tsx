@@ -265,7 +265,10 @@ export function MyVenuesScreen({
 }
 
 const s = StyleSheet.create({
-  page: { padding: 20, paddingBottom: 115 },
+  page: {
+  padding: 20,
+  paddingBottom: 115,
+},
   heading: {
     color: colors.ink,
     fontSize: 25,
@@ -273,10 +276,16 @@ const s = StyleSheet.create({
     marginBottom: 18,
   },
   venueRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  dropdownWrap: { flex: 1, position: "relative", zIndex: 10 },
+  flexDirection: "row",
+  alignItems: "flex-start",
+  position: "relative",
+  zIndex: 100,
+},
+  dropdownWrap: {
+  flex: 1,
+  position: "relative",
+  zIndex: 100,
+},
   dropdownField: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -294,17 +303,18 @@ const s = StyleSheet.create({
   },
   caret: { color: colors.gold, fontSize: 16 },
   dropdownList: {
-    position: "absolute",
-    top: 54,
-    left: 0,
-    right: 0,
-    backgroundColor: "#2b1f35",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
-    maxHeight: 220,
-    overflow: "hidden",
-  },
+  position: "absolute",
+  top: 54,
+  left: 0,
+  right: 0,
+  backgroundColor: "#2b1f35",
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: colors.line,
+  maxHeight: 220,
+  overflow: "hidden",
+  zIndex: 1000,
+},
   dropdownOption: {
     paddingVertical: 13,
     paddingHorizontal: 14,

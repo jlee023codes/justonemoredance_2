@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -114,13 +115,17 @@ export function DanceDetailsModal({
       await saveProgress(userId, next, dance);
       onProgressChange(dance.id, next);
       if (!venue && !danceState) {
-        Alert.alert(
-          "Saved",
-          `${dance.name} was added to My Venues → My List${
-            venueSaved ? ` and tagged to ${venue!.name}` : ""
-          }.`,
-        );
+        const message = `${dance.name} was added to My Venues → My List${
+          venueSaved ? ` and tagged to ${venue!.name}` : ""
+        }.`;
+
+        if (Platform.OS === "web") {
+          window.alert(`Saved\n\n${message}`);
+        } else {
+          Alert.alert("Saved", message);
+        }
       }
+
       onClose();
     } catch (err: any) {
       showError(err, "Could not save your progress.");
@@ -148,32 +153,44 @@ export function DanceDetailsModal({
     }
   };
 
-  const handleRemove = () => {
-    Alert.alert(
-      "Remove this dance?",
-      `This removes "${dance.name}" from Want to learn, Learned, and every venue you've tagged it to. This can't be undone.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            setSaving(true);
-            try {
-              await removeDanceEverywhere(userId, dance.id);
-              onProgressChange(dance.id, null);
-              onRemoved(dance.id);
-              onClose();
-            } catch (err: any) {
-              showError(err, "Could not remove this dance.");
-            } finally {
-              setSaving(false);
-            }
-          },
-        },
-      ],
+  const handleConfirmedRemove = async () => {
+  setSaving(true);
+
+  try {
+    await removeDanceEverywhere(userId, dance.id);
+    onProgressChange(dance.id, null);
+    onRemoved(dance.id);
+    onClose();
+  } catch (err: any) {
+    showError(err, "Could not remove this dance.");
+  } finally {
+    setSaving(false);
+  }
+};
+
+
+const handleRemove = async () => {
+  const message = `This removes "${dance.name}" from Want to learn, Learned, and every venue you've tagged it to. This can't be undone.`;
+
+  if (Platform.OS === "web") {
+    const confirmed = window.confirm(
+      `Remove this dance?\n\n${message}`,
     );
-  };
+
+    if (confirmed) {
+      await handleConfirmedRemove();
+    }
+  } else {
+    Alert.alert("Remove this dance?", message, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: handleConfirmedRemove,
+      },
+    ]);
+  }
+};
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -307,15 +324,16 @@ export function DanceDetailsModal({
               </Pressable>
             )}
 
-            {(danceState || danceVenueIds.length > 0) && (
-              <Pressable
-                style={s.remove}
-                onPress={handleRemove}
-                disabled={saving}
-              >
-                <Text style={s.removeText}>🗑 Remove from all lists</Text>
-              </Pressable>
-            )}
+            {(danceState || danceVenueIds.length > 0) &&
+              activeTab != "Home" && (
+                <Pressable
+                  style={s.remove}
+                  onPress={handleRemove}
+                  disabled={saving}
+                >
+                  <Text style={s.removeText}>🗑 Remove from all lists</Text>
+                </Pressable>
+              )}
 
             <Pressable onPress={onClose} disabled={saving}>
               <Text style={s.cancel}>Cancel</Text>
