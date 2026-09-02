@@ -41,10 +41,14 @@ export function MyVenuesScreen({
   userId,
   progress,
   onOpenDance,
+  refreshKey,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
   onOpenDance: (dance: Dance) => void;
+  // Bumped by the parent whenever a dance is removed elsewhere, so the
+  // currently-selected venue's (locally cached) dance list refetches.
+  refreshKey: number;
 }) {
   const [myVenues, setMyVenues] = useState<VenueOption[]>([]),
     [venuesLoading, setVenuesLoading] = useState(true),
@@ -100,7 +104,7 @@ export function MyVenuesScreen({
     // Deliberately excludes `progress` — My List re-derives inline above
     // without needing this effect to re-run on every progress change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, selectedVenueId]);
+  }, [userId, selectedVenueId, refreshKey]);
 
   const filteredVenueDances = danceQuery.trim()
     ? venueDances.filter(({ dance }) =>
@@ -137,7 +141,10 @@ export function MyVenuesScreen({
   };
 
   return (
-    <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      contentContainerStyle={s.page}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={s.heading}>My Venues</Text>
 
       <View style={s.venueRow}>
@@ -147,7 +154,7 @@ export function MyVenuesScreen({
             onPress={() => setDropdownOpen((open) => !open)}
           >
             <TextInput
-              value={dropdownOpen ? venueQuery : selectedVenue?.name ?? ""}
+              value={dropdownOpen ? venueQuery : (selectedVenue?.name ?? "")}
               onChangeText={(text) => {
                 setVenueQuery(text);
                 setDropdownOpen(true);

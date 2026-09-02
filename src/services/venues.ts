@@ -143,3 +143,18 @@ export async function saveVenueDance(
   });
   if (error) throw error;
 }
+
+/** Every venue this user has already tied a specific dance to — used to
+ *  disable re-adding the same venue and mark it in the picker. */
+export async function loadDanceVenueIds(
+  userId: string,
+  danceId: string,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("user_venue_dances")
+    .select("venue_id")
+    .eq("user_id", userId)
+    .eq("dance_id", danceId);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => row.venue_id as string);
+}

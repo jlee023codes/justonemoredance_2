@@ -63,11 +63,11 @@ export default function App() {
     // filter. Venue association happens per-dance, in the details modal.
     [searchResults, setSearchResults] = useState<Dance[]>([]),
     [searchLoading, setSearchLoading] = useState(true),
-    [searchScope, setSearchScope] = useState<"both" | "dance" | "song">("both"),
     // Every Dance object we've seen from any source (search, direct fetch by
     // id, received/friend dances) — lets Want/Learned resolve a full Dance
     // even when it's not in the current Home search results.
-    [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({});
+    [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({}),
+    [venuesRefreshKey, setVenuesRefreshKey] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -110,7 +110,7 @@ export default function App() {
     const requestId = ++searchRequestId.current;
     setSearchLoading(true);
     const timer = setTimeout(() => {
-      searchDances(query, { scope: searchScope })
+      searchDances(query)
         .then((results) => {
           if (searchRequestId.current !== requestId) return; // stale
           setSearchResults(results);
@@ -120,13 +120,11 @@ export default function App() {
         .catch((error) => {
           if (searchRequestId.current !== requestId) return;
           setSearchLoading(false);
-          setMessage(
-            `Could not load dances from BootStepper: ${error.message}`,
-          );
+          setMessage(`Could not load dances from BootStepper: ${error.message}`);
         });
     }, 350);
     return () => clearTimeout(timer);
-  }, [query, searchScope, session]);
+  }, [query, session]);
 
   // Resolve any dance ids saved in progress that aren't already cached —
   // covers opening straight to "Want to learn" / "Learned" without having
@@ -185,14 +183,18 @@ export default function App() {
     setSelected(dance);
   };
 
+  const handleRemoved = (danceId: string) => {
+    handleProgressChange(danceId, null);
+    
+    setVenuesRefreshKey((k) => k + 1);
+  };
+
   const receive = () => {
     // Demo/sample data for the "share my list" flow. Uses whatever's
     // currently in the Home search results as a stand-in "you already have
     // this one" example, since the catalog is no longer a fixed local list.
     const overlap = searchResults[0];
-    const incoming = overlap
-      ? [overlap, sampleFriendDance]
-      : [sampleFriendDance];
+    const incoming = overlap ? [overlap, sampleFriendDance] : [sampleFriendDance];
     const alreadyOwned = new Set(
       Object.keys(progress).filter((id) => !progress[id]?.fromFriend),
     );
@@ -250,6 +252,7 @@ export default function App() {
           userId={session.user.id}
           progress={progress}
           onOpenDance={openDance}
+          refreshKey={venuesRefreshKey}
         />
       ) : tab === "Home" ? (
         <ScrollView
@@ -264,33 +267,6 @@ export default function App() {
             placeholderTextColor={colors.muted}
             style={s.search}
           />
-          <View style={s.scopeRow}>
-            {(
-              [
-                ["both", "All"],
-                ["dance", "Dance name"],
-                ["song", "Song"],
-              ] as const
-            ).map(([value, label]) => (
-              <Pressable
-                key={value}
-                style={[
-                  s.scopeChip,
-                  searchScope === value && s.scopeChipActive,
-                ]}
-                onPress={() => setSearchScope(value)}
-              >
-                <Text
-                  style={[
-                    s.scopeChipText,
-                    searchScope === value && s.scopeChipTextActive,
-                  ]}
-                >
-                  {label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
           <Text style={s.section}>DANCES</Text>
           {searchLoading && !searchResults.length && (
             <Text style={s.empty}>Loading dances…</Text>
@@ -305,9 +281,7 @@ export default function App() {
             />
           ))}
           {!searchLoading && !searchResults.length && (
-            <Text style={s.empty}>
-              No dances found — try a different search.
-            </Text>
+            <Text style={s.empty}>No dances found — try a different search.</Text>
           )}
           <Pressable style={s.share} onPress={() => setShare(true)}>
             <Text style={s.shareText}>↗ SHARE MY LIST</Text>
@@ -368,9 +342,11 @@ export default function App() {
       <DanceDetailsModal
         dance={selected}
         userId={session.user.id}
+        activeTab={tab}
         progress={selected ? progress[selected.id] : undefined}
         onClose={() => setSelected(null)}
         onProgressChange={handleProgressChange}
+        onRemoved={handleRemoved}
       />
       <Modal visible={share} transparent animationType="fade">
         <View style={s.overlay}>
@@ -436,30 +412,6 @@ const s = StyleSheet.create({
     letterSpacing: 1.4,
     marginTop: 24,
     marginBottom: 8,
-  },
-  scopeRow: {
-    flexDirection: "row",
-    marginTop: 10,
-  },
-  scopeChip: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-    marginRight: 8,
-  },
-  scopeChipActive: {
-    backgroundColor: colors.pink,
-    borderColor: colors.pink,
-  },
-  scopeChipText: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  scopeChipTextActive: {
-    color: "#fff",
   },
   share: {
     borderWidth: 1,

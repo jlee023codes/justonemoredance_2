@@ -12,12 +12,16 @@ import {
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
 import { VenuePicker } from "./VenuePicker";
-import { saveProgress } from "../services/progress";
-import { saveVenueDance, VenueOption } from "../services/venues";
+import { saveProgress, removeDanceEverywhere } from "../services/progress";
+import {
+  saveVenueDance,
+  loadDanceVenueIds,
+  VenueOption,
+} from "../services/venues";
 
 const STATUS_LABEL: Record<LearningStatus, string> = {
-  none: "Haven't Heard Of It (Yet)",
-  maybe: "💭 Maybe one day",
+  none: "Dont Know It (yet)",
+  maybe: "💭 Save for Later",
   want: "♡ Want to learn",
   learned: "★ Learned",
 };
@@ -25,21 +29,31 @@ const STATUS_LABEL: Record<LearningStatus, string> = {
 export function DanceDetailsModal({
   dance,
   userId,
+  activeTab,
   progress,
   onClose,
   onProgressChange,
+  onRemoved,
 }: {
   dance: Dance | null;
   userId: string;
+  activeTab: string | null;
   progress?: DanceProgress;
   onClose: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
+  // Called after a full "remove everywhere" completes, so the parent can
+  // clear this dance from progress and refresh any venue lists it was in.
+  onRemoved: (danceId: string) => void;
 }) {
   const [venue, setVenue] = useState<VenueOption | null>(null);
   const [songSwap, setSongSwap] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [swapsOpen, setSwapsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Venue ids this dance is already tied to, for this user — drives the
+  // "Add to this venue" disabled state and the picker's "already added"
+  // markers.
+  const [danceVenueIds, setDanceVenueIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (dance) {
@@ -47,8 +61,17 @@ export function DanceDetailsModal({
       setSongSwap("");
       setPickerOpen(false);
       setSwapsOpen(false);
+      setDanceVenueIds([]);
+      loadDanceVenueIds(userId, dance.id)
+        .then(setDanceVenueIds)
+        .catch(() => {
+          // Non-critical — worst case, the picker just doesn't grey out an
+          // already-added venue until reopened.
+        });
     }
-  }, [dance]);
+    // `dance` objects are re-created per fetch, so compare by id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dance?.id, userId]);
 
   if (!dance) return null;
 
@@ -69,6 +92,9 @@ export function DanceDetailsModal({
       try {
         await saveVenueDance(userId, venue.id, dance, songSwap.trim());
         venueSaved = true;
+        setDanceVenueIds((current) =>
+          current.includes(venue.id) ? current : [...current, venue.id],
+        );
       } catch (err: any) {
         Alert.alert(
           "Venue not saved",
@@ -87,19 +113,66 @@ export function DanceDetailsModal({
       };
       await saveProgress(userId, next, dance);
       onProgressChange(dance.id, next);
-      if (!venue && !danceState){
+      if (!venue && !danceState) {
         Alert.alert(
-        "Saved",
-        `${dance.name} was added to My Venues → My List${
-          venueSaved ? ` and tagged to ${venue!.name}` : ""
-        }.`,
-      );}
+          "Saved",
+          `${dance.name} was added to My Venues → My List${
+            venueSaved ? ` and tagged to ${venue!.name}` : ""
+          }.`,
+        );
+      }
       onClose();
     } catch (err: any) {
       showError(err, "Could not save your progress.");
     } finally {
       setSaving(false);
     }
+  };
+
+  // Ties this dance to the selected venue without touching status at all —
+  // used e.g. from My List, when a dance already has a status and the user
+  // just wants to tag another venue for it.
+  const handleAddVenue = async () => {
+    if (!venue || danceVenueIds.includes(venue.id)) return;
+    setSaving(true);
+    try {
+      await saveVenueDance(userId, venue.id, dance, songSwap.trim());
+      setDanceVenueIds((current) => [...current, venue.id]);
+      Alert.alert("Added", `${dance.name} added to ${venue.name}.`);
+      setVenue(null);
+      setSongSwap("");
+    } catch (err: any) {
+      showError(err, "Could not save that venue.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = () => {
+    Alert.alert(
+      "Remove this dance?",
+      `This removes "${dance.name}" from Want to learn, Learned, and every venue you've tagged it to. This can't be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            setSaving(true);
+            try {
+              await removeDanceEverywhere(userId, dance.id);
+              onProgressChange(dance.id, null);
+              onRemoved(dance.id);
+              onClose();
+            } catch (err: any) {
+              showError(err, "Could not remove this dance.");
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -181,29 +254,68 @@ export function DanceDetailsModal({
               Save a different song played for this dance at this venue.
             </Text>
 
-             {danceState !== "maybe" && <Pressable
-              style={s.tertiary}
-              onPress={() => handleStatus("maybe")}
-              disabled={saving}
-            >
-              <Text style={s.tertiaryText}>{danceState === "learned"? "🧠 Need to Reivew" :  "💭 Maybe one day"}</Text>
-            </Pressable>} 
+            {activeTab != "Home" && (
+              <Pressable
+                style={[
+                  s.venueAction,
+                  (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
+                ]}
+                onPress={handleAddVenue}
+                disabled={!venue || danceVenueIds.includes(venue.id) || saving}
+              >
+                <Text style={s.venueActionText}>
+                  {venue && danceVenueIds.includes(venue.id)
+                    ? "📍 Already at this venue"
+                    : saving
+                      ? "Saving…"
+                      : "＋ Add to this venue"}
+                </Text>
+              </Pressable>
+            )}
 
-            {danceState !== "want" &&<Pressable
-              style={s.secondary}
-              onPress={() => handleStatus("want")}
-              disabled={saving}
-            >
-              <Text style={s.secondaryText}>♡ Want to learn</Text>
-            </Pressable>}
+            {danceState !== "maybe" && (
+              <Pressable
+                style={s.tertiary}
+                onPress={() => handleStatus("maybe")}
+                disabled={saving}
+              >
+                <Text style={s.tertiaryText}>
+                  {danceState === "learned"
+                    ? "🧠 Need to review"
+                    : "💭 Save for Later"}
+                </Text>
+              </Pressable>
+            )}
 
-            {danceState !== "learned" &&<Pressable
-              style={s.primary}
-              onPress={() => handleStatus("learned")}
-              disabled={saving}
-            >
-              <Text style={s.primaryText}>★ Learned it</Text>
-            </Pressable>}
+            {danceState !== "want" && danceState !== "learned" && (
+              <Pressable
+                style={s.secondary}
+                onPress={() => handleStatus("want")}
+                disabled={saving}
+              >
+                <Text style={s.secondaryText}>♡ Want to learn</Text>
+              </Pressable>
+            )}
+
+            {danceState !== "learned" && (
+              <Pressable
+                style={s.primary}
+                onPress={() => handleStatus("learned")}
+                disabled={saving}
+              >
+                <Text style={s.primaryText}>★ Learned it</Text>
+              </Pressable>
+            )}
+
+            {(danceState || danceVenueIds.length > 0) && (
+              <Pressable
+                style={s.remove}
+                onPress={handleRemove}
+                disabled={saving}
+              >
+                <Text style={s.removeText}>🗑 Remove from all lists</Text>
+              </Pressable>
+            )}
 
             <Pressable onPress={onClose} disabled={saving}>
               <Text style={s.cancel}>Cancel</Text>
@@ -215,6 +327,7 @@ export function DanceDetailsModal({
       <VenuePicker
         visible={pickerOpen}
         selectedVenueId={venue?.id}
+        alreadyAddedVenueIds={danceVenueIds}
         onSelect={(picked) => {
           setVenue(picked);
           setPickerOpen(false);
@@ -355,6 +468,21 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginTop: 7,
   },
+  venueAction: {
+    borderColor: colors.gold,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+    marginTop: 20,
+  },
+  venueActionText: {
+    color: colors.gold,
+    fontWeight: "800",
+  },
+  disabled: {
+    opacity: 0.4,
+  },
   tertiary: {
     borderColor: colors.line,
     borderWidth: 1,
@@ -389,6 +517,16 @@ const s = StyleSheet.create({
   secondaryText: {
     color: colors.gold,
     fontWeight: "800",
+  },
+  remove: {
+    padding: 14,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  removeText: {
+    color: "#ff8080",
+    fontWeight: "700",
+    fontSize: 13,
   },
   cancel: {
     color: colors.muted,

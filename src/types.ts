@@ -1,4 +1,4 @@
-export type LearningStatus = 'none'|'maybe' | 'want' | 'learned';
+export type LearningStatus = 'none' | 'maybe' | 'want' | 'learned';
 
 // venueSongs (a catalog concept — "what song does venue X use for this
 // dance") never got populated from BootStepper and is unused now that venue
@@ -36,7 +36,6 @@ export type DanceProgress = {
   danceId: string;
   status: LearningStatus;
   fromFriend?: boolean;
-  
   // Snapshot of the BootStepper dance at the time it was saved. Used as a
   // fallback for rendering Want/Learned cards if a live re-fetch from
   // BootStepper fails (offline, dance removed upstream, etc).
