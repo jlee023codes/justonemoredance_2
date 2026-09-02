@@ -5,8 +5,21 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "splash": { "resizeMode": "contain", "backgroundColor": "#16101d" },
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.yourname.justonemoredance" },
-    "android": { "package": "com.yourname.justonemoredance" }
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#16101d"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourname.justonemoredance"
+    },
+    "android": {
+      "package": "com.yourname.justonemoredance"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "6228be17-ba8b-4da8-8d1c-185acc3fb990"
+      }
+    }
   }
 }

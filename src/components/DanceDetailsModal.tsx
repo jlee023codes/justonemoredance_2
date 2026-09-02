@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -15,6 +15,13 @@ import { VenuePicker } from "./VenuePicker";
 import { saveProgress } from "../services/progress";
 import { saveVenueDance, VenueOption } from "../services/venues";
 
+const STATUS_LABEL: Record<LearningStatus, string> = {
+  none: "Haven't Heard Of It (Yet)",
+  maybe: "💭 Maybe one day",
+  want: "♡ Want to learn",
+  learned: "★ Learned",
+};
+
 export function DanceDetailsModal({
   dance,
   userId,
@@ -26,18 +33,13 @@ export function DanceDetailsModal({
   userId: string;
   progress?: DanceProgress;
   onClose: () => void;
-  // Called after a save completes so the parent can update its cached
-  // progress map. Pass `null` if nothing about progress actually changed
-  // (e.g. "Add to venue list" → "Not now").
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
 }) {
   const [venue, setVenue] = useState<VenueOption | null>(null);
   const [songSwap, setSongSwap] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [swapsOpen, setSwapsOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     if (dance) {
@@ -45,73 +47,56 @@ export function DanceDetailsModal({
       setSongSwap("");
       setPickerOpen(false);
       setSwapsOpen(false);
-      setConfirmOpen(false);
-      setError("");
     }
   }, [dance]);
 
   if (!dance) return null;
 
   const choreographer = dance.choreographers?.join(", ");
-  const danceState = progress?.status ?? undefined;
+  const danceState = progress?.status;
 
-  const progressFor = (status: LearningStatus): DanceProgress => ({
-    danceId: dance.id,
-    status,
-    fromFriend: progress?.fromFriend,
-    danceName: dance.name,
-    danceSong: dance.defaultSong,
-    danceDifficulty: dance.difficulty,
-  });
+  const showError = (err: any, fallback: string) =>
+    Alert.alert("Something went wrong", err?.message ?? fallback);
 
-  const handleAddToVenueList = async () => {
-    if (!venue) return;
+  // Any of the three status actions: saves the status, ties the venue if
+  // one was picked (best-effort — a venue hiccup shouldn't block the
+  // status update, they're conceptually independent), and lets the user
+  // know where to find it afterward.
+  const handleStatus = async (status: LearningStatus) => {
     setSaving(true);
-    setError("");
-    try {
-      await saveVenueDance(userId, venue.id, dance, songSwap.trim());
-      setConfirmOpen(true);
-    } catch (err: any) {
-      setError(err.message ?? "Could not save that venue.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleConfirmStatus = async (status: LearningStatus | null) => {
-    if (status) {
-      setSaving(true);
-      setError("");
+    let venueSaved = false;
+    if (venue) {
       try {
-        const next = progressFor(status);
-        await saveProgress(userId, next, dance);
-        onProgressChange(dance.id, next);
-      } catch (err: any) {
-        setSaving(false);
-        setError(err.message ?? "Could not save.");
-        return;
-      }
-      setSaving(false);
-    } else {
-      onProgressChange(dance.id, null);
-    }
-    setConfirmOpen(false);
-    onClose();
-  };
-
-  const handleDirectStatus = async (status: LearningStatus) => {
-    setSaving(true);
-    setError("");
-    try {
-      if (venue) {
         await saveVenueDance(userId, venue.id, dance, songSwap.trim());
+        venueSaved = true;
+      } catch (err: any) {
+        Alert.alert(
+          "Venue not saved",
+          `${dance.name} will still be updated, but couldn't be tied to ${venue.name}: ${err?.message ?? "unknown error"}`,
+        );
       }
-      const next = progressFor(status);
+    }
+    try {
+      const next: DanceProgress = {
+        danceId: dance.id,
+        status,
+        fromFriend: progress?.fromFriend,
+        danceName: dance.name,
+        danceSong: dance.defaultSong,
+        danceDifficulty: dance.difficulty,
+      };
       await saveProgress(userId, next, dance);
       onProgressChange(dance.id, next);
+      if (!venue && !danceState){
+        Alert.alert(
+        "Saved",
+        `${dance.name} was added to My Venues → My List${
+          venueSaved ? ` and tagged to ${venue!.name}` : ""
+        }.`,
+      );}
       onClose();
     } catch (err: any) {
-      setError(err.message ?? "Could not save.");
+      showError(err, "Could not save your progress.");
     } finally {
       setSaving(false);
     }
@@ -161,8 +146,16 @@ export function DanceDetailsModal({
               </>
             )}
 
+            {danceState && (
+              <View style={s.statusBadge}>
+                <Text style={s.statusBadgeText}>
+                  {STATUS_LABEL[danceState]}
+                </Text>
+              </View>
+            )}
+
             <Text style={s.fieldLabel}>
-              VENUE <Text style={s.optional}>(find or add)</Text>
+              VENUE <Text style={s.optional}>(optional)</Text>
             </Text>
 
             <Pressable style={s.select} onPress={() => setPickerOpen(true)}>
@@ -188,37 +181,29 @@ export function DanceDetailsModal({
               Save a different song played for this dance at this venue.
             </Text>
 
-            {error ? <Text style={s.error}>{error}</Text> : null}
-
-            <Pressable
-              style={[s.venueAction, !venue && s.disabled]}
-              onPress={handleAddToVenueList}
-              disabled={!venue || saving}
+             {danceState !== "maybe" && <Pressable
+              style={s.tertiary}
+              onPress={() => handleStatus("maybe")}
+              disabled={saving}
             >
-              <Text style={s.venueActionText}>
-                {saving ? "Saving…" : "＋ Add to my venue list"}
-              </Text>
-            </Pressable>
+              <Text style={s.tertiaryText}>{danceState === "learned"? "🧠 Need to Reivew" :  "💭 Maybe one day"}</Text>
+            </Pressable>} 
 
-            {danceState !== "want" && danceState !== "learned" && (
-              <Pressable
-                style={s.primary}
-                onPress={() => handleDirectStatus("want")}
-                disabled={saving}
-              >
-                <Text style={s.primaryText}>♡ Want to learn</Text>
-              </Pressable>
-            )}
+            {danceState !== "want" &&<Pressable
+              style={s.secondary}
+              onPress={() => handleStatus("want")}
+              disabled={saving}
+            >
+              <Text style={s.secondaryText}>♡ Want to learn</Text>
+            </Pressable>}
 
-            {danceState !== "learned" && (
-              <Pressable
-                style={s.secondary}
-                onPress={() => handleDirectStatus("learned")}
-                disabled={saving}
-              >
-                <Text style={s.secondaryText}>★ I learned it</Text>
-              </Pressable>
-            )}
+            {danceState !== "learned" &&<Pressable
+              style={s.primary}
+              onPress={() => handleStatus("learned")}
+              disabled={saving}
+            >
+              <Text style={s.primaryText}>★ Learned it</Text>
+            </Pressable>}
 
             <Pressable onPress={onClose} disabled={saving}>
               <Text style={s.cancel}>Cancel</Text>
@@ -236,39 +221,6 @@ export function DanceDetailsModal({
         }}
         onClose={() => setPickerOpen(false)}
       />
-
-      <Modal visible={confirmOpen} transparent animationType="fade">
-        <View style={s.confirmOverlay}>
-          <View style={s.confirmCard}>
-            <Text style={s.confirmTitle}>Added to {venue?.name}!</Text>
-            <Text style={s.confirmBody}>
-              Want to also mark “{dance.name}” as learned, or something you
-              want to learn?
-            </Text>
-            {saving ? (
-              <ActivityIndicator color={colors.gold} style={s.loader} />
-            ) : (
-              <>
-                <Pressable
-                  style={s.primary}
-                  onPress={() => handleConfirmStatus("want")}
-                >
-                  <Text style={s.primaryText}>♡ Want to learn</Text>
-                </Pressable>
-                <Pressable
-                  style={s.secondary}
-                  onPress={() => handleConfirmStatus("learned")}
-                >
-                  <Text style={s.secondaryText}>★ I learned it</Text>
-                </Pressable>
-                <Pressable onPress={() => handleConfirmStatus(null)}>
-                  <Text style={s.cancel}>Not now</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
     </Modal>
   );
 }
@@ -347,6 +299,19 @@ const s = StyleSheet.create({
     fontSize: 13,
     marginBottom: 5,
   },
+  statusBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#392746",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 14,
+  },
+  statusBadgeText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   fieldLabel: {
     color: colors.gold,
     fontSize: 11,
@@ -390,32 +355,24 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginTop: 7,
   },
-  error: {
-    color: "#ff8080",
-    fontSize: 13,
-    marginTop: 12,
-  },
-  venueAction: {
-    borderColor: colors.gold,
+  tertiary: {
+    borderColor: colors.line,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     alignItems: "center",
-    marginTop: 20,
+    marginTop: 22,
   },
-  venueActionText: {
-    color: colors.gold,
-    fontWeight: "800",
-  },
-  disabled: {
-    opacity: 0.4,
+  tertiaryText: {
+    color: colors.muted,
+    fontWeight: "700",
   },
   primary: {
     backgroundColor: colors.pink,
     borderRadius: 12,
     padding: 15,
     alignItems: "center",
-    marginTop: 12,
+    marginTop: 10,
   },
   primaryText: {
     color: "#fff",
@@ -438,30 +395,5 @@ const s = StyleSheet.create({
     textAlign: "center",
     fontWeight: "700",
     marginTop: 19,
-  },
-  confirmOverlay: {
-    flex: 1,
-    backgroundColor: "#000000aa",
-    justifyContent: "center",
-    padding: 28,
-  },
-  confirmCard: {
-    backgroundColor: "#2b1f35",
-    borderRadius: 24,
-    padding: 24,
-  },
-  confirmTitle: {
-    color: colors.ink,
-    fontSize: 21,
-    fontWeight: "900",
-  },
-  confirmBody: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 10,
-  },
-  loader: {
-    marginVertical: 20,
   },
 });

@@ -128,15 +128,14 @@ function adaptDance(raw: RawDance): Dance {
  *  ordering — used for the Home tab before the user types anything. */
 export async function searchDances(
   query: string,
-  opts: { limit?: number } = {},
+  opts: { searchScope?: number } = {},
 ): Promise<Dance[]> {
   const data = await callProxy<RawListResponse<RawDance>>("/dances/search", {
     query: query || undefined,
     limit: opts.limit ?? 25,
-    sortBy: "relevance", // matches BootStepper's own default ordering
+    sortBy: "relevance", // BootStepper's param is `sortBy`, not `sort`
   });
   const raw = data.results ?? data.items ?? data.dances ?? [];
-  console.log("raw data: ", raw);
   return raw.map(adaptDance);
 }
 

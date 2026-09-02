@@ -56,3 +56,14 @@ export async function saveProgress(
   });
   if (error) throw error;
 }
+
+// "Don't know it" / "Eh, maybe later" — there's no 'none' status row in
+// the DB; not having a row at all *is* the 'none' state.
+export async function deleteProgress(userId: string, danceId: string) {
+  const { error } = await supabase
+    .from("user_dance_progress")
+    .delete()
+    .eq("user_id", userId)
+    .eq("dance_id", danceId);
+  if (error) throw error;
+}

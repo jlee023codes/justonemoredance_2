@@ -1,4 +1,4 @@
-export type LearningStatus = 'none' | 'want' | 'learned';
+export type LearningStatus = 'none'|'maybe' | 'want' | 'learned';
 
 // venueSongs (a catalog concept — "what song does venue X use for this
 // dance") never got populated from BootStepper and is unused now that venue
