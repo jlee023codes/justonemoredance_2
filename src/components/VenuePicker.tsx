@@ -23,12 +23,16 @@ export function VenuePicker({
   visible,
   title = "Find or add a venue",
   selectedVenueId,
+  alreadyAddedVenueIds,
   onSelect,
   onClose,
 }: {
   visible: boolean;
   title?: string;
   selectedVenueId?: string;
+  // Venue ids this specific dance is already tied to — shown with a pin
+  // icon and not selectable (there's nothing to re-add).
+  alreadyAddedVenueIds?: string[];
   onSelect: (venue: VenueOption) => void;
   onClose: () => void;
 }) {
@@ -116,21 +120,35 @@ export function VenuePicker({
             )}
 
             {!loading &&
-              results.map((venue) => (
-                <Pressable
-                  key={venue.id}
-                  style={[
-                    s.option,
-                    selectedVenueId === venue.id && s.selected,
-                  ]}
-                  onPress={() => onSelect(venue)}
-                >
-                  <Text style={s.optionText}>{venue.name}</Text>
-                  <Text style={s.check}>
-                    {selectedVenueId === venue.id ? "✓" : ""}
-                  </Text>
-                </Pressable>
-              ))}
+              results.map((venue) => {
+                const alreadyAdded = alreadyAddedVenueIds?.includes(venue.id);
+                return (
+                  <Pressable
+                    key={venue.id}
+                    style={[
+                      s.option,
+                      selectedVenueId === venue.id && s.selected,
+                      alreadyAdded && s.optionDisabled,
+                    ]}
+                    onPress={() => !alreadyAdded && onSelect(venue)}
+                    disabled={alreadyAdded}
+                  >
+                    <Text
+                      style={[s.optionText, alreadyAdded && s.optionTextDisabled]}
+                    >
+                      {alreadyAdded ? "📍 " : ""}
+                      {venue.name}
+                    </Text>
+                    <Text style={s.check}>
+                      {alreadyAdded
+                        ? "Added"
+                        : selectedVenueId === venue.id
+                          ? "✓"
+                          : ""}
+                    </Text>
+                  </Pressable>
+                );
+              })}
 
             {!loading && !results.length && !trimmedQuery && (
               <Text style={s.empty}>Start typing to search venues.</Text>
@@ -213,9 +231,15 @@ const s = StyleSheet.create({
     fontSize: 16,
     flex: 1,
   },
+  optionDisabled: {
+    opacity: 0.5,
+  },
+  optionTextDisabled: {
+    color: colors.muted,
+  },
   check: {
     color: colors.gold,
-    fontSize: 18,
+    fontSize: 13,
     fontWeight: "900",
   },
   empty: {

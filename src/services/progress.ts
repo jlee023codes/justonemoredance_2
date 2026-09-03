@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 
 type ProgressRow = {
   dance_id: string;
-  status: "want" | "learned";
+  status: "maybe" | "want" | "learned";
   source: "self" | "friend";
   dance_name: string | null;
   dance_song: string | null;
@@ -55,4 +55,35 @@ export async function saveProgress(
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;
+}
+
+// Used by "Remove" — deletes the progress row entirely (no row = no
+// status at all, distinct from any of maybe/want/learned).
+export async function deleteProgress(userId: string, danceId: string) {
+  const { error } = await supabase
+    .from("user_dance_progress")
+    .delete()
+    .eq("user_id", userId)
+    .eq("dance_id", danceId);
+  if (error) throw error;
+}
+
+// Wipes a dance from everything for this user: its want/learned/maybe
+// status, and every venue it's been tagged to. Used by the modal's
+// "Remove" action, which asks for confirmation before calling this.
+export async function removeDanceEverywhere(userId: string, danceId: string) {
+  const [progressResult, venueResult] = await Promise.all([
+    supabase
+      .from("user_dance_progress")
+      .delete()
+      .eq("user_id", userId)
+      .eq("dance_id", danceId),
+    supabase
+      .from("user_venue_dances")
+      .delete()
+      .eq("user_id", userId)
+      .eq("dance_id", danceId),
+  ]);
+  if (progressResult.error) throw progressResult.error;
+  if (venueResult.error) throw venueResult.error;
 }

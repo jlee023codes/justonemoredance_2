@@ -66,7 +66,8 @@ export default function App() {
     // Every Dance object we've seen from any source (search, direct fetch by
     // id, received/friend dances) — lets Want/Learned resolve a full Dance
     // even when it's not in the current Home search results.
-    [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({});
+    [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({}),
+    [venuesRefreshKey, setVenuesRefreshKey] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -119,7 +120,9 @@ export default function App() {
         .catch((error) => {
           if (searchRequestId.current !== requestId) return;
           setSearchLoading(false);
-          setMessage(`Could not load dances from BootStepper: ${error.message}`);
+          setMessage(
+            `Could not load dances from BootStepper: ${error.message}`,
+          );
         });
     }, 350);
     return () => clearTimeout(timer);
@@ -182,12 +185,20 @@ export default function App() {
     setSelected(dance);
   };
 
+  const handleRemoved = (danceId: string) => {
+    handleProgressChange(danceId, null);
+
+    setVenuesRefreshKey((k) => k + 1);
+  };
+
   const receive = () => {
     // Demo/sample data for the "share my list" flow. Uses whatever's
     // currently in the Home search results as a stand-in "you already have
     // this one" example, since the catalog is no longer a fixed local list.
     const overlap = searchResults[0];
-    const incoming = overlap ? [overlap, sampleFriendDance] : [sampleFriendDance];
+    const incoming = overlap
+      ? [overlap, sampleFriendDance]
+      : [sampleFriendDance];
     const alreadyOwned = new Set(
       Object.keys(progress).filter((id) => !progress[id]?.fromFriend),
     );
@@ -235,6 +246,7 @@ export default function App() {
       </View>
       {tab === "Profile" ? (
         <ProfileScreen
+          userId={session.user.id}
           email={session.user.is_anonymous ? undefined : session.user.email}
           learnedCount={learnedCount}
           wantCount={want.length}
@@ -245,6 +257,7 @@ export default function App() {
           userId={session.user.id}
           progress={progress}
           onOpenDance={openDance}
+          refreshKey={venuesRefreshKey}
         />
       ) : tab === "Home" ? (
         <ScrollView
@@ -273,7 +286,9 @@ export default function App() {
             />
           ))}
           {!searchLoading && !searchResults.length && (
-            <Text style={s.empty}>No dances found — try a different search.</Text>
+            <Text style={s.empty}>
+              No dances found — try a different search.
+            </Text>
           )}
           <Pressable style={s.share} onPress={() => setShare(true)}>
             <Text style={s.shareText}>↗ SHARE MY LIST</Text>
@@ -334,9 +349,11 @@ export default function App() {
       <DanceDetailsModal
         dance={selected}
         userId={session.user.id}
+        activeTab={tab}
         progress={selected ? progress[selected.id] : undefined}
         onClose={() => setSelected(null)}
         onProgressChange={handleProgressChange}
+        onRemoved={handleRemoved}
       />
       <Modal visible={share} transparent animationType="fade">
         <View style={s.overlay}>

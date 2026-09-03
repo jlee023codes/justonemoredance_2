@@ -19,19 +19,41 @@ import {
   VenueOption,
 } from "../services/venues";
 
+// A synthetic "venue" pinned at the top of the dropdown — not a real row in
+// the venues table, just an aggregate view over every dance the user has
+// acted on from Home (any status: maybe/want/learned), venue or no venue.
+const MY_LIST_ID = "__my_list__";
+const MY_LIST_OPTION: VenueOption = { id: MY_LIST_ID, name: "My List" };
+
+function danceFromProgress(progress: DanceProgress): Dance {
+  return {
+    id: progress.danceId,
+    name: progress.danceName ?? "Dance",
+    defaultSong: progress.danceSong ?? "",
+    difficulty: progress.danceDifficulty ?? "Beginner",
+    details: "",
+    venueSongs: [],
+    songSwaps: [],
+  };
+}
+
 export function MyVenuesScreen({
   userId,
   progress,
   onOpenDance,
+  refreshKey,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
   onOpenDance: (dance: Dance) => void;
+  // Bumped by the parent whenever a dance is removed elsewhere, so the
+  // currently-selected venue's (locally cached) dance list refetches.
+  refreshKey: number;
 }) {
   const [myVenues, setMyVenues] = useState<VenueOption[]>([]),
     [venuesLoading, setVenuesLoading] = useState(true),
     [venuesError, setVenuesError] = useState(""),
-    [selectedVenueId, setSelectedVenueId] = useState<string | null>(null),
+    [selectedVenueId, setSelectedVenueId] = useState<string>(MY_LIST_ID),
     [venueQuery, setVenueQuery] = useState(""),
     [dropdownOpen, setDropdownOpen] = useState(false),
     [addPickerOpen, setAddPickerOpen] = useState(false),
@@ -39,30 +61,35 @@ export function MyVenuesScreen({
       { dance: Dance; songSwap?: string }[]
     >([]),
     [dancesLoading, setDancesLoading] = useState(false),
-    [dancesError, setDancesError] = useState("");
+    [dancesError, setDancesError] = useState(""),
+    [danceQuery, setDanceQuery] = useState("");
 
-  const refreshVenues = () => {
+  useEffect(() => {
     setVenuesLoading(true);
     setVenuesError("");
     loadUserVenues(userId)
       .then((venues) => {
         setMyVenues(venues);
         setVenuesLoading(false);
-        setSelectedVenueId((current) => current ?? venues[0]?.id ?? null);
       })
       .catch((err) => {
         setVenuesLoading(false);
         setVenuesError(err.message ?? "Could not load your venues.");
       });
-  };
-
-  useEffect(refreshVenues, [userId]);
+  }, [userId]);
 
   useEffect(() => {
-    if (!selectedVenueId) {
-      setVenueDances([]);
+    setDanceQuery("");
+
+    if (selectedVenueId === MY_LIST_ID) {
+      // No network call — every dance with any status is already in the
+      // `progress` map passed down from App.tsx.
+      setVenueDances(
+        Object.values(progress).map((p) => ({ dance: danceFromProgress(p) })),
+      );
       return;
     }
+
     setDancesLoading(true);
     setDancesError("");
     loadVenueDances(userId, selectedVenueId)
@@ -74,14 +101,27 @@ export function MyVenuesScreen({
         setDancesLoading(false);
         setDancesError(err.message ?? "Could not load dances for this venue.");
       });
-  }, [userId, selectedVenueId]);
+    // Deliberately excludes `progress` — My List re-derives inline above
+    // without needing this effect to re-run on every progress change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, selectedVenueId, refreshKey]);
 
-  const selectedVenue = myVenues.find((v) => v.id === selectedVenueId);
+  const filteredVenueDances = danceQuery.trim()
+    ? venueDances.filter(({ dance }) =>
+        [dance.name, dance.defaultSong]
+          .join(" ")
+          .toLowerCase()
+          .includes(danceQuery.trim().toLowerCase()),
+      )
+    : venueDances;
+
+  const dropdownOptions = [MY_LIST_OPTION, ...myVenues];
+  const selectedVenue = dropdownOptions.find((v) => v.id === selectedVenueId);
   const filteredVenues = venueQuery.trim()
-    ? myVenues.filter((v) =>
+    ? dropdownOptions.filter((v) =>
         v.name.toLowerCase().includes(venueQuery.trim().toLowerCase()),
       )
-    : myVenues;
+    : dropdownOptions;
 
   const handleAddVenue = async (venue: VenueOption) => {
     setAddPickerOpen(false);
@@ -101,7 +141,10 @@ export function MyVenuesScreen({
   };
 
   return (
-    <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
+    <ScrollView
+      contentContainerStyle={s.page}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={s.heading}>My Venues</Text>
 
       <View style={s.venueRow}>
@@ -111,7 +154,7 @@ export function MyVenuesScreen({
             onPress={() => setDropdownOpen((open) => !open)}
           >
             <TextInput
-              value={dropdownOpen ? venueQuery : selectedVenue?.name ?? ""}
+              value={dropdownOpen ? venueQuery : (selectedVenue?.name ?? "")}
               onChangeText={(text) => {
                 setVenueQuery(text);
                 setDropdownOpen(true);
@@ -120,12 +163,9 @@ export function MyVenuesScreen({
                 setVenueQuery("");
                 setDropdownOpen(true);
               }}
-              placeholder={
-                myVenues.length ? "Search your venues" : "No venues yet"
-              }
+              placeholder="Search your venues"
               placeholderTextColor={colors.muted}
               style={s.dropdownInput}
-              editable={myVenues.length > 0}
             />
             <Text style={s.caret}>{dropdownOpen ? "▴" : "▾"}</Text>
           </Pressable>
@@ -167,37 +207,52 @@ export function MyVenuesScreen({
       )}
 
       {!venuesLoading && !myVenues.length && (
-        <Text style={s.empty}>
-          You haven't added any venues yet. Tap ＋ to add one, or add a dance
-          to a venue from its details on the Home tab.
+        <Text style={s.hint}>
+          You haven't added a specific venue yet — tap ＋ to add one. Until
+          then, "My List" below has every dance you've marked from Home.
         </Text>
       )}
 
-      {selectedVenueId && (
-        <>
-          <Text style={s.section}>DANCES AT {selectedVenue?.name.toUpperCase()}</Text>
-          {dancesError ? <Text style={s.error}>{dancesError}</Text> : null}
-          {dancesLoading && (
-            <ActivityIndicator color={colors.gold} style={s.loader} />
-          )}
-          {!dancesLoading &&
-            venueDances.map(({ dance, songSwap }) => (
-              <DanceCard
-                key={dance.id}
-                dance={dance}
-                song={songSwap ? `${songSwap} (swap)` : dance.defaultSong}
-                progress={progress[dance.id]}
-                onPress={() => onOpenDance(dance)}
-              />
-            ))}
-          {!dancesLoading && !venueDances.length && !dancesError && (
-            <Text style={s.empty}>
-              No dances added to this venue yet — find one on Home and add it
-              to your venue list.
-            </Text>
-          )}
-        </>
+      <Text style={s.section}>
+        {selectedVenueId === MY_LIST_ID
+          ? "ALL YOUR DANCES"
+          : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
+      </Text>
+      {venueDances.length > 0 && (
+        <TextInput
+          value={danceQuery}
+          onChangeText={setDanceQuery}
+          placeholder="Search dances"
+          placeholderTextColor={colors.muted}
+          style={s.danceSearch}
+        />
       )}
+      {dancesError ? <Text style={s.error}>{dancesError}</Text> : null}
+      {dancesLoading && (
+        <ActivityIndicator color={colors.gold} style={s.loader} />
+      )}
+      {!dancesLoading &&
+        filteredVenueDances.map(({ dance, songSwap }) => (
+          <DanceCard
+            key={dance.id}
+            dance={dance}
+            song={songSwap ? `${songSwap} (swap)` : dance.defaultSong}
+            progress={progress[dance.id]}
+            onPress={() => onOpenDance(dance)}
+          />
+        ))}
+      {!dancesLoading && !venueDances.length && !dancesError && (
+        <Text style={s.empty}>
+          {selectedVenueId === MY_LIST_ID
+            ? "Nothing yet — find a dance on Home and mark it maybe/want/learned."
+            : "No dances added to this venue yet — find one on Home and add it."}
+        </Text>
+      )}
+      {!dancesLoading &&
+        venueDances.length > 0 &&
+        !filteredVenueDances.length && (
+          <Text style={s.empty}>No dances match “{danceQuery}”.</Text>
+        )}
 
       <VenuePicker
         visible={addPickerOpen}
@@ -210,7 +265,10 @@ export function MyVenuesScreen({
 }
 
 const s = StyleSheet.create({
-  page: { padding: 20, paddingBottom: 115 },
+  page: {
+  padding: 20,
+  paddingBottom: 115,
+},
   heading: {
     color: colors.ink,
     fontSize: 25,
@@ -218,10 +276,16 @@ const s = StyleSheet.create({
     marginBottom: 18,
   },
   venueRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  dropdownWrap: { flex: 1, position: "relative", zIndex: 10 },
+  flexDirection: "row",
+  alignItems: "flex-start",
+  position: "relative",
+  zIndex: 100,
+},
+  dropdownWrap: {
+  flex: 1,
+  position: "relative",
+  zIndex: 100,
+},
   dropdownField: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -239,17 +303,18 @@ const s = StyleSheet.create({
   },
   caret: { color: colors.gold, fontSize: 16 },
   dropdownList: {
-    position: "absolute",
-    top: 54,
-    left: 0,
-    right: 0,
-    backgroundColor: "#2b1f35",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
-    maxHeight: 220,
-    overflow: "hidden",
-  },
+  position: "absolute",
+  top: 54,
+  left: 0,
+  right: 0,
+  backgroundColor: "#2b1f35",
+  borderRadius: 12,
+  borderWidth: 1,
+  borderColor: colors.line,
+  maxHeight: 220,
+  overflow: "hidden",
+  zIndex: 1000,
+},
   dropdownOption: {
     paddingVertical: 13,
     paddingHorizontal: 14,
@@ -283,6 +348,17 @@ const s = StyleSheet.create({
     marginTop: 26,
     marginBottom: 8,
   },
+  danceSearch: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    color: colors.ink,
+    padding: 13,
+    fontSize: 15,
+    marginBottom: 10,
+  },
+  hint: { color: colors.muted, fontSize: 13, marginTop: 14, lineHeight: 19 },
   empty: { color: colors.muted, fontSize: 14, marginTop: 14, lineHeight: 20 },
   error: { color: "#ff8080", fontSize: 13, marginTop: 10 },
   loader: { marginTop: 20 },

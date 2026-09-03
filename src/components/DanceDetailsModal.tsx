@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,32 +13,59 @@ import {
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
 import { VenuePicker } from "./VenuePicker";
-import { saveProgress } from "../services/progress";
-import { saveVenueDance, VenueOption } from "../services/venues";
+import { saveProgress, removeDanceEverywhere } from "../services/progress";
+import {
+  saveVenueDance,
+  loadDanceVenueIds,
+  VenueOption,
+} from "../services/venues";
+import {
+  loadSongSwaps,
+  addSongSwap,
+  deleteSongSwap,
+  SongSwapEntry,
+} from "../services/songSwaps";
+
+const STATUS_LABEL: Record<LearningStatus, string> = {
+  none: "👢 Dont Know It (yet)",
+  maybe: "🔖 Save for Later",
+  want: "♡ Want to learn",
+  learned: "★ Learned",
+};
 
 export function DanceDetailsModal({
   dance,
   userId,
+  activeTab,
   progress,
   onClose,
   onProgressChange,
+  onRemoved,
 }: {
   dance: Dance | null;
   userId: string;
+  activeTab: string | null;
   progress?: DanceProgress;
   onClose: () => void;
-  // Called after a save completes so the parent can update its cached
-  // progress map. Pass `null` if nothing about progress actually changed
-  // (e.g. "Add to venue list" → "Not now").
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
+  // Called after a full "remove everywhere" completes, so the parent can
+  // clear this dance from progress and refresh any venue lists it was in.
+  onRemoved: (danceId: string) => void;
 }) {
   const [venue, setVenue] = useState<VenueOption | null>(null);
   const [songSwap, setSongSwap] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [swapsOpen, setSwapsOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  // Venue ids this dance is already tied to, for this user — drives the
+  // "Add to this venue" disabled state and the picker's "already added"
+  // markers.
+  const [danceVenueIds, setDanceVenueIds] = useState<string[]>([]);
+  // The user's own saved song swaps for this dance (separate from
+  // BootStepper's catalog list above).
+  const [mySwaps, setMySwaps] = useState<SongSwapEntry[]>([]);
+  const [mySwapsOpen, setMySwapsOpen] = useState(false);
+  const [addingSwap, setAddingSwap] = useState(false);
 
   useEffect(() => {
     if (dance) {
@@ -45,75 +73,168 @@ export function DanceDetailsModal({
       setSongSwap("");
       setPickerOpen(false);
       setSwapsOpen(false);
-      setConfirmOpen(false);
-      setError("");
+      setDanceVenueIds([]);
+      setMySwaps([]);
+      setMySwapsOpen(false);
+      loadDanceVenueIds(userId, dance.id)
+        .then(setDanceVenueIds)
+        .catch(() => {
+          // Non-critical — worst case, the picker just doesn't grey out an
+          // already-added venue until reopened.
+        });
+      loadSongSwaps(userId, dance.id)
+        .then(setMySwaps)
+        .catch(() => {
+          // Non-critical — worst case the saved-swaps list is just empty
+          // until reopened.
+        });
     }
-  }, [dance]);
+    // `dance` objects are re-created per fetch, so compare by id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dance?.id, userId]);
 
   if (!dance) return null;
 
   const choreographer = dance.choreographers?.join(", ");
-  const danceState = progress?.status ?? undefined;
+  const danceState = progress?.status ?? "none";
 
-  const progressFor = (status: LearningStatus): DanceProgress => ({
-    danceId: dance.id,
-    status,
-    fromFriend: progress?.fromFriend,
-    danceName: dance.name,
-    danceSong: dance.defaultSong,
-    danceDifficulty: dance.difficulty,
-  });
+  const showError = (err: any, fallback: string) =>
+    Alert.alert("Something went wrong", err?.message ?? fallback);
 
-  const handleAddToVenueList = async () => {
-    if (!venue) return;
+  // Any of the three status actions: saves the status, ties the venue if
+  // one was picked (best-effort — a venue hiccup shouldn't block the
+  // status update, they're conceptually independent), and lets the user
+  // know where to find it afterward.
+  const handleStatus = async (status: LearningStatus) => {
     setSaving(true);
-    setError("");
-    try {
-      await saveVenueDance(userId, venue.id, dance, songSwap.trim());
-      setConfirmOpen(true);
-    } catch (err: any) {
-      setError(err.message ?? "Could not save that venue.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleConfirmStatus = async (status: LearningStatus | null) => {
-    if (status) {
-      setSaving(true);
-      setError("");
+    let venueSaved = false;
+    if (venue) {
       try {
-        const next = progressFor(status);
-        await saveProgress(userId, next, dance);
-        onProgressChange(dance.id, next);
-      } catch (err: any) {
-        setSaving(false);
-        setError(err.message ?? "Could not save.");
-        return;
-      }
-      setSaving(false);
-    } else {
-      onProgressChange(dance.id, null);
-    }
-    setConfirmOpen(false);
-    onClose();
-  };
-
-  const handleDirectStatus = async (status: LearningStatus) => {
-    setSaving(true);
-    setError("");
-    try {
-      if (venue) {
         await saveVenueDance(userId, venue.id, dance, songSwap.trim());
+        venueSaved = true;
+        setDanceVenueIds((current) =>
+          current.includes(venue.id) ? current : [...current, venue.id],
+        );
+      } catch (err: any) {
+        Alert.alert(
+          "Venue not saved",
+          `${dance.name} will still be updated, but couldn't be tied to ${venue.name}: ${err?.message ?? "unknown error"}`,
+        );
       }
-      const next = progressFor(status);
+    }
+    try {
+      const next: DanceProgress = {
+        danceId: dance.id,
+        status,
+        fromFriend: progress?.fromFriend,
+        danceName: dance.name,
+        danceSong: dance.defaultSong,
+        danceDifficulty: dance.difficulty,
+      };
       await saveProgress(userId, next, dance);
       onProgressChange(dance.id, next);
+      if (!venue && !danceState) {
+        const message = `${dance.name} was added to My Venues → My List${
+          venueSaved ? ` and tagged to ${venue!.name}` : ""
+        }.`;
+
+        if (Platform.OS === "web") {
+          window.alert(`Saved\n\n${message}`);
+        } else {
+          Alert.alert("Saved", message);
+        }
+      }
+
       onClose();
     } catch (err: any) {
-      setError(err.message ?? "Could not save.");
+      showError(err, "Could not save your progress.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Ties this dance to the selected venue without touching status at all —
+  // used e.g. from My List, when a dance already has a status and the user
+  // just wants to tag another venue for it.
+  const handleAddVenue = async () => {
+    if (!venue || danceVenueIds.includes(venue.id)) return;
+    setSaving(true);
+    try {
+      await saveVenueDance(userId, venue.id, dance, songSwap.trim());
+      setDanceVenueIds((current) => [...current, venue.id]);
+      Alert.alert("Added", `${dance.name} added to ${venue.name}.`);
+      setVenue(null);
+      setSongSwap("");
+    } catch (err: any) {
+      showError(err, "Could not save that venue.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Saves a personal song swap to the user's own library for this dance —
+  // independent of the venue-tie/status flows. Venue is optional: if one's
+  // selected in the picker above, this swap is tagged to it; otherwise it's
+  // just "a swap I use" with no specific venue.
+  const handleAddSongSwap = async () => {
+    const name = songSwap.trim();
+    if (!name) return;
+    setAddingSwap(true);
+    try {
+      await addSongSwap(userId, dance.id, name, venue?.id ?? null);
+      const updated = await loadSongSwaps(userId, dance.id);
+      setMySwaps(updated);
+      setMySwapsOpen(true);
+      setSongSwap("");
+    } catch (err: any) {
+      showError(err, "Could not save that song swap.");
+    } finally {
+      setAddingSwap(false);
+    }
+  };
+
+  const handleDeleteSwap = async (id: string) => {
+    try {
+      await deleteSongSwap(userId, id);
+      setMySwaps((current) => current.filter((entry) => entry.id !== id));
+    } catch (err: any) {
+      showError(err, "Could not remove that song swap.");
+    }
+  };
+
+  const handleConfirmedRemove = async () => {
+    setSaving(true);
+
+    try {
+      await removeDanceEverywhere(userId, dance.id);
+      onProgressChange(dance.id, null);
+      onRemoved(dance.id);
+      onClose();
+    } catch (err: any) {
+      showError(err, "Could not remove this dance.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    const message = `This removes "${dance.name}" from Want to learn, Learned, and every venue you've tagged it to. This can't be undone.`;
+
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(`Remove this dance?\n\n${message}`);
+
+      if (confirmed) {
+        await handleConfirmedRemove();
+      }
+    } else {
+      Alert.alert("Remove this dance?", message, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: handleConfirmedRemove,
+        },
+      ]);
     }
   };
 
@@ -121,6 +242,14 @@ export function DanceDetailsModal({
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.overlay}>
         <View style={s.card}>
+          <Pressable
+            style={s.closeButton}
+            onPress={onClose}
+            disabled={saving}
+            hitSlop={10}
+          >
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
           <ScrollView
             contentContainerStyle={s.sheet}
             keyboardShouldPersistTaps="handled"
@@ -161,8 +290,12 @@ export function DanceDetailsModal({
               </>
             )}
 
+            <View style={s.statusBadge}>
+              <Text style={s.statusBadgeText}>{STATUS_LABEL[danceState]}</Text>
+            </View>
+
             <Text style={s.fieldLabel}>
-              VENUE <Text style={s.optional}>(find or add)</Text>
+              VENUE <Text style={s.optional}>(optional)</Text>
             </Text>
 
             <Pressable style={s.select} onPress={() => setPickerOpen(true)}>
@@ -176,53 +309,125 @@ export function DanceDetailsModal({
               SONG SWAP <Text style={s.optional}>(optional)</Text>
             </Text>
 
-            <TextInput
-              value={songSwap}
-              onChangeText={setSongSwap}
-              placeholder="e.g. play it to Shivers"
-              placeholderTextColor={colors.muted}
-              style={s.input}
-            />
+            <View style={s.swapRow}>
+              <TextInput
+                value={songSwap}
+                onChangeText={setSongSwap}
+                placeholder="e.g. Shivers"
+                placeholderTextColor={colors.muted}
+                style={s.swapInput}
+              />
+              <Pressable
+                style={[s.swapAddButton, !songSwap.trim() && s.disabled]}
+                onPress={handleAddSongSwap}
+                disabled={!songSwap.trim() || addingSwap}
+              >
+                <Text style={s.swapAddButtonText}>
+                  {addingSwap ? "…" : "＋"}
+                </Text>
+              </Pressable>
+            </View>
 
             <Text style={s.hint}>
-              Save a different song played for this dance at this venue.
+              {venue
+                ? `Saves as a swap for ${venue.name}. Also used below when you tag a venue.`
+                : "Saved without a venue unless you pick one above. Also used below when you tag a venue."}
             </Text>
 
-            {error ? <Text style={s.error}>{error}</Text> : null}
+            {mySwaps.length > 0 && (
+              <>
+                <Pressable
+                  style={s.swapsToggle}
+                  onPress={() => setMySwapsOpen((open) => !open)}
+                >
+                  <Text style={s.swapsToggleText}>
+                    🔖 {mySwaps.length} saved song swap
+                    {mySwaps.length > 1 ? "s" : ""}
+                  </Text>
+                  <Text style={s.caret}>{mySwapsOpen ? "▴" : "▾"}</Text>
+                </Pressable>
+                {mySwapsOpen && (
+                  <View style={s.swapsList}>
+                    {mySwaps.map((entry) => (
+                      <View key={entry.id} style={s.mySwapRow}>
+                        <Text style={[s.swapItem, s.mySwapText]}>
+                          • {entry.songName}
+                          {entry.venueName ? ` - ${entry.venueName}` : ""}
+                        </Text>
+                        <Pressable onPress={() => handleDeleteSwap(entry.id)}>
+                          <Text style={s.mySwapDelete}>✕</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
 
-            <Pressable
-              style={[s.venueAction, !venue && s.disabled]}
-              onPress={handleAddToVenueList}
-              disabled={!venue || saving}
-            >
-              <Text style={s.venueActionText}>
-                {saving ? "Saving…" : "＋ Add to my venue list"}
-              </Text>
-            </Pressable>
-
-            {danceState !== "want" && danceState !== "learned" && (
+            {activeTab != "Home" && (
               <Pressable
-                style={s.primary}
-                onPress={() => handleDirectStatus("want")}
-                disabled={saving}
+                style={[
+                  s.venueAction,
+                  (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
+                ]}
+                onPress={handleAddVenue}
+                disabled={!venue || danceVenueIds.includes(venue.id) || saving}
               >
-                <Text style={s.primaryText}>♡ Want to learn</Text>
+                <Text style={s.venueActionText}>
+                  {venue && danceVenueIds.includes(venue.id)
+                    ? "📍 Already at this venue"
+                    : saving
+                      ? "Saving…"
+                      : "＋ Add to this venue"}
+                </Text>
               </Pressable>
             )}
 
-            {danceState !== "learned" && (
+            {danceState !== "maybe" && (
               <Pressable
-                style={s.secondary}
-                onPress={() => handleDirectStatus("learned")}
+                style={s.tertiary}
+                onPress={() => handleStatus("maybe")}
                 disabled={saving}
               >
-                <Text style={s.secondaryText}>★ I learned it</Text>
+                <Text style={s.tertiaryText}>
+                  {danceState === "learned"
+                    ? "🧠 Need to review"
+                    : "💭 Save for Later"}
+                </Text>
               </Pressable>
             )}
+            <View style={s.statusButtons}>
+              {danceState !== "want" && danceState !== "learned" && (
+                <Pressable
+                  style={s.secondary}
+                  onPress={() => handleStatus("want")}
+                  disabled={saving}
+                >
+                  <Text style={s.secondaryText}>♡ Want to learn</Text>
+                </Pressable>
+              )}
+              {danceState !== "learned" && (
+                <Pressable
+                  style={s.primary}
+                  onPress={() => handleStatus("learned")}
+                  disabled={saving}
+                >
+                  <Text style={s.primaryText}>★ Learned it</Text>
+                </Pressable>
+              )}
+            </View>
 
-            <Pressable onPress={onClose} disabled={saving}>
-              <Text style={s.cancel}>Cancel</Text>
-            </Pressable>
+            {(danceState || danceVenueIds.length > 0) &&
+              activeTab != "Home" && (
+                <Pressable
+                  style={s.remove}
+                  onPress={handleRemove}
+                  disabled={saving}
+                >
+                  <Text style={s.removeText}>🗑 Remove from all lists</Text>
+                </Pressable>
+              )}
+
           </ScrollView>
         </View>
       </View>
@@ -230,45 +435,13 @@ export function DanceDetailsModal({
       <VenuePicker
         visible={pickerOpen}
         selectedVenueId={venue?.id}
+        alreadyAddedVenueIds={danceVenueIds}
         onSelect={(picked) => {
           setVenue(picked);
           setPickerOpen(false);
         }}
         onClose={() => setPickerOpen(false)}
       />
-
-      <Modal visible={confirmOpen} transparent animationType="fade">
-        <View style={s.confirmOverlay}>
-          <View style={s.confirmCard}>
-            <Text style={s.confirmTitle}>Added to {venue?.name}!</Text>
-            <Text style={s.confirmBody}>
-              Want to also mark “{dance.name}” as learned, or something you
-              want to learn?
-            </Text>
-            {saving ? (
-              <ActivityIndicator color={colors.gold} style={s.loader} />
-            ) : (
-              <>
-                <Pressable
-                  style={s.primary}
-                  onPress={() => handleConfirmStatus("want")}
-                >
-                  <Text style={s.primaryText}>♡ Want to learn</Text>
-                </Pressable>
-                <Pressable
-                  style={s.secondary}
-                  onPress={() => handleConfirmStatus("learned")}
-                >
-                  <Text style={s.secondaryText}>★ I learned it</Text>
-                </Pressable>
-                <Pressable onPress={() => handleConfirmStatus(null)}>
-                  <Text style={s.cancel}>Not now</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
     </Modal>
   );
 }
@@ -286,6 +459,23 @@ const s = StyleSheet.create({
     maxHeight: "88%",
     overflow: "hidden",
   },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800",
+  },
   sheet: {
     padding: 25,
     paddingBottom: 32,
@@ -294,6 +484,7 @@ const s = StyleSheet.create({
     color: colors.ink,
     fontSize: 27,
     fontWeight: "900",
+    paddingRight: 36,
   },
   choreographer: {
     color: colors.muted,
@@ -347,6 +538,24 @@ const s = StyleSheet.create({
     fontSize: 13,
     marginBottom: 5,
   },
+  statusButtons: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  statusBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#392746",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 14,
+  },
+  statusBadgeText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   fieldLabel: {
     color: colors.gold,
     fontSize: 11,
@@ -385,15 +594,53 @@ const s = StyleSheet.create({
     padding: 14,
     fontSize: 16,
   },
+  swapRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  swapInput: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    color: colors.ink,
+    padding: 14,
+    fontSize: 16,
+  },
+  swapAddButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: colors.pink,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  swapAddButtonText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mySwapRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  mySwapDelete: {
+    color: colors.muted,
+    fontSize: 13,
+    paddingHorizontal: 8,
+  },
+  mySwapText: {
+    flex: 1,
+    marginBottom: 0,
+  },
   hint: {
     color: colors.muted,
     fontSize: 12,
     marginTop: 7,
-  },
-  error: {
-    color: "#ff8080",
-    fontSize: 13,
-    marginTop: 12,
   },
   venueAction: {
     borderColor: colors.gold,
@@ -410,58 +657,59 @@ const s = StyleSheet.create({
   disabled: {
     opacity: 0.4,
   },
-  primary: {
-    backgroundColor: colors.pink,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  primaryText: {
-    color: "#fff",
-    fontWeight: "900",
-  },
-  secondary: {
-    borderColor: colors.gold,
+  tertiary: {
+    borderColor: colors.line,
     borderWidth: 1,
     borderRadius: 12,
     padding: 14,
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 22,
+  },
+  tertiaryText: {
+    color: colors.muted,
+    fontWeight: "700",
+  },
+  primary: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: colors.pink,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  secondary: {
+    flex: 1,
+    minWidth: 0,
+    borderColor: colors.gold,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   secondaryText: {
     color: colors.gold,
     fontWeight: "800",
-  },
-  cancel: {
-    color: colors.muted,
+    fontSize: 13,
     textAlign: "center",
+  },
+  remove: {
+    padding: 14,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  removeText: {
+    color: "#ff8080",
     fontWeight: "700",
-    marginTop: 19,
-  },
-  confirmOverlay: {
-    flex: 1,
-    backgroundColor: "#000000aa",
-    justifyContent: "center",
-    padding: 28,
-  },
-  confirmCard: {
-    backgroundColor: "#2b1f35",
-    borderRadius: 24,
-    padding: 24,
-  },
-  confirmTitle: {
-    color: colors.ink,
-    fontSize: 21,
-    fontWeight: "900",
-  },
-  confirmBody: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 10,
-  },
-  loader: {
-    marginVertical: 20,
+    fontSize: 13,
   },
 });
