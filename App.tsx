@@ -120,7 +120,9 @@ export default function App() {
         .catch((error) => {
           if (searchRequestId.current !== requestId) return;
           setSearchLoading(false);
-          setMessage(`Could not load dances from BootStepper: ${error.message}`);
+          setMessage(
+            `Could not load dances from BootStepper: ${error.message}`,
+          );
         });
     }, 350);
     return () => clearTimeout(timer);
@@ -185,7 +187,7 @@ export default function App() {
 
   const handleRemoved = (danceId: string) => {
     handleProgressChange(danceId, null);
-    
+
     setVenuesRefreshKey((k) => k + 1);
   };
 
@@ -194,7 +196,9 @@ export default function App() {
     // currently in the Home search results as a stand-in "you already have
     // this one" example, since the catalog is no longer a fixed local list.
     const overlap = searchResults[0];
-    const incoming = overlap ? [overlap, sampleFriendDance] : [sampleFriendDance];
+    const incoming = overlap
+      ? [overlap, sampleFriendDance]
+      : [sampleFriendDance];
     const alreadyOwned = new Set(
       Object.keys(progress).filter((id) => !progress[id]?.fromFriend),
     );
@@ -242,6 +246,7 @@ export default function App() {
       </View>
       {tab === "Profile" ? (
         <ProfileScreen
+          userId={session.user.id}
           email={session.user.is_anonymous ? undefined : session.user.email}
           learnedCount={learnedCount}
           wantCount={want.length}
@@ -281,7 +286,9 @@ export default function App() {
             />
           ))}
           {!searchLoading && !searchResults.length && (
-            <Text style={s.empty}>No dances found — try a different search.</Text>
+            <Text style={s.empty}>
+              No dances found — try a different search.
+            </Text>
           )}
           <Pressable style={s.share} onPress={() => setShare(true)}>
             <Text style={s.shareText}>↗ SHARE MY LIST</Text>

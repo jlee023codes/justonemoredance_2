@@ -14,18 +14,22 @@ export function DanceCard({
   song,
   progress,
   onPress,
+  fromFriend,
 }: {
   dance: Dance;
   song: string;
   progress?: DanceProgress;
   onPress: () => void;
+  fromFriend?: boolean;
 }) {
   const icon =
     progress?.status === "learned"
       ? "⭐"
       : progress?.status === "want"
         ? "💗"
-        : "👢"; //"♪";
+        : progress?.status === "maybe"
+          ? "🔖"
+          : "👢"; //"♪";
 
   const choreographer = dance.choreographers?.join(", ");
   const otherSongs = dance.songSwaps.map((swap) => swap.songName);
@@ -79,7 +83,7 @@ export function DanceCard({
 
         {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
       </View>
-      <Text style={s.arrow}>›</Text>
+      {!fromFriend && <Text style={s.arrow}>›</Text>}
     </Pressable>
   );
 }

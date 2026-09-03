@@ -19,10 +19,16 @@ import {
   loadDanceVenueIds,
   VenueOption,
 } from "../services/venues";
+import {
+  loadSongSwaps,
+  addSongSwap,
+  deleteSongSwap,
+  SongSwapEntry,
+} from "../services/songSwaps";
 
 const STATUS_LABEL: Record<LearningStatus, string> = {
-  none: "Dont Know It (yet)",
-  maybe: "💭 Save for Later",
+  none: "👢 Dont Know It (yet)",
+  maybe: "🔖 Save for Later",
   want: "♡ Want to learn",
   learned: "★ Learned",
 };
@@ -55,6 +61,11 @@ export function DanceDetailsModal({
   // "Add to this venue" disabled state and the picker's "already added"
   // markers.
   const [danceVenueIds, setDanceVenueIds] = useState<string[]>([]);
+  // The user's own saved song swaps for this dance (separate from
+  // BootStepper's catalog list above).
+  const [mySwaps, setMySwaps] = useState<SongSwapEntry[]>([]);
+  const [mySwapsOpen, setMySwapsOpen] = useState(false);
+  const [addingSwap, setAddingSwap] = useState(false);
 
   useEffect(() => {
     if (dance) {
@@ -63,11 +74,19 @@ export function DanceDetailsModal({
       setPickerOpen(false);
       setSwapsOpen(false);
       setDanceVenueIds([]);
+      setMySwaps([]);
+      setMySwapsOpen(false);
       loadDanceVenueIds(userId, dance.id)
         .then(setDanceVenueIds)
         .catch(() => {
           // Non-critical — worst case, the picker just doesn't grey out an
           // already-added venue until reopened.
+        });
+      loadSongSwaps(userId, dance.id)
+        .then(setMySwaps)
+        .catch(() => {
+          // Non-critical — worst case the saved-swaps list is just empty
+          // until reopened.
         });
     }
     // `dance` objects are re-created per fetch, so compare by id.
@@ -77,7 +96,7 @@ export function DanceDetailsModal({
   if (!dance) return null;
 
   const choreographer = dance.choreographers?.join(", ");
-  const danceState = progress?.status;
+  const danceState = progress?.status ?? "none";
 
   const showError = (err: any, fallback: string) =>
     Alert.alert("Something went wrong", err?.message ?? fallback);
@@ -153,49 +172,84 @@ export function DanceDetailsModal({
     }
   };
 
-  const handleConfirmedRemove = async () => {
-  setSaving(true);
-
-  try {
-    await removeDanceEverywhere(userId, dance.id);
-    onProgressChange(dance.id, null);
-    onRemoved(dance.id);
-    onClose();
-  } catch (err: any) {
-    showError(err, "Could not remove this dance.");
-  } finally {
-    setSaving(false);
-  }
-};
-
-
-const handleRemove = async () => {
-  const message = `This removes "${dance.name}" from Want to learn, Learned, and every venue you've tagged it to. This can't be undone.`;
-
-  if (Platform.OS === "web") {
-    const confirmed = window.confirm(
-      `Remove this dance?\n\n${message}`,
-    );
-
-    if (confirmed) {
-      await handleConfirmedRemove();
+  // Saves a personal song swap to the user's own library for this dance —
+  // independent of the venue-tie/status flows. Venue is optional: if one's
+  // selected in the picker above, this swap is tagged to it; otherwise it's
+  // just "a swap I use" with no specific venue.
+  const handleAddSongSwap = async () => {
+    const name = songSwap.trim();
+    if (!name) return;
+    setAddingSwap(true);
+    try {
+      await addSongSwap(userId, dance.id, name, venue?.id ?? null);
+      const updated = await loadSongSwaps(userId, dance.id);
+      setMySwaps(updated);
+      setMySwapsOpen(true);
+      setSongSwap("");
+    } catch (err: any) {
+      showError(err, "Could not save that song swap.");
+    } finally {
+      setAddingSwap(false);
     }
-  } else {
-    Alert.alert("Remove this dance?", message, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: handleConfirmedRemove,
-      },
-    ]);
-  }
-};
+  };
+
+  const handleDeleteSwap = async (id: string) => {
+    try {
+      await deleteSongSwap(userId, id);
+      setMySwaps((current) => current.filter((entry) => entry.id !== id));
+    } catch (err: any) {
+      showError(err, "Could not remove that song swap.");
+    }
+  };
+
+  const handleConfirmedRemove = async () => {
+    setSaving(true);
+
+    try {
+      await removeDanceEverywhere(userId, dance.id);
+      onProgressChange(dance.id, null);
+      onRemoved(dance.id);
+      onClose();
+    } catch (err: any) {
+      showError(err, "Could not remove this dance.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    const message = `This removes "${dance.name}" from Want to learn, Learned, and every venue you've tagged it to. This can't be undone.`;
+
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(`Remove this dance?\n\n${message}`);
+
+      if (confirmed) {
+        await handleConfirmedRemove();
+      }
+    } else {
+      Alert.alert("Remove this dance?", message, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: handleConfirmedRemove,
+        },
+      ]);
+    }
+  };
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.overlay}>
         <View style={s.card}>
+          <Pressable
+            style={s.closeButton}
+            onPress={onClose}
+            disabled={saving}
+            hitSlop={10}
+          >
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
           <ScrollView
             contentContainerStyle={s.sheet}
             keyboardShouldPersistTaps="handled"
@@ -236,13 +290,9 @@ const handleRemove = async () => {
               </>
             )}
 
-            {danceState && (
-              <View style={s.statusBadge}>
-                <Text style={s.statusBadgeText}>
-                  {STATUS_LABEL[danceState]}
-                </Text>
-              </View>
-            )}
+            <View style={s.statusBadge}>
+              <Text style={s.statusBadgeText}>{STATUS_LABEL[danceState]}</Text>
+            </View>
 
             <Text style={s.fieldLabel}>
               VENUE <Text style={s.optional}>(optional)</Text>
@@ -259,17 +309,60 @@ const handleRemove = async () => {
               SONG SWAP <Text style={s.optional}>(optional)</Text>
             </Text>
 
-            <TextInput
-              value={songSwap}
-              onChangeText={setSongSwap}
-              placeholder="e.g. play it to Shivers"
-              placeholderTextColor={colors.muted}
-              style={s.input}
-            />
+            <View style={s.swapRow}>
+              <TextInput
+                value={songSwap}
+                onChangeText={setSongSwap}
+                placeholder="e.g. Shivers"
+                placeholderTextColor={colors.muted}
+                style={s.swapInput}
+              />
+              <Pressable
+                style={[s.swapAddButton, !songSwap.trim() && s.disabled]}
+                onPress={handleAddSongSwap}
+                disabled={!songSwap.trim() || addingSwap}
+              >
+                <Text style={s.swapAddButtonText}>
+                  {addingSwap ? "…" : "＋"}
+                </Text>
+              </Pressable>
+            </View>
 
             <Text style={s.hint}>
-              Save a different song played for this dance at this venue.
+              {venue
+                ? `Saves as a swap for ${venue.name}. Also used below when you tag a venue.`
+                : "Saved without a venue unless you pick one above. Also used below when you tag a venue."}
             </Text>
+
+            {mySwaps.length > 0 && (
+              <>
+                <Pressable
+                  style={s.swapsToggle}
+                  onPress={() => setMySwapsOpen((open) => !open)}
+                >
+                  <Text style={s.swapsToggleText}>
+                    🔖 {mySwaps.length} saved song swap
+                    {mySwaps.length > 1 ? "s" : ""}
+                  </Text>
+                  <Text style={s.caret}>{mySwapsOpen ? "▴" : "▾"}</Text>
+                </Pressable>
+                {mySwapsOpen && (
+                  <View style={s.swapsList}>
+                    {mySwaps.map((entry) => (
+                      <View key={entry.id} style={s.mySwapRow}>
+                        <Text style={[s.swapItem, s.mySwapText]}>
+                          • {entry.songName}
+                          {entry.venueName ? ` - ${entry.venueName}` : ""}
+                        </Text>
+                        <Pressable onPress={() => handleDeleteSwap(entry.id)}>
+                          <Text style={s.mySwapDelete}>✕</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
 
             {activeTab != "Home" && (
               <Pressable
@@ -303,26 +396,26 @@ const handleRemove = async () => {
                 </Text>
               </Pressable>
             )}
-
-            {danceState !== "want" && danceState !== "learned" && (
-              <Pressable
-                style={s.secondary}
-                onPress={() => handleStatus("want")}
-                disabled={saving}
-              >
-                <Text style={s.secondaryText}>♡ Want to learn</Text>
-              </Pressable>
-            )}
-
-            {danceState !== "learned" && (
-              <Pressable
-                style={s.primary}
-                onPress={() => handleStatus("learned")}
-                disabled={saving}
-              >
-                <Text style={s.primaryText}>★ Learned it</Text>
-              </Pressable>
-            )}
+            <View style={s.statusButtons}>
+              {danceState !== "want" && danceState !== "learned" && (
+                <Pressable
+                  style={s.secondary}
+                  onPress={() => handleStatus("want")}
+                  disabled={saving}
+                >
+                  <Text style={s.secondaryText}>♡ Want to learn</Text>
+                </Pressable>
+              )}
+              {danceState !== "learned" && (
+                <Pressable
+                  style={s.primary}
+                  onPress={() => handleStatus("learned")}
+                  disabled={saving}
+                >
+                  <Text style={s.primaryText}>★ Learned it</Text>
+                </Pressable>
+              )}
+            </View>
 
             {(danceState || danceVenueIds.length > 0) &&
               activeTab != "Home" && (
@@ -335,9 +428,6 @@ const handleRemove = async () => {
                 </Pressable>
               )}
 
-            <Pressable onPress={onClose} disabled={saving}>
-              <Text style={s.cancel}>Cancel</Text>
-            </Pressable>
           </ScrollView>
         </View>
       </View>
@@ -369,6 +459,23 @@ const s = StyleSheet.create({
     maxHeight: "88%",
     overflow: "hidden",
   },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "800",
+  },
   sheet: {
     padding: 25,
     paddingBottom: 32,
@@ -377,6 +484,7 @@ const s = StyleSheet.create({
     color: colors.ink,
     fontSize: 27,
     fontWeight: "900",
+    paddingRight: 36,
   },
   choreographer: {
     color: colors.muted,
@@ -430,6 +538,11 @@ const s = StyleSheet.create({
     fontSize: 13,
     marginBottom: 5,
   },
+  statusButtons: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
   statusBadge: {
     alignSelf: "flex-start",
     backgroundColor: "#392746",
@@ -481,6 +594,49 @@ const s = StyleSheet.create({
     padding: 14,
     fontSize: 16,
   },
+  swapRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  swapInput: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    color: colors.ink,
+    padding: 14,
+    fontSize: 16,
+  },
+  swapAddButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: colors.pink,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  swapAddButtonText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  mySwapRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  mySwapDelete: {
+    color: colors.muted,
+    fontSize: 13,
+    paddingHorizontal: 8,
+  },
+  mySwapText: {
+    flex: 1,
+    marginBottom: 0,
+  },
   hint: {
     color: colors.muted,
     fontSize: 12,
@@ -514,27 +670,37 @@ const s = StyleSheet.create({
     fontWeight: "700",
   },
   primary: {
+    flex: 1,
+    minWidth: 0,
     backgroundColor: colors.pink,
     borderRadius: 12,
-    padding: 15,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: "center",
-    marginTop: 10,
+    justifyContent: "center",
   },
   primaryText: {
     color: "#fff",
     fontWeight: "900",
+    fontSize: 13,
+    textAlign: "center",
   },
   secondary: {
+    flex: 1,
+    minWidth: 0,
     borderColor: colors.gold,
     borderWidth: 1,
     borderRadius: 12,
-    padding: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: "center",
-    marginTop: 10,
+    justifyContent: "center",
   },
   secondaryText: {
     color: colors.gold,
     fontWeight: "800",
+    fontSize: 13,
+    textAlign: "center",
   },
   remove: {
     padding: 14,
@@ -545,11 +711,5 @@ const s = StyleSheet.create({
     color: "#ff8080",
     fontWeight: "700",
     fontSize: 13,
-  },
-  cancel: {
-    color: colors.muted,
-    textAlign: "center",
-    fontWeight: "700",
-    marginTop: 19,
   },
 });

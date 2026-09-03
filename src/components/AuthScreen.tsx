@@ -34,11 +34,12 @@ export function AuthScreen() {
     setLoading(true);
     const result = await supabase.auth.signInAnonymously();
     setLoading(false);
-    if (result.error)
+    if (result.error) {
       Alert.alert(
         "Guest mode is not enabled",
         "In Supabase, enable Anonymous Sign-Ins under Authentication → Providers, then try again.",
       );
+    }
   };
   return (
     <View style={s.page}>
