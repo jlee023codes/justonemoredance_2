@@ -126,7 +126,6 @@ export function DanceDetailsModal({
       const next: DanceProgress = {
         danceId: dance.id,
         status,
-        fromFriend: progress?.fromFriend,
         danceName: dance.name,
         danceSong: dance.defaultSong,
         danceDifficulty: dance.difficulty,
@@ -265,7 +264,6 @@ export function DanceDetailsModal({
                 <Text style={s.details}>{dance.details}</Text>
               ) : null}
             </View>
-
             {dance.songSwaps.length > 0 && (
               <>
                 <Pressable
@@ -290,8 +288,19 @@ export function DanceDetailsModal({
               </>
             )}
 
-            <View style={s.statusBadge}>
-              <Text style={s.statusBadgeText}>{STATUS_LABEL[danceState]}</Text>
+            <View style={s.tags}>
+              <View style={s.statusBadge}>
+                <Text style={s.statusBadgeText}>
+                  {STATUS_LABEL[danceState]}
+                </Text>
+              </View>
+              {progress && progress?.fromFriend !== "self" && (
+                <View style={s.sharedFromBadge}>
+                  <Text style={s.sharedFromText}>
+                    Shared from: {progress?.fromFriend}
+                  </Text>
+                </View>
+              )}
             </View>
 
             <Text style={s.fieldLabel}>
@@ -427,7 +436,6 @@ export function DanceDetailsModal({
                   <Text style={s.removeText}>🗑 Remove from all lists</Text>
                 </Pressable>
               )}
-
           </ScrollView>
         </View>
       </View>
@@ -501,6 +509,7 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginTop: 7,
+    justifyContent: "space-between",
   },
   level: {
     color: colors.green,
@@ -543,6 +552,10 @@ const s = StyleSheet.create({
     gap: 10,
     marginTop: 10,
   },
+  tags: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
   statusBadge: {
     alignSelf: "flex-start",
     backgroundColor: "#392746",
@@ -553,6 +566,19 @@ const s = StyleSheet.create({
   },
   statusBadgeText: {
     color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  sharedFromBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#392746",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 14,
+  },
+  sharedFromText: {
+    color: colors.muted,
     fontSize: 12,
     fontWeight: "800",
   },

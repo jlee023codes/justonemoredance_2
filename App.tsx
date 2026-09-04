@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +21,7 @@ import { supabase } from "./src/lib/supabase";
 import { loadProgress } from "./src/services/progress";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 // A received dance is deliberately separate from the app's BootStepper-backed catalog.
 const sampleFriendDance: Dance = {
@@ -157,8 +157,7 @@ export default function App() {
       .map((p) => resolveDance(p.danceId)),
     learned = Object.values(progress)
       .filter((p) => p.status === "learned")
-      .map((p) => resolveDance(p.danceId)),
-    friends = want.filter((d) => progress[d.id]?.fromFriend);
+      .map((p) => resolveDance(p.danceId));
 
   if (authLoading)
     return (
@@ -191,43 +190,6 @@ export default function App() {
     setVenuesRefreshKey((k) => k + 1);
   };
 
-  const receive = () => {
-    // Demo/sample data for the "share my list" flow. Uses whatever's
-    // currently in the Home search results as a stand-in "you already have
-    // this one" example, since the catalog is no longer a fixed local list.
-    const overlap = searchResults[0];
-    const incoming = overlap
-      ? [overlap, sampleFriendDance]
-      : [sampleFriendDance];
-    const alreadyOwned = new Set(
-      Object.keys(progress).filter((id) => !progress[id]?.fromFriend),
-    );
-    const friendOnly = incoming.filter((dance) => !alreadyOwned.has(dance.id));
-    mergeIntoCache(friendOnly);
-    setReceivedDances((current) => [
-      ...current,
-      ...friendOnly.filter(
-        (dance) => !current.some((item) => item.id === dance.id),
-      ),
-    ]);
-    setProgress((current) => {
-      const next = { ...current };
-      for (const dance of friendOnly) {
-        if (!next[dance.id]) {
-          next[dance.id] = {
-            danceId: dance.id,
-            status: "want",
-            fromFriend: true,
-            danceName: dance.name,
-            danceSong: dance.defaultSong,
-            danceDifficulty: dance.difficulty,
-          };
-        }
-      }
-      return next;
-    });
-    setShare(false);
-  };
   const list = tab === "Want to learn" ? want : learned;
   const achievement =
     learnedCount >= 10
@@ -250,6 +212,7 @@ export default function App() {
           email={session.user.is_anonymous ? undefined : session.user.email}
           learnedCount={learnedCount}
           wantCount={want.length}
+          onProgressChange={handleProgressChange}
           onSignOut={() => void supabase.auth.signOut()}
         />
       ) : tab === "My Venues" ? (
@@ -308,20 +271,7 @@ export default function App() {
               <Text style={s.tiny}>Next milestone: 5 dances</Text>
             </View>
           )}
-          {tab === "Want to learn" && friends.length > 0 && (
-            <>
-              <Text style={s.section}>FROM FRIENDS</Text>
-              {friends.map((d) => (
-                <DanceCard
-                  key={d.id}
-                  dance={d}
-                  song={d.defaultSong}
-                  progress={progress[d.id]}
-                  onPress={() => openDance(d)}
-                />
-              ))}
-            </>
-          )}
+
           <Text style={s.section}>
             {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
           </Text>
@@ -355,23 +305,6 @@ export default function App() {
         onProgressChange={handleProgressChange}
         onRemoved={handleRemoved}
       />
-      <Modal visible={share} transparent animationType="fade">
-        <View style={s.overlay}>
-          <View style={s.sheet}>
-            <Text style={s.sheetTitle}>Share my list</Text>
-            <Text style={s.body}>
-              Shared dances retain song swaps. Dances your friend does not have
-              will appear in their “From friends” list.
-            </Text>
-            <Pressable style={s.primary} onPress={receive}>
-              <Text style={s.primaryText}>Try a sample shared list</Text>
-            </Pressable>
-            <Pressable onPress={() => setShare(false)}>
-              <Text style={s.cancel}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }

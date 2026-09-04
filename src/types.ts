@@ -24,6 +24,7 @@ export type Dance = {
   details: string;
   venueSongs: VenueSong[];
   songSwaps: SongSwap[];
+  sharedFrom?: string;
   // Choreographer name(s), from BootStepper. Empty for locally-made Dance
   // objects (e.g. the sample friend dance, or offline fallbacks).
   choreographers?: string[];
@@ -35,7 +36,7 @@ export type Dance = {
 export type DanceProgress = {
   danceId: string;
   status: LearningStatus;
-  fromFriend?: boolean;
+  fromFriend?: string; //boolean;
   // Snapshot of the BootStepper dance at the time it was saved. Used as a
   // fallback for rendering Want/Learned cards if a live re-fetch from
   // BootStepper fails (offline, dance removed upstream, etc).

@@ -20,7 +20,7 @@ export function DanceCard({
   song: string;
   progress?: DanceProgress;
   onPress: () => void;
-  fromFriend?: boolean;
+  fromFriend?: string;
 }) {
   const icon =
     progress?.status === "learned"

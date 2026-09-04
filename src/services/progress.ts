@@ -1,10 +1,12 @@
 import { Dance, DanceProgress } from "../types";
 import { supabase } from "../lib/supabase";
+import { FriendDancesModal } from "../components/FriendDancesModal";
+import { Alert } from "react-native";
 
 type ProgressRow = {
   dance_id: string;
   status: "maybe" | "want" | "learned";
-  source: "self" | "friend";
+  source: string | null;
   dance_name: string | null;
   dance_song: string | null;
   dance_difficulty: string | null;
@@ -24,7 +26,7 @@ export async function loadProgress(
       {
         danceId: row.dance_id,
         status: row.status,
-        fromFriend: row.source === "friend",
+        fromFriend: row.source ?? "self",
         danceName: row.dance_name ?? undefined,
         danceSong: row.dance_song ?? undefined,
         danceDifficulty:
@@ -39,22 +41,56 @@ export async function loadProgress(
 // name/song/difficulty alongside the progress row so the Want/Learned
 // lists can still render something reasonable if a later live re-fetch
 // from BootStepper fails (offline, dance removed upstream, etc).
+// export async function saveProgress(
+//   userId: string,
+//   progress: DanceProgress,
+//   dance: Dance,
+//   friendUsername?: string,
+// ) {
+//   const { error } = await supabase.from("user_dance_progress").upsert({
+//     user_id: userId,
+//     dance_id: progress.danceId,
+//     status: progress.status,
+//     source: friendUsername ?? "self",
+//     dance_name: dance.name,
+//     dance_song: dance.defaultSong,
+//     dance_difficulty: dance.difficulty,
+//     updated_at: new Date().toISOString(),
+//   });
+
+//   if (error) throw error;
+// }
 export async function saveProgress(
   userId: string,
   progress: DanceProgress,
   dance: Dance,
+  friendUsername?: string,
 ) {
-  const { error } = await supabase.from("user_dance_progress").upsert({
+  const { data: existingDance, error: checkError } = await supabase
+    .from("user_dance_progress")
+    .select("dance_id")
+    .eq("user_id", userId)
+    .eq("dance_id", progress.danceId)
+    .maybeSingle();
+  if (checkError) throw checkError;
+
+  if (existingDance) {
+    console.log("I already Know:", existingDance);
+
+    return false;
+  }
+  const { error } = await supabase.from("user_dance_progress").insert({
     user_id: userId,
     dance_id: progress.danceId,
     status: progress.status,
-    source: progress.fromFriend ? "friend" : "self",
+    source: friendUsername ?? "self",
     dance_name: dance.name,
     dance_song: dance.defaultSong,
     dance_difficulty: dance.difficulty,
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;
+  return true;
 }
 
 // Used by "Remove" — deletes the progress row entirely (no row = no

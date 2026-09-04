@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -12,6 +13,7 @@ import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { DanceCard } from "./DanceCard";
 import { Friend, FriendDance, loadFriendDances } from "../services/friends";
+import { saveProgress } from "src/services/progress";
 
 function toDance(fd: FriendDance): Dance {
   return {
@@ -30,11 +32,15 @@ function toProgress(fd: FriendDance): DanceProgress {
 }
 
 export function FriendDancesModal({
+  userId,
   friend,
   onClose,
+  onProgressChange,
 }: {
+  userId: string;
   friend: Friend | null;
   onClose: () => void;
+  onProgressChange: (danceId: string, next: DanceProgress | null) => void;
 }) {
   const [dances, setDances] = useState<FriendDance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,11 +52,55 @@ export function FriendDancesModal({
     setError("");
     loadFriendDances(friend.id)
       .then(setDances)
-      .catch((err: any) => setError(err.message ?? "Could not load their list."))
+      .catch((err: any) =>
+        setError(err.message ?? "Could not load their list."),
+      )
       .finally(() => setLoading(false));
   }, [friend]);
 
   if (!friend) return null;
+  const showError = (err: any, fallback: string) => {
+    Alert.alert("Something went wrong", err?.message ?? fallback);
+  };
+
+  const importDances = async (friendList: FriendDance[]) => {
+    try {
+      let alreadyKnown = 0;
+      await Promise.all(
+        dances.map(async (friendDance) => {
+          const dance = toDance(friendDance);
+          const next: DanceProgress = {
+            danceId: dance.id,
+            status: "maybe",
+            fromFriend: friend.username,
+            danceName: dance.name,
+            danceSong: dance.defaultSong,
+            danceDifficulty: dance.difficulty,
+          };
+          const imported = await saveProgress(
+            userId,
+            next,
+            dance,
+            friend.username,
+          );
+          if (imported) {
+            onProgressChange(dance.id, next);
+          } else {
+            alreadyKnown++;
+          }
+        }),
+      );
+      if (alreadyKnown > 0) {
+        Alert.alert(
+          "Dance already known",
+          `You already knew ${alreadyKnown}/${dances.length} dances. Those were not imported.`,
+        );
+      }
+      onClose();
+    } catch (err: any) {
+      showError(err, "Could import your friends list");
+    }
+  };
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -63,7 +113,20 @@ export function FriendDancesModal({
             <Text style={s.title}>{friend.displayName}'s list</Text>
             <Text style={s.subtitle}>Read-only — this is their My List</Text>
 
-            {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
+            <Pressable
+              style={s.importButton}
+              onPress={() => {
+                importDances(dances);
+              }}
+              hitSlop={10}
+            >
+              <Text style={s.importText}>
+                Import {friend.displayName}'s List{" "}
+              </Text>
+            </Pressable>
+            {loading && (
+              <ActivityIndicator color={colors.gold} style={s.loader} />
+            )}
             {error ? <Text style={s.error}>{error}</Text> : null}
 
             {!loading &&
@@ -74,7 +137,7 @@ export function FriendDancesModal({
                   song={fd.song}
                   progress={toProgress(fd)}
                   onPress={() => {}}
-                  fromFriend={true}
+                  fromFriend={friend.displayName}
                 />
               ))}
 
@@ -102,6 +165,23 @@ const s = StyleSheet.create({
     borderRadius: 28,
     maxHeight: "88%",
     overflow: "hidden",
+  },
+  importButton: {
+    flex: 1,
+    minWidth: 0,
+    borderColor: colors.gold,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  importText: {
+    color: colors.gold,
+    fontWeight: "800",
+    fontSize: 13,
+    textAlign: "center",
   },
   closeButton: {
     position: "absolute",

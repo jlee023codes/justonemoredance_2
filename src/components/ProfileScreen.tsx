@@ -21,6 +21,7 @@ import {
   setUsername,
 } from "../services/friends";
 import { FriendDancesModal } from "./FriendDancesModal";
+import { DanceProgress } from "src/types";
 
 const awards = [
   { count: 1, icon: "🌟", title: "First Steps", note: "Learn 1 dance" },
@@ -40,12 +41,14 @@ export function ProfileScreen({
   learnedCount,
   wantCount,
   onSignOut,
+  onProgressChange,
 }: {
   userId: string;
   email?: string;
   learnedCount: number;
   wantCount: number;
   onSignOut: () => void;
+  onProgressChange: (danceId: string, next: DanceProgress | null) => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -393,8 +396,10 @@ export function ProfileScreen({
       </View>
 
       <FriendDancesModal
+        userId={userId}
         friend={selectedFriend}
         onClose={() => setSelectedFriend(null)}
+        onProgressChange={onProgressChange}
       />
     </ScrollView>
   );
