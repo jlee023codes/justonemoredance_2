@@ -45,7 +45,6 @@ function danceFromProgress(progress: DanceProgress): Dance {
     defaultSong: progress.danceSong ?? "",
     difficulty: progress.danceDifficulty ?? "Beginner",
     details: "",
-    venueSongs: [],
     songSwaps: [],
     snapshot: true,
   };
@@ -55,7 +54,6 @@ export default function App() {
   const [tab, setTab] = useState<AppTab>("Home"),
     [query, setQuery] = useState(""),
     [progress, setProgress] = useState<Record<string, DanceProgress>>({}),
-    [receivedDances, setReceivedDances] = useState<Dance[]>([]),
     [selected, setSelected] = useState<Dance | null>(null),
     [message, setMessage] = useState(""),
     [session, setSession] = useState<Session | null>(null),
@@ -162,10 +160,6 @@ export default function App() {
     });
   };
 
-  useEffect(() => {
-    mergeIntoCache(receivedDances);
-  }, [receivedDances]);
-
   // Debounced search against BootStepper. An empty query asks for their
   // default/relevance ordering, so Home always shows something.
   const searchRequestId = useRef(0);
@@ -215,9 +209,7 @@ export default function App() {
   }, [progress, catalogCache]);
 
   const resolveDance = (id: string): Dance =>
-    catalogCache[id] ??
-    receivedDances.find((d) => d.id === id) ??
-    danceFromProgress(progress[id]);
+    catalogCache[id] ?? danceFromProgress(progress[id]);
 
   const learnedCount = Object.values(progress).filter(
     (p) => p.status === "learned",
@@ -516,38 +508,5 @@ const s = StyleSheet.create({
     textAlign: "center",
     marginTop: 15,
     fontWeight: "700",
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: "#000000aa",
-    justifyContent: "flex-end",
-  },
-  sheet: {
-    backgroundColor: "#2b1f35",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 25,
-    paddingBottom: 40,
-  },
-  sheetTitle: { color: colors.ink, fontSize: 27, fontWeight: "900" },
-  body: {
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginVertical: 18,
-  },
-  primary: {
-    backgroundColor: colors.pink,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  primaryText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  cancel: {
-    color: colors.muted,
-    textAlign: "center",
-    fontWeight: "700",
-    marginTop: 19,
   },
 });

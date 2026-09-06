@@ -22,7 +22,6 @@ function toDance(fd: FriendDance): Dance {
     defaultSong: fd.song,
     difficulty: fd.difficulty,
     details: "",
-    venueSongs: [],
     songSwaps: [],
     // Only the friend's saved name/song/difficulty — the real BootStepper
     // details get filled in by App.tsx once the dance is in `progress`.

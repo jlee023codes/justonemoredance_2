@@ -378,24 +378,24 @@ export function DanceDetailsModal({
               </>
             )}
 
-            {activeTab != "Home" && (
-              <Pressable
-                style={[
-                  s.venueAction,
-                  (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
-                ]}
-                onPress={handleAddVenue}
-                disabled={!venue || danceVenueIds.includes(venue.id) || saving}
-              >
-                <Text style={s.venueActionText}>
-                  {venue && danceVenueIds.includes(venue.id)
-                    ? "📍 Already at this venue"
-                    : saving
-                      ? "Saving…"
-                      : "＋ Add to this venue"}
-                </Text>
-              </Pressable>
-            )}
+            {/* {activeTab != "Home" && ( */}
+            <Pressable
+              style={[
+                s.venueAction,
+                (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
+              ]}
+              onPress={handleAddVenue}
+              disabled={!venue || danceVenueIds.includes(venue.id) || saving}
+            >
+              <Text style={s.venueActionText}>
+                {venue && danceVenueIds.includes(venue.id)
+                  ? "📍 Already at this venue"
+                  : saving
+                    ? "Saving…"
+                    : "＋ Add to this venue"}
+              </Text>
+            </Pressable>
+            {/* )} */}
 
             {danceState === "learned" ? (
               // "Review" on a learned dance moves it back to Want to learn.
@@ -404,7 +404,9 @@ export function DanceDetailsModal({
                 onPress={() => handleStatus("want")}
                 disabled={saving}
               >
-                <Text style={s.tertiaryText}>🔁 Review (move to Want to learn)</Text>
+                <Text style={s.tertiaryText}>
+                  🔁 Review (move to Want to learn)
+                </Text>
               </Pressable>
             ) : danceState !== "maybe" ? (
               <Pressable
@@ -619,15 +621,6 @@ const s = StyleSheet.create({
   },
   caret: {
     color: colors.gold,
-    fontSize: 16,
-  },
-  input: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 12,
-    color: colors.ink,
-    padding: 14,
     fontSize: 16,
   },
   swapRow: {

@@ -29,7 +29,6 @@ const ALLOWED_PATHS = new Set([
   "/dances/search",
   "/dances/getById",
   "/dances/getByIds",
-  "/dances/getStepSheet",
 ]);
 
 Deno.serve(async (req: Request) => {

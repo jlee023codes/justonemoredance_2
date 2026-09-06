@@ -1,4 +1,27 @@
-.expo/
+# dependencies
 node_modules/
+
+# expo / metro
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+
+# native
+ios/build/
+android/
+
+# supabase cli scratch
+supabase/.temp/
+supabase/.branches/
+
+# secrets
 .env
+.env*.local
+
+# misc build scratch
+work/
+outputs/
+
+# macOS
 .DS_Store

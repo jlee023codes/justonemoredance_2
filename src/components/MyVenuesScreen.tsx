@@ -32,7 +32,6 @@ function danceFromProgress(progress: DanceProgress): Dance {
     defaultSong: progress.danceSong ?? "",
     difficulty: progress.danceDifficulty ?? "Beginner",
     details: "",
-    venueSongs: [],
     songSwaps: [],
     snapshot: true,
   };

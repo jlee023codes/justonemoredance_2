@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { Dance, VenueSong } from "../types";
+import { Dance } from "../types";
 
 /**
  * Client for the BootStepper public API (https://api.bootstepper.com),
@@ -7,20 +7,12 @@ import { Dance, VenueSong } from "../types";
  * the API key never ships inside the app. See
  * supabase/functions/bootstepper-proxy/index.ts.
  *
- * A NOTE ON FIELD NAMES: BootStepper's docs page describes *capabilities*
- * (full-text search; filter by difficulty, labels, counts, walls; sort by
- * relevance, views, favorites) but their site blocks automated fetching,
- * so I couldn't confirm the exact JSON field names of a live response.
- * Everything that depends on those names is isolated in `adaptDance`
- * below. Once you have a key, log a raw response once:
- *
- *   const raw = await searchDances("cupid"); console.log(JSON.stringify(raw));
- *
- * and adjust `RawDance` + `adaptDance` to match what actually comes back.
+ * Everything that depends on BootStepper's exact JSON field names is
+ * isolated in `adaptDance` below.
  */
 
-// Confirmed shape of a raw BootStepper dance (from a real /dances/search
-// response, Aug 2026 — BootStepper reserves the right to change this).
+// Shape of a raw BootStepper dance (from a real response, Aug 2026 —
+// BootStepper reserves the right to change this).
 type RawDance = {
   id: string;
   title: string;
@@ -33,12 +25,12 @@ type RawDance = {
   danceChoreographers?: { choreographer?: { name?: string } }[];
 };
 
-// Search/getByIds responses wrap results in an `items` array.
+// /dances/search wraps results in `{ items: [...] }`; /dances/getByIds
+// returns a bare array. `unwrapList` normalises both.
 type RawListResponse<T> = {
   results?: T[];
   items?: T[];
   dances?: T[];
-  total?: number;
 };
 
 async function callProxy<T>(
@@ -115,11 +107,7 @@ function detailsFor(raw: RawDance): string {
   return parts.join(" • ");
 }
 
-/** Maps a raw BootStepper dance to the app's Dance type. venueSongs is
- *  always empty here — that's personal to each user and lives in
- *  `user_dance_progress`, not in the BootStepper catalog. songSwaps, by
- *  contrast, comes straight from BootStepper's own song list for the
- *  dance ("commonly swapped songs"). */
+/** Maps a raw BootStepper dance to the app's Dance type. */
 function adaptDance(raw: RawDance): Dance {
   return {
     id: raw.id,
@@ -127,7 +115,6 @@ function adaptDance(raw: RawDance): Dance {
     defaultSong: songNameFor(raw),
     difficulty: difficultyFor(raw.difficultyLevel),
     details: detailsFor(raw),
-    venueSongs: [] as VenueSong[],
     songSwaps: songSwapsFor(raw),
     choreographers: choreographersFor(raw),
   };
@@ -195,15 +182,4 @@ export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
     );
   }
   return resolved;
-}
-
-export async function getStepSheet(
-  danceId: string,
-  language?: string,
-): Promise<string | null> {
-  const data = await callProxy<{ steps?: string; text?: string }>(
-    "/dances/getStepSheet",
-    { id: danceId, language },
-  );
-  return data.steps ?? data.text ?? null;
 }

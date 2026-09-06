@@ -1,7 +1,5 @@
 import { Dance, DanceProgress } from "../types";
 import { supabase } from "../lib/supabase";
-import { FriendDancesModal } from "../components/FriendDancesModal";
-import { Alert } from "react-native";
 
 type ProgressRow = {
   dance_id: string;
@@ -37,34 +35,15 @@ export async function loadProgress(
   );
 }
 
-// `dance` is the full BootStepper dance being saved — we snapshot its
-// name/song/difficulty alongside the progress row so the Want/Learned
-// lists can still render something reasonable if a later live re-fetch
-// from BootStepper fails (offline, dance removed upstream, etc).
-// export async function saveProgress(
-//   userId: string,
-//   progress: DanceProgress,
-//   dance: Dance,
-//   friendUsername?: string,
-// ) {
-//   const { error } = await supabase.from("user_dance_progress").upsert({
-//     user_id: userId,
-//     dance_id: progress.danceId,
-//     status: progress.status,
-//     source: friendUsername ?? "self",
-//     dance_name: dance.name,
-//     dance_song: dance.defaultSong,
-//     dance_difficulty: dance.difficulty,
-//     updated_at: new Date().toISOString(),
-//   });
-
-//   if (error) throw error;
-// }
+// `dance` is the BootStepper dance being saved — we snapshot its
+// name/song/difficulty onto the progress row so the Want/Learned lists can
+// still render if a later live re-fetch fails (offline, removed upstream).
+//
 // Returns true if a row was written, false if it was left alone. `false`
-// only happens in the default (non-overwrite) mode, which is what friend
-// import uses — it must not clobber a status the user set themselves.
-// The status buttons in the details modal and the quick actions on a Home
-// card pass `overwrite: true` so a want→learned move actually persists.
+// only happens in the default (non-overwrite) mode, which friend import
+// uses — it must not clobber a status the user set themselves. The status
+// buttons in the details modal and the quick actions pass `overwrite: true`
+// so a want→learned move actually persists.
 export async function saveProgress(
   userId: string,
   progress: DanceProgress,

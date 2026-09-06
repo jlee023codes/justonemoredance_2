@@ -115,7 +115,6 @@ export async function loadVenueDances(
       defaultSong: row.dance_song ?? "",
       difficulty: (row.dance_difficulty as Dance["difficulty"]) ?? "Beginner",
       details: "",
-      venueSongs: [],
       songSwaps: [],
     },
     songSwap: row.song_swap ?? undefined,

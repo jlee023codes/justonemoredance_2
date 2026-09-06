@@ -12,7 +12,6 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.112.4",
-    "eas-cli": "^23.2.0",
     "expo": "~54.0.0",
     "expo-linking": "~8.0.12",
     "expo-status-bar": "~3.0.8",
@@ -25,6 +24,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "eas-cli": "^23.2.0",
     "supabase": "^2.116.0",
     "typescript": "~5.9.2"
   },

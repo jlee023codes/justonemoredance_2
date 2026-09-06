@@ -1,15 +1,7 @@
 export type LearningStatus = 'none' | 'maybe' | 'want' | 'learned';
 
-// venueSongs (a catalog concept — "what song does venue X use for this
-// dance") never got populated from BootStepper and is unused now that venue
-// association is tracked per-user in user_venue_dances. Left in place only
-// so Dance's shape doesn't change if it's reintroduced later.
-export type VenueSong = {
-  venueId: string;
-  venueName: string;
-  song: string;
-};
-
+// BootStepper's "commonly swapped songs" for a dance — every song beyond
+// the primary one.
 export type SongSwap = {
   id: string;
   songName: string;
@@ -22,11 +14,9 @@ export type Dance = {
   defaultSong: string;
   difficulty: 'Beginner' | 'Improver' | 'Intermediate' | 'Advanced';
   details: string;
-  venueSongs: VenueSong[];
   songSwaps: SongSwap[];
-  sharedFrom?: string;
   // Choreographer name(s), from BootStepper. Empty for locally-made Dance
-  // objects (e.g. the sample friend dance, or offline fallbacks).
+  // objects (e.g. offline fallbacks).
   choreographers?: string[];
   // True for a Dance reconstructed from a saved snapshot (a friend's
   // imported list, or a progress-row fallback) rather than fetched live
@@ -42,7 +32,9 @@ export type Dance = {
 export type DanceProgress = {
   danceId: string;
   status: LearningStatus;
-  fromFriend?: string; //boolean;
+  // A friend's username when this dance was imported from their list;
+  // "self" or undefined for the user's own.
+  fromFriend?: string;
   // Snapshot of the BootStepper dance at the time it was saved. Used as a
   // fallback for rendering Want/Learned cards if a live re-fetch from
   // BootStepper fails (offline, dance removed upstream, etc).
