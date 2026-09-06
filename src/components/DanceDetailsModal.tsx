@@ -130,10 +130,10 @@ export function DanceDetailsModal({
         danceSong: dance.defaultSong,
         danceDifficulty: dance.difficulty,
       };
-      await saveProgress(userId, next, dance);
+      await saveProgress(userId, next, dance, undefined, { overwrite: true });
       onProgressChange(dance.id, next);
       if (!venue && !danceState) {
-        const message = `${dance.name} was added to My Venues → My List${
+        const message = `${dance.name} was added to your My List${
           venueSaved ? ` and tagged to ${venue!.name}` : ""
         }.`;
 

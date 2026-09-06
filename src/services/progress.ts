@@ -60,26 +60,30 @@ export async function loadProgress(
 
 //   if (error) throw error;
 // }
+// Returns true if a row was written, false if it was left alone. `false`
+// only happens in the default (non-overwrite) mode, which is what friend
+// import uses — it must not clobber a status the user set themselves.
+// The status buttons in the details modal and the quick actions on a Home
+// card pass `overwrite: true` so a want→learned move actually persists.
 export async function saveProgress(
   userId: string,
   progress: DanceProgress,
   dance: Dance,
   friendUsername?: string,
-) {
-  const { data: existingDance, error: checkError } = await supabase
-    .from("user_dance_progress")
-    .select("dance_id")
-    .eq("user_id", userId)
-    .eq("dance_id", progress.danceId)
-    .maybeSingle();
-  if (checkError) throw checkError;
-
-  if (existingDance) {
-    console.log("I already Know:", existingDance);
-
-    return false;
+  options: { overwrite?: boolean } = {},
+): Promise<boolean> {
+  if (!options.overwrite) {
+    const { data: existingDance, error: checkError } = await supabase
+      .from("user_dance_progress")
+      .select("dance_id")
+      .eq("user_id", userId)
+      .eq("dance_id", progress.danceId)
+      .maybeSingle();
+    if (checkError) throw checkError;
+    if (existingDance) return false;
   }
-  const { error } = await supabase.from("user_dance_progress").insert({
+
+  const { error } = await supabase.from("user_dance_progress").upsert({
     user_id: userId,
     dance_id: progress.danceId,
     status: progress.status,

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
-import { DanceCard } from "./DanceCard";
+import { DanceCard, QuickStatus } from "./DanceCard";
 import { VenuePicker } from "./VenuePicker";
 import {
   addUserVenue,
@@ -41,11 +41,14 @@ export function MyVenuesScreen({
   userId,
   progress,
   onOpenDance,
+  onQuickStatus,
   refreshKey,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
   onOpenDance: (dance: Dance) => void;
+  // Same quick-add row as the Home cards — set/clear a status inline.
+  onQuickStatus: (dance: Dance, status: QuickStatus) => void;
   // Bumped by the parent whenever a dance is removed elsewhere, so the
   // currently-selected venue's (locally cached) dance list refetches.
   refreshKey: number;
@@ -78,17 +81,14 @@ export function MyVenuesScreen({
       });
   }, [userId]);
 
+  const isMyList = selectedVenueId === MY_LIST_ID;
+
+  // Real venues need a fetch; "My List" is derived straight from the
+  // `progress` map in render below, so it stays live as quick actions
+  // add/clear a status without waiting on this effect.
   useEffect(() => {
     setDanceQuery("");
-
-    if (selectedVenueId === MY_LIST_ID) {
-      // No network call — every dance with any status is already in the
-      // `progress` map passed down from App.tsx.
-      setVenueDances(
-        Object.values(progress).map((p) => ({ dance: danceFromProgress(p) })),
-      );
-      return;
-    }
+    if (isMyList) return;
 
     setDancesLoading(true);
     setDancesError("");
@@ -101,19 +101,20 @@ export function MyVenuesScreen({
         setDancesLoading(false);
         setDancesError(err.message ?? "Could not load dances for this venue.");
       });
-    // Deliberately excludes `progress` — My List re-derives inline above
-    // without needing this effect to re-run on every progress change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, selectedVenueId, refreshKey]);
+  }, [userId, selectedVenueId, refreshKey, isMyList]);
+
+  const dances: { dance: Dance; songSwap?: string }[] = isMyList
+    ? Object.values(progress).map((p) => ({ dance: danceFromProgress(p) }))
+    : venueDances;
 
   const filteredVenueDances = danceQuery.trim()
-    ? venueDances.filter(({ dance }) =>
+    ? dances.filter(({ dance }) =>
         [dance.name, dance.defaultSong]
           .join(" ")
           .toLowerCase()
           .includes(danceQuery.trim().toLowerCase()),
       )
-    : venueDances;
+    : dances;
 
   const dropdownOptions = [MY_LIST_OPTION, ...myVenues];
   const selectedVenue = dropdownOptions.find((v) => v.id === selectedVenueId);
@@ -145,8 +146,9 @@ export function MyVenuesScreen({
       contentContainerStyle={s.page}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={s.heading}>My Venues</Text>
+      <Text style={s.heading}>My List</Text>
 
+      <Text style={s.dropdownLabel}>MY VENUES</Text>
       <View style={s.venueRow}>
         <View style={s.dropdownWrap}>
           <Pressable
@@ -214,11 +216,11 @@ export function MyVenuesScreen({
       )}
 
       <Text style={s.section}>
-        {selectedVenueId === MY_LIST_ID
+        {isMyList
           ? "ALL YOUR DANCES"
           : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
       </Text>
-      {venueDances.length > 0 && (
+      {dances.length > 0 && (
         <TextInput
           value={danceQuery}
           onChangeText={setDanceQuery}
@@ -239,9 +241,10 @@ export function MyVenuesScreen({
             song={songSwap ? `${songSwap} (swap)` : dance.defaultSong}
             progress={progress[dance.id]}
             onPress={() => onOpenDance(dance)}
+            onQuickStatus={(status) => onQuickStatus(dance, status)}
           />
         ))}
-      {!dancesLoading && !venueDances.length && !dancesError && (
+      {!dancesLoading && !dances.length && !dancesError && (
         <Text style={s.empty}>
           {selectedVenueId === MY_LIST_ID
             ? "Nothing yet — find a dance on Home and mark it maybe/want/learned."
@@ -249,7 +252,7 @@ export function MyVenuesScreen({
         </Text>
       )}
       {!dancesLoading &&
-        venueDances.length > 0 &&
+        dances.length > 0 &&
         !filteredVenueDances.length && (
           <Text style={s.empty}>No dances match “{danceQuery}”.</Text>
         )}
@@ -266,26 +269,33 @@ export function MyVenuesScreen({
 
 const s = StyleSheet.create({
   page: {
-  padding: 20,
-  paddingBottom: 115,
-},
+    padding: 20,
+    paddingBottom: 115,
+  },
   heading: {
     color: colors.ink,
     fontSize: 25,
     fontWeight: "900",
-    marginBottom: 18,
+    marginBottom: 14,
+  },
+  dropdownLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginBottom: 7,
   },
   venueRow: {
-  flexDirection: "row",
-  alignItems: "flex-start",
-  position: "relative",
-  zIndex: 100,
-},
+    flexDirection: "row",
+    alignItems: "flex-start",
+    position: "relative",
+    zIndex: 100,
+  },
   dropdownWrap: {
-  flex: 1,
-  position: "relative",
-  zIndex: 100,
-},
+    flex: 1,
+    position: "relative",
+    zIndex: 100,
+  },
   dropdownField: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -303,18 +313,18 @@ const s = StyleSheet.create({
   },
   caret: { color: colors.gold, fontSize: 16 },
   dropdownList: {
-  position: "absolute",
-  top: 54,
-  left: 0,
-  right: 0,
-  backgroundColor: "#2b1f35",
-  borderRadius: 12,
-  borderWidth: 1,
-  borderColor: colors.line,
-  maxHeight: 220,
-  overflow: "hidden",
-  zIndex: 1000,
-},
+    position: "absolute",
+    top: 54,
+    left: 0,
+    right: 0,
+    backgroundColor: "#2b1f35",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    maxHeight: 220,
+    overflow: "hidden",
+    zIndex: 1000,
+  },
   dropdownOption: {
     paddingVertical: 13,
     paddingHorizontal: 14,

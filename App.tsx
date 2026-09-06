@@ -26,7 +26,7 @@ import {
   clearRecoveryLinkFromUrl,
   parseRecoveryLink,
 } from "./src/lib/authLinks";
-import { loadProgress } from "./src/services/progress";
+import { loadProgress, saveProgress, deleteProgress } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
@@ -253,6 +253,38 @@ export default function App() {
     setSelected(dance);
   };
 
+  // Home-card quick actions: set a status without opening the modal, or
+  // clear it if the tapped status is already the current one. Venue ties
+  // aren't touched — those live in the details modal.
+  const handleQuickStatus = async (
+    dance: Dance,
+    status: "maybe" | "want" | "learned",
+  ) => {
+    if (!session) return;
+    mergeIntoCache([dance]);
+    const current = progress[dance.id]?.status;
+    try {
+      if (current === status) {
+        await deleteProgress(session.user.id, dance.id);
+        handleProgressChange(dance.id, null);
+      } else {
+        const next: DanceProgress = {
+          danceId: dance.id,
+          status,
+          danceName: dance.name,
+          danceSong: dance.defaultSong,
+          danceDifficulty: dance.difficulty,
+        };
+        await saveProgress(session.user.id, next, dance, undefined, {
+          overwrite: true,
+        });
+        handleProgressChange(dance.id, next);
+      }
+    } catch (err: any) {
+      setMessage(`Could not update ${dance.name}: ${err.message}`);
+    }
+  };
+
   const handleRemoved = (danceId: string) => {
     handleProgressChange(danceId, null);
 
@@ -288,11 +320,12 @@ export default function App() {
             onSignOut={() => void supabase.auth.signOut()}
             onPendingRequestCountChange={setPendingRequestCount}
           />
-        ) : tab === "My Venues" ? (
+        ) : tab === "My List" ? (
           <MyVenuesScreen
             userId={session.user.id}
             progress={progress}
             onOpenDance={openDance}
+            onQuickStatus={handleQuickStatus}
             refreshKey={venuesRefreshKey}
           />
         ) : tab === "Home" ? (
@@ -319,6 +352,7 @@ export default function App() {
                 song={d.defaultSong}
                 progress={progress[d.id]}
                 onPress={() => openDance(d)}
+                onQuickStatus={(status) => handleQuickStatus(d, status)}
               />
             ))}
             {!searchLoading && !searchResults.length && (
