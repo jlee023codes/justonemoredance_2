@@ -34,6 +34,7 @@ function danceFromProgress(progress: DanceProgress): Dance {
     details: "",
     venueSongs: [],
     songSwaps: [],
+    snapshot: true,
   };
 }
 

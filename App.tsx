@@ -26,7 +26,11 @@ import {
   clearRecoveryLinkFromUrl,
   parseRecoveryLink,
 } from "./src/lib/authLinks";
-import { loadProgress, saveProgress, deleteProgress } from "./src/services/progress";
+import {
+  loadProgress,
+  saveProgress,
+  deleteProgress,
+} from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
@@ -43,6 +47,7 @@ function danceFromProgress(progress: DanceProgress): Dance {
     details: "",
     venueSongs: [],
     songSwaps: [],
+    snapshot: true,
   };
 }
 
@@ -146,7 +151,13 @@ export default function App() {
     if (!dances.length) return;
     setCatalogCache((current) => {
       const next = { ...current };
-      for (const dance of dances) next[dance.id] = dance;
+      for (const dance of dances) {
+        // A snapshot (friend import, offline fallback) must never replace a
+        // full BootStepper dance we've already resolved.
+        const existing = next[dance.id];
+        if (existing && !existing.snapshot && dance.snapshot) continue;
+        next[dance.id] = dance;
+      }
       return next;
     });
   };
@@ -181,21 +192,27 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [query, session]);
 
-  // Resolve any dance ids saved in progress that aren't already cached —
+  // Resolve dance ids saved in progress that we only have a snapshot for —
   // covers opening straight to "Want to learn" / "Learned" without having
-  // searched for those dances first in this session.
+  // searched this session, and dances imported from a friend's list (which
+  // arrive as bare name/song/difficulty snapshots). Each id is attempted
+  // once per session; a miss just leaves the snapshot in place.
+  const resolveAttemptedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const missingIds = Object.keys(progress).filter(
-      (id) => !catalogCache[id] && !receivedDances.some((d) => d.id === id),
-    );
-    if (!missingIds.length) return;
-    getDancesByIds(missingIds)
+    const needIds = Object.keys(progress).filter((id) => {
+      if (resolveAttemptedRef.current.has(id)) return false;
+      const cached = catalogCache[id];
+      return !cached || cached.snapshot;
+    });
+    if (!needIds.length) return;
+    needIds.forEach((id) => resolveAttemptedRef.current.add(id));
+    getDancesByIds(needIds)
       .then(mergeIntoCache)
       .catch(() => {
         // Silently fall back to the progress snapshot — see danceFromProgress.
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress, catalogCache, receivedDances]);
+  }, [progress, catalogCache]);
 
   const resolveDance = (id: string): Dance =>
     catalogCache[id] ??
@@ -268,14 +285,19 @@ export default function App() {
         await deleteProgress(session.user.id, dance.id);
         handleProgressChange(dance.id, null);
       } else {
+        // Keep whoever shared this dance attached across every status
+        // change (maybe → want → learned), so the "Shared from" badge
+        // survives. Undefined here means it's the user's own.
+        const sharedFrom = progress[dance.id]?.fromFriend;
         const next: DanceProgress = {
           danceId: dance.id,
           status,
+          fromFriend: sharedFrom,
           danceName: dance.name,
           danceSong: dance.defaultSong,
           danceDifficulty: dance.difficulty,
         };
-        await saveProgress(session.user.id, next, dance, undefined, {
+        await saveProgress(session.user.id, next, dance, sharedFrom, {
           overwrite: true,
         });
         handleProgressChange(dance.id, next);
@@ -383,9 +405,6 @@ export default function App() {
               {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
             </Text>
             {list
-              .filter(
-                (d) => tab !== "Want to learn" || !progress[d.id]?.fromFriend,
-              )
               .map((d) => (
                 <DanceCard
                   key={d.id}
@@ -393,6 +412,12 @@ export default function App() {
                   song={d.defaultSong}
                   progress={progress[d.id]}
                   onPress={() => openDance(d)}
+                  onQuickStatus={(status) => handleQuickStatus(d, status)}
+                  quickActions={
+                    tab === "Want to learn"
+                      ? [{ status: "learned", icon: "★", label: "Learned it" }]
+                      : [{ status: "want", icon: "🔁", label: "Review" }]
+                  }
                 />
               ))}
             {!list.length && (
@@ -408,7 +433,9 @@ export default function App() {
           badges={{ Profile: pendingRequestCount }}
         />
         <DanceDetailsModal
-          dance={selected}
+          dance={
+            selected ? (catalogCache[selected.id] ?? selected) : null
+          }
           userId={session.user.id}
           activeTab={tab}
           progress={selected ? progress[selected.id] : undefined}

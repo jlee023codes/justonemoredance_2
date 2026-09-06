@@ -123,14 +123,19 @@ export function DanceDetailsModal({
       }
     }
     try {
+      // Preserve the "Shared from" attribution across every status
+      // change (maybe → want → learned). Undefined means it's the
+      // user's own dance.
+      const sharedFrom = progress?.fromFriend;
       const next: DanceProgress = {
         danceId: dance.id,
         status,
+        fromFriend: sharedFrom,
         danceName: dance.name,
         danceSong: dance.defaultSong,
         danceDifficulty: dance.difficulty,
       };
-      await saveProgress(userId, next, dance, undefined, { overwrite: true });
+      await saveProgress(userId, next, dance, sharedFrom, { overwrite: true });
       onProgressChange(dance.id, next);
       if (!venue && !danceState) {
         const message = `${dance.name} was added to your My List${
@@ -294,10 +299,10 @@ export function DanceDetailsModal({
                   {STATUS_LABEL[danceState]}
                 </Text>
               </View>
-              {progress && progress?.fromFriend !== "self" && (
+              {progress?.fromFriend && progress.fromFriend !== "self" && (
                 <View style={s.sharedFromBadge}>
                   <Text style={s.sharedFromText}>
-                    Shared from: {progress?.fromFriend}
+                    Shared from: {progress.fromFriend}
                   </Text>
                 </View>
               )}
@@ -392,19 +397,24 @@ export function DanceDetailsModal({
               </Pressable>
             )}
 
-            {danceState !== "maybe" && (
+            {danceState === "learned" ? (
+              // "Review" on a learned dance moves it back to Want to learn.
+              <Pressable
+                style={s.tertiary}
+                onPress={() => handleStatus("want")}
+                disabled={saving}
+              >
+                <Text style={s.tertiaryText}>🔁 Review (move to Want to learn)</Text>
+              </Pressable>
+            ) : danceState !== "maybe" ? (
               <Pressable
                 style={s.tertiary}
                 onPress={() => handleStatus("maybe")}
                 disabled={saving}
               >
-                <Text style={s.tertiaryText}>
-                  {danceState === "learned"
-                    ? "🧠 Need to review"
-                    : "💭 Save for Later"}
-                </Text>
+                <Text style={s.tertiaryText}>💭 Save for Later</Text>
               </Pressable>
-            )}
+            ) : null}
             <View style={s.statusButtons}>
               {danceState !== "want" && danceState !== "learned" && (
                 <Pressable

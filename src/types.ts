@@ -28,6 +28,12 @@ export type Dance = {
   // Choreographer name(s), from BootStepper. Empty for locally-made Dance
   // objects (e.g. the sample friend dance, or offline fallbacks).
   choreographers?: string[];
+  // True for a Dance reconstructed from a saved snapshot (a friend's
+  // imported list, or a progress-row fallback) rather than fetched live
+  // from BootStepper — so `details`, `choreographers` and `songSwaps` are
+  // missing. App.tsx treats these as still-unresolved and upgrades them
+  // from BootStepper when it can.
+  snapshot?: boolean;
 };
 
 // Overall want/learned status for a dance — venue-independent. Which

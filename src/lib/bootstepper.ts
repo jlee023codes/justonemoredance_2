@@ -52,8 +52,17 @@ async function callProxy<T>(
   const { data, error } = await supabase.functions.invoke("bootstepper-proxy", {
     body: { path, params: stringParams },
   });
-  if (error) throw error;
-  return data as T;
+  if (error) {
+    // BootStepper answers 200 with an *empty body* for a lookup that
+    // matches nothing (e.g. getById / getByIds with an id it doesn't
+    // know). supabase-js can't parse that and surfaces it here as a JSON
+    // error — treat it as "no result", not a hard failure.
+    if (/JSON|Unexpected end of (JSON )?input/i.test(error.message ?? "")) {
+      return null as T;
+    }
+    throw error;
+  }
+  return (data ?? null) as T;
 }
 
 const KNOWN_DIFFICULTIES: Dance["difficulty"][] = [
@@ -126,17 +135,28 @@ function adaptDance(raw: RawDance): Dance {
 
 /** Searches BootStepper. Pass an empty query to get their default/trending
  *  ordering — used for the Home tab before the user types anything. */
+// BootStepper isn't consistent about envelopes: /dances/search wraps
+// results in `{ items: [...] }`, but /dances/getByIds returns a bare
+// array. Accept either shape everywhere.
+function unwrapList<T>(data: RawListResponse<T> | T[] | null): T[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  return data.results ?? data.items ?? data.dances ?? [];
+}
+
 export async function searchDances(
   query: string,
-  opts: { searchScope?: number } = {},
+  opts: { limit?: number } = {},
 ): Promise<Dance[]> {
-  const data = await callProxy<RawListResponse<RawDance>>("/dances/search", {
-    query: query || undefined,
-    limit: opts.limit ?? 25,
-    sortBy: "relevance", // BootStepper's param is `sortBy`, not `sort`
-  });
-  const raw = data.results ?? data.items ?? data.dances ?? [];
-  return raw.map(adaptDance);
+  const data = await callProxy<RawListResponse<RawDance> | null>(
+    "/dances/search",
+    {
+      query: query || undefined,
+      limit: opts.limit ?? 25,
+      sortBy: "relevance", // BootStepper's param is `sortBy`, not `sort`
+    },
+  );
+  return unwrapList(data).map(adaptDance);
 }
 
 export async function getDanceById(id: string): Promise<Dance | null> {
@@ -148,11 +168,33 @@ export async function getDanceById(id: string): Promise<Dance | null> {
  *  that aren't in the current search results. */
 export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
   if (!ids.length) return [];
-  const data = await callProxy<RawListResponse<RawDance>>("/dances/getByIds", {
-    ids: ids.join(","),
-  });
-  const raw = data.results ?? data.items ?? data.dances ?? [];
-  return raw.map(adaptDance);
+
+  let resolved: Dance[] = [];
+  try {
+    const data = await callProxy<RawListResponse<RawDance> | RawDance[] | null>(
+      "/dances/getByIds",
+      { ids: ids.join(",") },
+    );
+    resolved = unwrapList(data).map(adaptDance);
+  } catch {
+    // Fall through to per-id lookups below.
+  }
+
+  // The batch endpoint returns *nothing* (empty body) if even one id is
+  // unknown, so a single stale id — an old friend sample, a dance deleted
+  // upstream — would otherwise sink the whole request. Retry the missing
+  // ones individually and just drop whatever still doesn't resolve.
+  const found = new Set(resolved.map((d) => d.id));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length) {
+    const singles = await Promise.all(
+      missing.map((id) => getDanceById(id).catch(() => null)),
+    );
+    resolved = resolved.concat(
+      singles.filter((d): d is Dance => d !== null),
+    );
+  }
+  return resolved;
 }
 
 export async function getStepSheet(

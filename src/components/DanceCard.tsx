@@ -9,10 +9,14 @@ const DIFFICULTY_COLOR: Record<Dance["difficulty"], string> = {
   Advanced: colors.pink,
 };
 
-// The three statuses reachable from a Home card's quick-action row, in the
-// order they're shown. `maybe` is "Save for Later".
+// `maybe` is "Save for Later".
 export type QuickStatus = "maybe" | "want" | "learned";
-const QUICK_ACTIONS: { status: QuickStatus; icon: string; label: string }[] = [
+export type QuickAction = { status: QuickStatus; icon: string; label: string };
+
+// The full row shown on Home / My List. Screens that only want one
+// contextual button (Want list → promote to Learned; Learned list →
+// "Review", i.e. back to Want) pass their own `quickActions`.
+const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
   { status: "maybe", icon: "🔖", label: "Later" },
   { status: "want", icon: "♡", label: "Want" },
   { status: "learned", icon: "★", label: "Learned" },
@@ -28,6 +32,8 @@ export function DanceCard({
   // Tapping one sets that status; tapping the one that's already lit
   // clears it. The card body still opens the details modal.
   onQuickStatus,
+  // Override which quick actions show (default: Later / Want / Learned).
+  quickActions = DEFAULT_QUICK_ACTIONS,
   // When defined, the card is in pick-list mode and shows a checkbox
   // instead of the chevron (see FriendDancesModal's "select dances").
   selected,
@@ -40,6 +46,7 @@ export function DanceCard({
   onPress: () => void;
   fromFriend?: string;
   onQuickStatus?: (status: QuickStatus) => void;
+  quickActions?: QuickAction[];
   selected?: boolean;
   /** Short line under the song, e.g. "Already in your list". */
   note?: string;
@@ -114,7 +121,7 @@ export function DanceCard({
 
       {onQuickStatus && (
         <View style={s.quickRow}>
-          {QUICK_ACTIONS.map((action) => {
+          {quickActions.map((action) => {
             const active = status === action.status;
             return (
               <Pressable
