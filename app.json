@@ -9,6 +9,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#16101d"
     },
+    "scheme": "justonemoredance",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourname.justonemoredance"

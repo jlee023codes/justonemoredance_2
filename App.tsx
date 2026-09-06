@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,8 +8,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
-import { Dance, DanceProgress, LearningStatus } from "./src/types";
+import { Dance, DanceProgress } from "./src/types";
 import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
@@ -17,22 +18,19 @@ import { MyVenuesScreen } from "./src/components/MyVenuesScreen";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
+import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
+import { showAlert } from "./src/lib/alerts";
+import {
+  applyRecoveryLink,
+  clearRecoveryLinkFromUrl,
+  parseRecoveryLink,
+} from "./src/lib/authLinks";
 import { loadProgress } from "./src/services/progress";
+import { loadFriendRequests } from "./src/services/friends";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
-import { SafeAreaView } from "react-native-safe-area-context";
-
-// A received dance is deliberately separate from the app's BootStepper-backed catalog.
-const sampleFriendDance: Dance = {
-  id: "friends-two-step",
-  name: "Friends Two-Step",
-  defaultSong: "Neon Moon — Brooks & Dunn",
-  difficulty: "Beginner",
-  details: "32 count • 4 wall • shared by a friend",
-  venueSongs: [],
-  songSwaps: [],
-};
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 // Falls back to whatever was snapshotted at save time if a dance can't be
 // resolved from BootStepper right now (offline, removed upstream, etc).
@@ -54,7 +52,6 @@ export default function App() {
     [progress, setProgress] = useState<Record<string, DanceProgress>>({}),
     [receivedDances, setReceivedDances] = useState<Dance[]>([]),
     [selected, setSelected] = useState<Dance | null>(null),
-    [share, setShare] = useState(false),
     [message, setMessage] = useState(""),
     [session, setSession] = useState<Session | null>(null),
     [authLoading, setAuthLoading] = useState(true),
@@ -67,27 +64,83 @@ export default function App() {
     // id, received/friend dances) — lets Want/Learned resolve a full Dance
     // even when it's not in the current Home search results.
     [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({}),
-    [venuesRefreshKey, setVenuesRefreshKey] = useState(0);
+    [venuesRefreshKey, setVenuesRefreshKey] = useState(0),
+    // True once a password-reset link has been turned into a session and
+    // we owe the user a "pick a new password" screen.
+    [resetPassword, setResetPassword] = useState(false),
+    [pendingRequestCount, setPendingRequestCount] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => setSession(nextSession),
-    );
-    return () => listener.subscription.unsubscribe();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession);
+      if (event === "PASSWORD_RECOVERY") {
+        // Web only: supabase-js read the recovery tokens out of the URL
+        // fragment itself (detectSessionInUrl). Wipe them so a refresh
+        // doesn't try to replay a spent token.
+        setResetPassword(true);
+        clearRecoveryLinkFromUrl();
+      }
+      if (event === "SIGNED_OUT") {
+        setResetPassword(false);
+        setProgress({});
+        setPendingRequestCount(0);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
+  // Native side of the password-reset flow. On web, supabase-js handles
+  // the URL itself; on iOS/Android the deep link arrives here instead and
+  // we exchange it for a session by hand. See src/lib/authLinks.ts.
+  const deepLink = Linking.useLinkingURL();
   useEffect(() => {
-    if (!session) return;
-    loadProgress(session.user.id)
-      .then(setProgress)
-      .catch((error) =>
-        setMessage(`Could not load saved dances: ${error.message}`),
+    if (Platform.OS === "web") return;
+    const link = parseRecoveryLink(deepLink);
+    if (!link) return;
+    applyRecoveryLink(link)
+      .then(() => setResetPassword(true))
+      .catch((err: any) =>
+        showAlert(
+          "That link didn't work",
+          err?.message ??
+            "Request a new password reset link from the sign-in screen.",
+        ),
       );
-  }, [session]);
+  }, [deepLink]);
+
+  // Pull the saved want/learned/maybe list down whenever we have a user.
+  const userId = session?.user.id;
+  useEffect(() => {
+    if (!userId) return;
+    loadProgress(userId)
+      .then(setProgress)
+      .catch((err: any) =>
+        setMessage(`Could not load your saved dances: ${err.message}`),
+      );
+  }, [userId]);
+
+  const refreshRequestCount = () => {
+    if (!userId) return;
+    loadFriendRequests()
+      .then((requests) =>
+        setPendingRequestCount(
+          requests.filter((r) => r.direction === "incoming").length,
+        ),
+      )
+      .catch(() => {
+        // Non-critical: worst case the Profile tab just has no badge.
+      });
+  };
+
+  useEffect(refreshRequestCount, [userId]);
 
   const mergeIntoCache = (dances: Dance[]) => {
     if (!dances.length) return;
@@ -161,9 +214,25 @@ export default function App() {
 
   if (authLoading)
     return (
-      <SafeAreaView style={s.safe}>
-        <Text style={s.loading}>Loading your dance list…</Text>
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView style={s.safe}>
+          <Text style={s.loading}>Loading your dance list…</Text>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  // The reset screen needs the session the recovery link created, so it
+  // has to come after the auth check but before everything else.
+  if (session && resetPassword)
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={s.safe}>
+          <StatusBar style="light" />
+          <ResetPasswordScreen
+            email={session.user.email ?? undefined}
+            onDone={() => setResetPassword(false)}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
     );
   if (!session) return <AuthScreen />;
 
@@ -199,87 +268,51 @@ export default function App() {
         : learnedCount
           ? "🌟 First dance down!"
           : "💃 Learn your first dance to unlock a milestone";
-  return (
-    <SafeAreaView style={s.safe}>
-      <StatusBar style="light" />
-      <View style={s.header}>
-        <Text style={s.logo}>JUST ONE MORE</Text>
-        <Text style={s.dance}>DANCE</Text>
-      </View>
-      {tab === "Profile" ? (
-        <ProfileScreen
-          userId={session.user.id}
-          email={session.user.is_anonymous ? undefined : session.user.email}
-          learnedCount={learnedCount}
-          wantCount={want.length}
-          onProgressChange={handleProgressChange}
-          onSignOut={() => void supabase.auth.signOut()}
-        />
-      ) : tab === "My Venues" ? (
-        <MyVenuesScreen
-          userId={session.user.id}
-          progress={progress}
-          onOpenDance={openDance}
-          refreshKey={venuesRefreshKey}
-        />
-      ) : tab === "Home" ? (
-        <ScrollView
-          contentContainerStyle={s.content}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={s.greeting}>Find your next favorite step ✨</Text>
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search dances or songs"
-            placeholderTextColor={colors.muted}
-            style={s.search}
-          />
-          <Text style={s.section}>DANCES</Text>
-          {searchLoading && !searchResults.length && (
-            <Text style={s.empty}>Loading dances…</Text>
-          )}
-          {searchResults.map((d) => (
-            <DanceCard
-              key={d.id}
-              dance={d}
-              song={d.defaultSong}
-              progress={progress[d.id]}
-              onPress={() => openDance(d)}
-            />
-          ))}
-          {!searchLoading && !searchResults.length && (
-            <Text style={s.empty}>
-              No dances found — try a different search.
-            </Text>
-          )}
-          <Pressable style={s.share} onPress={() => setShare(true)}>
-            <Text style={s.shareText}>↗ SHARE MY LIST</Text>
-          </Pressable>
-          {message ? <Text style={s.message}>{message}</Text> : null}
-        </ScrollView>
-      ) : (
-        <ScrollView contentContainerStyle={s.content}>
-          <Text style={s.greeting}>
-            {tab === "Learned"
-              ? learnedCount + " dances in your pocket"
-              : "Your next moves, queued up"}
-          </Text>
-          {tab === "Learned" && (
-            <View style={s.achievement}>
-              <Text style={s.achievementText}>{achievement}</Text>
-              <Text style={s.tiny}>Next milestone: 5 dances</Text>
-            </View>
-          )}
 
-          <Text style={s.section}>
-            {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
-          </Text>
-          {list
-            .filter(
-              (d) => tab !== "Want to learn" || !progress[d.id]?.fromFriend,
-            )
-            .map((d) => (
+  return (
+    <SafeAreaProvider>
+      <SafeAreaView style={s.safe}>
+        <StatusBar style="light" />
+        <View style={s.header}>
+          <Text style={s.logo}>JUST ONE MORE</Text>
+          <Text style={s.dance}>DANCE</Text>
+        </View>
+        {tab === "Profile" ? (
+          <ProfileScreen
+            userId={session.user.id}
+            email={session.user.is_anonymous ? undefined : session.user.email}
+            learnedCount={learnedCount}
+            wantCount={want.length}
+            progress={progress}
+            onProgressChange={handleProgressChange}
+            onSignOut={() => void supabase.auth.signOut()}
+            onPendingRequestCountChange={setPendingRequestCount}
+          />
+        ) : tab === "My Venues" ? (
+          <MyVenuesScreen
+            userId={session.user.id}
+            progress={progress}
+            onOpenDance={openDance}
+            refreshKey={venuesRefreshKey}
+          />
+        ) : tab === "Home" ? (
+          <ScrollView
+            contentContainerStyle={s.content}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={s.greeting}>Find your next favorite step ✨</Text>
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search dances or songs"
+              placeholderTextColor={colors.muted}
+              style={s.search}
+            />
+            <Text style={s.section}>DANCES</Text>
+            {searchLoading && !searchResults.length && (
+              <Text style={s.empty}>Loading dances…</Text>
+            )}
+            {searchResults.map((d) => (
               <DanceCard
                 key={d.id}
                 dance={d}
@@ -288,24 +321,69 @@ export default function App() {
                 onPress={() => openDance(d)}
               />
             ))}
-          {!list.length && (
-            <Text style={s.empty}>
-              Nothing here yet — choose a dance from Home.
+            {!searchLoading && !searchResults.length && (
+              <Text style={s.empty}>
+                No dances found — try a different search.
+              </Text>
+            )}
+            <Pressable style={s.share} onPress={() => setTab("Profile")}>
+              <Text style={s.shareText}>↗ SHARE MY LIST</Text>
+            </Pressable>
+            {message ? <Text style={s.message}>{message}</Text> : null}
+          </ScrollView>
+        ) : (
+          <ScrollView contentContainerStyle={s.content}>
+            <Text style={s.greeting}>
+              {tab === "Learned"
+                ? learnedCount + " dances in your pocket"
+                : "Your next moves, queued up"}
             </Text>
-          )}
-        </ScrollView>
-      )}
-      <BottomTabs activeTab={tab} onChange={setTab} />
-      <DanceDetailsModal
-        dance={selected}
-        userId={session.user.id}
-        activeTab={tab}
-        progress={selected ? progress[selected.id] : undefined}
-        onClose={() => setSelected(null)}
-        onProgressChange={handleProgressChange}
-        onRemoved={handleRemoved}
-      />
-    </SafeAreaView>
+            {tab === "Learned" && (
+              <View style={s.achievement}>
+                <Text style={s.achievementText}>{achievement}</Text>
+                <Text style={s.tiny}>Next milestone: 5 dances</Text>
+              </View>
+            )}
+
+            <Text style={s.section}>
+              {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
+            </Text>
+            {list
+              .filter(
+                (d) => tab !== "Want to learn" || !progress[d.id]?.fromFriend,
+              )
+              .map((d) => (
+                <DanceCard
+                  key={d.id}
+                  dance={d}
+                  song={d.defaultSong}
+                  progress={progress[d.id]}
+                  onPress={() => openDance(d)}
+                />
+              ))}
+            {!list.length && (
+              <Text style={s.empty}>
+                Nothing here yet — choose a dance from Home.
+              </Text>
+            )}
+          </ScrollView>
+        )}
+        <BottomTabs
+          activeTab={tab}
+          onChange={setTab}
+          badges={{ Profile: pendingRequestCount }}
+        />
+        <DanceDetailsModal
+          dance={selected}
+          userId={session.user.id}
+          activeTab={tab}
+          progress={selected ? progress[selected.id] : undefined}
+          onClose={() => setSelected(null)}
+          onProgressChange={handleProgressChange}
+          onRemoved={handleRemoved}
+        />
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 const s = StyleSheet.create({

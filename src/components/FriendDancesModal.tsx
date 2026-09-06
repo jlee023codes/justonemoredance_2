@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -11,9 +10,10 @@ import {
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
+import { showAlert, showError } from "../lib/alerts";
 import { DanceCard } from "./DanceCard";
 import { Friend, FriendDance, loadFriendDances } from "../services/friends";
-import { saveProgress } from "src/services/progress";
+import { saveProgress } from "../services/progress";
 
 function toDance(fd: FriendDance): Dance {
   return {
@@ -34,22 +34,30 @@ function toProgress(fd: FriendDance): DanceProgress {
 export function FriendDancesModal({
   userId,
   friend,
+  progress,
   onClose,
   onProgressChange,
 }: {
   userId: string;
   friend: Friend | null;
+  /** The viewer's own list, so dances they already have can be marked and
+   *  left out of the selection instead of silently no-op'ing on import. */
+  progress: Record<string, DanceProgress>;
   onClose: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
 }) {
   const [dances, setDances] = useState<FriendDance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+  // null = browsing; a Set = picking which ones to import.
+  const [picked, setPicked] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     if (!friend) return;
     setLoading(true);
     setError("");
+    setPicked(null);
     loadFriendDances(friend.id)
       .then(setDances)
       .catch((err: any) =>
@@ -59,15 +67,35 @@ export function FriendDancesModal({
   }, [friend]);
 
   if (!friend) return null;
-  const showError = (err: any, fallback: string) => {
-    Alert.alert("Something went wrong", err?.message ?? fallback);
-  };
 
-  const importDances = async (friendList: FriendDance[]) => {
+  const alreadyMine = (danceId: string) => Boolean(progress[danceId]);
+  const importable = dances.filter((fd) => !alreadyMine(fd.danceId));
+
+  const togglePick = (danceId: string) =>
+    setPicked((current) => {
+      const next = new Set(current ?? []);
+      if (next.has(danceId)) next.delete(danceId);
+      else next.add(danceId);
+      return next;
+    });
+
+  /** Imports the given dances as "Save for later", tagged with whose list
+   *  they came from. Anything already in the user's list is skipped —
+   *  importing shouldn't quietly overwrite a dance they've marked learned. */
+  const importDances = async (chosen: FriendDance[]) => {
+    const fresh = chosen.filter((fd) => !alreadyMine(fd.danceId));
+    if (!fresh.length) {
+      return showAlert(
+        "Nothing to import",
+        "Every dance you picked is already in your list.",
+      );
+    }
+
+    setImporting(true);
     try {
-      let alreadyKnown = 0;
+      let skipped = 0;
       await Promise.all(
-        dances.map(async (friendDance) => {
+        fresh.map(async (friendDance) => {
           const dance = toDance(friendDance);
           const next: DanceProgress = {
             danceId: dance.id,
@@ -83,24 +111,30 @@ export function FriendDancesModal({
             dance,
             friend.username,
           );
-          if (imported) {
-            onProgressChange(dance.id, next);
-          } else {
-            alreadyKnown++;
-          }
+          if (imported) onProgressChange(dance.id, next);
+          else skipped++; // raced with another device, or already there
         }),
       );
-      if (alreadyKnown > 0) {
-        Alert.alert(
-          "Dance already known",
-          `You already knew ${alreadyKnown}/${dances.length} dances. Those were not imported.`,
-        );
-      }
+
+      const added = fresh.length - skipped;
+      showAlert(
+        added ? "Added to your list" : "Nothing new to import",
+        added
+          ? `${added} dance${added === 1 ? "" : "s"} from ${friend.displayName} ${
+              added === 1 ? "is" : "are"
+            } now under 🔖 Save for Later.` +
+              (skipped ? ` ${skipped} you already had.` : "")
+          : "You already had every one of those.",
+      );
       onClose();
     } catch (err: any) {
-      showError(err, "Could import your friends list");
+      showError(err, "Could not import your friend's list.");
+    } finally {
+      setImporting(false);
     }
   };
+
+  const pickedCount = picked?.size ?? 0;
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -111,39 +145,116 @@ export function FriendDancesModal({
           </Pressable>
           <ScrollView contentContainerStyle={s.sheet}>
             <Text style={s.title}>{friend.displayName}'s list</Text>
-            <Text style={s.subtitle}>Read-only — this is their My List</Text>
+            <Text style={s.subtitle}>
+              {picked
+                ? "Tap dances to pick the ones you want."
+                : "Read-only — this is their My List"}
+            </Text>
 
-            <Pressable
-              style={s.importButton}
-              onPress={() => {
-                importDances(dances);
-              }}
-              hitSlop={10}
-            >
-              <Text style={s.importText}>
-                Import {friend.displayName}'s List{" "}
-              </Text>
-            </Pressable>
+            {!loading && importable.length > 0 && (
+              <View style={s.actions}>
+                {picked ? (
+                  <>
+                    <Pressable
+                      style={[s.primaryButton, !pickedCount && s.disabled]}
+                      onPress={() =>
+                        importDances(
+                          importable.filter((fd) => picked.has(fd.danceId)),
+                        )
+                      }
+                      disabled={!pickedCount || importing}
+                    >
+                      <Text style={s.primaryText}>
+                        {importing
+                          ? "Importing…"
+                          : `Import ${pickedCount || ""} selected`.trim()}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.ghostButton}
+                      onPress={() =>
+                        setPicked(
+                          pickedCount === importable.length
+                            ? new Set()
+                            : new Set(importable.map((fd) => fd.danceId)),
+                        )
+                      }
+                      disabled={importing}
+                    >
+                      <Text style={s.ghostText}>
+                        {pickedCount === importable.length
+                          ? "Clear"
+                          : "Select all"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.ghostButton}
+                      onPress={() => setPicked(null)}
+                      disabled={importing}
+                    >
+                      <Text style={s.ghostText}>Cancel</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Pressable
+                      style={s.importButton}
+                      onPress={() => importDances(importable)}
+                      disabled={importing}
+                    >
+                      <Text style={s.importText}>
+                        {importing
+                          ? "Importing…"
+                          : `Import all ${importable.length}`}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.importButton}
+                      onPress={() => setPicked(new Set())}
+                      disabled={importing}
+                    >
+                      <Text style={s.importText}>Select dances</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            )}
+
             {loading && (
               <ActivityIndicator color={colors.gold} style={s.loader} />
             )}
             {error ? <Text style={s.error}>{error}</Text> : null}
 
             {!loading &&
-              dances.map((fd) => (
-                <DanceCard
-                  key={fd.danceId}
-                  dance={toDance(fd)}
-                  song={fd.song}
-                  progress={toProgress(fd)}
-                  onPress={() => {}}
-                  fromFriend={friend.displayName}
-                />
-              ))}
+              dances.map((fd) => {
+                const mine = alreadyMine(fd.danceId);
+                return (
+                  <DanceCard
+                    key={fd.danceId}
+                    dance={toDance(fd)}
+                    song={fd.song}
+                    progress={toProgress(fd)}
+                    fromFriend={friend.displayName}
+                    note={mine ? "Already in your list" : undefined}
+                    dimmed={mine}
+                    selected={
+                      picked && !mine ? picked.has(fd.danceId) : undefined
+                    }
+                    onPress={() => {
+                      if (picked && !mine) togglePick(fd.danceId);
+                    }}
+                  />
+                );
+              })}
 
             {!loading && !dances.length && !error && (
               <Text style={s.empty}>
                 {friend.displayName} hasn't marked any dances yet.
+              </Text>
+            )}
+            {!loading && dances.length > 0 && !importable.length && (
+              <Text style={s.empty}>
+                You already have every dance on their list.
               </Text>
             )}
           </ScrollView>
@@ -166,6 +277,11 @@ const s = StyleSheet.create({
     maxHeight: "88%",
     overflow: "hidden",
   },
+  actions: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 18,
+  },
   importButton: {
     flex: 1,
     minWidth: 0,
@@ -183,6 +299,33 @@ const s = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
+  primaryButton: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: colors.pink,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryText: {
+    color: "#fff",
+    fontWeight: "900",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  ghostButton: {
+    borderColor: colors.line,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ghostText: { color: colors.muted, fontWeight: "800", fontSize: 12 },
+  disabled: { opacity: 0.4 },
   closeButton: {
     position: "absolute",
     top: 14,

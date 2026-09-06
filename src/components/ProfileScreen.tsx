@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,17 +9,23 @@ import {
   View,
 } from "react-native";
 import { colors } from "../styles";
+import { confirmAction, showAlert } from "../lib/alerts";
+import { supabase } from "../lib/supabase";
 import {
   Friend,
-  addFriendByUsername,
+  FriendRequest,
+  cancelFriendRequest,
   getMyProfile,
+  loadFriendRequests,
   loadFriends,
   removeFriend,
+  respondToFriendRequest,
+  sendFriendRequest,
   setDisplayName,
   setUsername,
 } from "../services/friends";
 import { FriendDancesModal } from "./FriendDancesModal";
-import { DanceProgress } from "src/types";
+import { DanceProgress } from "../types";
 
 const awards = [
   { count: 1, icon: "🌟", title: "First Steps", note: "Learn 1 dance" },
@@ -40,15 +44,22 @@ export function ProfileScreen({
   email,
   learnedCount,
   wantCount,
+  progress,
   onSignOut,
   onProgressChange,
+  onPendingRequestCountChange,
 }: {
   userId: string;
   email?: string;
   learnedCount: number;
   wantCount: number;
+  /** Passed straight through to FriendDancesModal so it can mark dances
+   *  the user already has. */
+  progress: Record<string, DanceProgress>;
   onSignOut: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
+  // Keeps the badge on the Profile tab in step with what's on screen.
+  onPendingRequestCountChange?: (count: number) => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -63,10 +74,11 @@ export function ProfileScreen({
   const [nameInput, setNameInput] = useState("");
   const [savingName, setSavingName] = useState(false);
 
-  // Add a friend
+  // Send a friend request
   const [usernameSearch, setUsernameSearch] = useState("");
   const [addingFriend, setAddingFriend] = useState(false);
   const [addError, setAddError] = useState("");
+  const [addNotice, setAddNotice] = useState("");
 
   // Friends list
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -74,11 +86,32 @@ export function ProfileScreen({
   const [friendsError, setFriendsError] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
 
+  // Pending friend requests, both directions
+  const [requests, setRequests] = useState<FriendRequest[]>([]);
+  const [answering, setAnswering] = useState<string | null>(null);
+
+  // Change password
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  const publishRequests = (next: FriendRequest[]) => {
+    setRequests(next);
+    onPendingRequestCountChange?.(
+      next.filter((r) => r.direction === "incoming").length,
+    );
+  };
+
   const refreshFriends = () => {
     setFriendsLoading(true);
     setFriendsError("");
-    loadFriends(userId)
-      .then(setFriends)
+    Promise.all([loadFriends(userId), loadFriendRequests()])
+      .then(([nextFriends, nextRequests]) => {
+        setFriends(nextFriends);
+        publishRequests(nextRequests);
+      })
       .catch((err: any) =>
         setFriendsError(err.message ?? "Could not load friends."),
       )
@@ -94,7 +127,7 @@ export function ProfileScreen({
       .catch((err: any) => {
         setUsernameError(
           err.message ??
-            "Could not load your profile — has migration_username.sql been run?",
+            "Could not load your profile — has migration_friend_requests.sql been run?",
         );
       });
     refreshFriends();
@@ -122,54 +155,137 @@ export function ProfileScreen({
       setLocalDisplayName(nameInput.trim() || null);
       setEditingName(false);
     } catch (err: any) {
-      const message = err.message ?? "Could not save your name.";
-      if (Platform.OS === "web") window.alert(message);
-      else Alert.alert("Could not save", message);
+      showAlert("Could not save", err.message ?? "Could not save your name.");
     } finally {
       setSavingName(false);
     }
   };
 
-  const handleAddFriend = async () => {
+  const addToFriendList = (friend: Friend) =>
+    setFriends((current) =>
+      current.some((f) => f.id === friend.id)
+        ? current
+        : [...current, friend].sort((a, b) =>
+            a.displayName.localeCompare(b.displayName),
+          ),
+    );
+
+  /** Opens a *request* — nobody sees anybody's list until it's accepted.
+   *  The one exception is when they'd already asked you, in which case the
+   *  server accepts theirs and you're friends straight away. */
+  const handleSendRequest = async () => {
     if (!usernameSearch.trim()) return;
     setAddingFriend(true);
     setAddError("");
+    setAddNotice("");
     try {
-      const friend = await addFriendByUsername(usernameSearch);
-      setFriends((current) =>
-        [...current, friend].sort((a, b) =>
-          a.displayName.localeCompare(b.displayName),
-        ),
-      );
+      const result = await sendFriendRequest(usernameSearch);
+      if (result.status === "accepted") {
+        addToFriendList(result.friend);
+        publishRequests(
+          requests.filter((r) => r.from.id !== result.friend.id),
+        );
+        setAddNotice(
+          `${result.friend.displayName} had already asked you — you're friends now.`,
+        );
+      } else {
+        publishRequests([
+          {
+            requestId: result.requestId,
+            direction: "outgoing",
+            from: result.friend,
+            createdAt: new Date().toISOString(),
+          },
+          ...requests,
+        ]);
+        setAddNotice(
+          `Request sent to ${result.friend.displayName}. You'll see each other's lists once they accept.`,
+        );
+      }
       setUsernameSearch("");
     } catch (err: any) {
-      setAddError(err.message ?? "Could not add that friend.");
+      setAddError(err.message ?? "Could not send that friend request.");
     } finally {
       setAddingFriend(false);
     }
   };
 
-  const handleRemoveFriend = (friend: Friend) => {
-    const message = `Remove ${friend.displayName} as a friend? You'll stop seeing each other's lists.`;
-    const doRemove = async () => {
-      try {
-        await removeFriend(friend.id);
-        setFriends((current) => current.filter((f) => f.id !== friend.id));
-      } catch (err: any) {
-        const msg = err.message ?? "Could not remove that friend.";
-        if (Platform.OS === "web") window.alert(msg);
-        else Alert.alert("Could not remove", msg);
-      }
-    };
-    if (Platform.OS === "web") {
-      if (window.confirm(message)) void doRemove();
-    } else {
-      Alert.alert("Remove friend?", message, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Remove", style: "destructive", onPress: doRemove },
-      ]);
+  const handleRespond = async (request: FriendRequest, accept: boolean) => {
+    setAnswering(request.requestId);
+    try {
+      const friend = await respondToFriendRequest(request.requestId, accept);
+      publishRequests(
+        requests.filter((r) => r.requestId !== request.requestId),
+      );
+      if (accept) addToFriendList(friend);
+    } catch (err: any) {
+      showAlert(
+        "Could not answer that request",
+        err.message ?? "Try again in a moment.",
+      );
+      refreshFriends();
+    } finally {
+      setAnswering(null);
     }
   };
+
+  const handleCancelRequest = async (request: FriendRequest) => {
+    setAnswering(request.requestId);
+    try {
+      await cancelFriendRequest(request.requestId);
+      publishRequests(
+        requests.filter((r) => r.requestId !== request.requestId),
+      );
+    } catch (err: any) {
+      showAlert(
+        "Could not cancel that request",
+        err.message ?? "Try again in a moment.",
+      );
+    } finally {
+      setAnswering(null);
+    }
+  };
+
+  const handleRemoveFriend = async (friend: Friend) => {
+    const confirmed = await confirmAction(
+      "Remove friend?",
+      `Remove ${friend.displayName} as a friend? You'll stop seeing each other's lists.`,
+      "Remove",
+      true,
+    );
+    if (!confirmed) return;
+    try {
+      await removeFriend(friend.id);
+      setFriends((current) => current.filter((f) => f.id !== friend.id));
+    } catch (err: any) {
+      showAlert(
+        "Could not remove",
+        err.message ?? "Could not remove that friend.",
+      );
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError("");
+    if (newPassword.length < 6) {
+      return setPasswordError("Your password must be at least 6 characters.");
+    }
+    if (newPassword !== confirmNewPassword) {
+      return setPasswordError("Those passwords don't match.");
+    }
+    setSavingPassword(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setSavingPassword(false);
+    if (error) return setPasswordError(error.message);
+
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setPasswordOpen(false);
+    showAlert("Password changed", "Use your new password next time you sign in.");
+  };
+
+  const incoming = requests.filter((r) => r.direction === "incoming");
+  const outgoing = requests.filter((r) => r.direction === "outgoing");
 
   return (
     <ScrollView contentContainerStyle={s.page}>
@@ -315,7 +431,7 @@ export function ProfileScreen({
             )}
 
             <Text style={[s.settingLabel, s.addFriendLabel]}>
-              ADD BY USERNAME
+              SEND A FRIEND REQUEST
             </Text>
             <View style={s.addFriendRow}>
               <Text style={s.atSignInline}>@</Text>
@@ -324,6 +440,7 @@ export function ProfileScreen({
                 onChangeText={(text) => {
                   setUsernameSearch(text.replace(/\s/g, ""));
                   setAddError("");
+                  setAddNotice("");
                 }}
                 placeholder="theirname"
                 placeholderTextColor={colors.muted}
@@ -336,26 +453,95 @@ export function ProfileScreen({
                   s.addFriendButton,
                   !usernameSearch.trim() && s.disabled,
                 ]}
-                onPress={handleAddFriend}
+                onPress={handleSendRequest}
                 disabled={!usernameSearch.trim() || addingFriend}
               >
                 <Text style={s.addFriendButtonText}>
-                  {addingFriend ? "…" : "Add"}
+                  {addingFriend ? "…" : "Send"}
                 </Text>
               </Pressable>
             </View>
             {addError ? <Text style={s.error}>{addError}</Text> : null}
+            {addNotice ? <Text style={s.notice}>{addNotice}</Text> : null}
 
             {friendsLoading && (
               <ActivityIndicator color={colors.gold} style={s.inlineLoader} />
             )}
             {friendsError ? <Text style={s.error}>{friendsError}</Text> : null}
 
-            {!friendsLoading && friends.length === 0 && !friendsError && (
-              <Text style={s.hint}>
-                No friends yet — share your code above, or add someone else's.
+            {!friendsLoading && incoming.length > 0 && (
+              <>
+                <Text style={[s.settingLabel, s.addFriendLabel]}>
+                  FRIEND REQUESTS ({incoming.length})
+                </Text>
+                {incoming.map((request) => (
+                  <View key={request.requestId} style={s.requestRow}>
+                    <Text style={s.friendName} numberOfLines={1}>
+                      {request.from.displayName}
+                      <Text style={s.requestHandle}>
+                        {"  @" + request.from.username}
+                      </Text>
+                    </Text>
+                    <Pressable
+                      style={[
+                        s.acceptButton,
+                        answering === request.requestId && s.disabled,
+                      ]}
+                      onPress={() => handleRespond(request, true)}
+                      disabled={answering === request.requestId}
+                    >
+                      <Text style={s.acceptText}>Accept</Text>
+                    </Pressable>
+                    <Pressable
+                      style={s.declineButton}
+                      onPress={() => handleRespond(request, false)}
+                      disabled={answering === request.requestId}
+                      hitSlop={6}
+                    >
+                      <Text style={s.declineText}>Decline</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {!friendsLoading && outgoing.length > 0 && (
+              <>
+                <Text style={[s.settingLabel, s.addFriendLabel]}>
+                  WAITING ON THEM
+                </Text>
+                {outgoing.map((request) => (
+                  <View key={request.requestId} style={s.requestRow}>
+                    <Text style={s.pendingName} numberOfLines={1}>
+                      @{request.from.username} · pending
+                    </Text>
+                    <Pressable
+                      style={s.declineButton}
+                      onPress={() => handleCancelRequest(request)}
+                      disabled={answering === request.requestId}
+                      hitSlop={6}
+                    >
+                      <Text style={s.declineText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {!friendsLoading && friends.length > 0 && (
+              <Text style={[s.settingLabel, s.addFriendLabel]}>
+                MY FRIENDS ({friends.length})
               </Text>
             )}
+            {!friendsLoading &&
+              friends.length === 0 &&
+              !friendsError &&
+              incoming.length === 0 && (
+                <Text style={s.hint}>
+                  No friends yet — share your username above, or send someone a
+                  request. You'll see each other's lists once they accept.
+                </Text>
+              )}
 
             {!friendsLoading &&
               friends.map((friend) => (
@@ -365,6 +551,7 @@ export function ProfileScreen({
                   onPress={() => setSelectedFriend(friend)}
                 >
                   <Text style={s.friendName}>{friend.displayName}</Text>
+                  <Text style={s.friendOpen}>View list ›</Text>
                   <Pressable
                     onPress={() => handleRemoveFriend(friend)}
                     hitSlop={8}
@@ -390,6 +577,82 @@ export function ProfileScreen({
       <View style={s.settings}>
         <Text style={s.settingLabel}>SIGNED IN AS</Text>
         <Text style={s.email}>{email ?? "Guest dancer"}</Text>
+
+        {/* Guests have no password to change. */}
+        {email ? (
+          passwordOpen ? (
+            <View style={s.passwordBlock}>
+              <Text style={s.settingLabel}>NEW PASSWORD</Text>
+              <TextInput
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="newPassword"
+                placeholder="New password (6+ characters)"
+                placeholderTextColor={colors.muted}
+                value={newPassword}
+                onChangeText={(text) => {
+                  setNewPassword(text);
+                  setPasswordError("");
+                }}
+                style={s.passwordInput}
+                editable={!savingPassword}
+                autoFocus
+              />
+              <TextInput
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="newPassword"
+                placeholder="Confirm new password"
+                placeholderTextColor={colors.muted}
+                value={confirmNewPassword}
+                onChangeText={(text) => {
+                  setConfirmNewPassword(text);
+                  setPasswordError("");
+                }}
+                style={[
+                  s.passwordInput,
+                  !!confirmNewPassword &&
+                    confirmNewPassword !== newPassword &&
+                    s.inputBad,
+                ]}
+                editable={!savingPassword}
+              />
+              {passwordError ? (
+                <Text style={s.error}>{passwordError}</Text>
+              ) : null}
+              <Pressable
+                style={[s.savePassword, savingPassword && s.disabled]}
+                onPress={handleChangePassword}
+                disabled={savingPassword}
+              >
+                <Text style={s.savePasswordText}>
+                  {savingPassword ? "Saving…" : "Save new password"}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={s.cancelPassword}
+                onPress={() => {
+                  setPasswordOpen(false);
+                  setNewPassword("");
+                  setConfirmNewPassword("");
+                  setPasswordError("");
+                }}
+              >
+                <Text style={s.cancelPasswordText}>Cancel</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable
+              style={s.changePassword}
+              onPress={() => setPasswordOpen(true)}
+            >
+              <Text style={s.changePasswordText}>Change password</Text>
+            </Pressable>
+          )
+        ) : null}
+
         <Pressable style={s.signOut} onPress={onSignOut}>
           <Text style={s.signOutText}>Sign out</Text>
         </Pressable>
@@ -398,6 +661,7 @@ export function ProfileScreen({
       <FriendDancesModal
         userId={userId}
         friend={selectedFriend}
+        progress={progress}
         onClose={() => setSelectedFriend(null)}
         onProgressChange={onProgressChange}
       />
@@ -575,7 +839,9 @@ const s = StyleSheet.create({
   },
   addFriendButtonText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   disabled: { opacity: 0.4 },
-  error: { color: "#ff8080", fontSize: 12, marginTop: 8 },
+  inputBad: { borderColor: "#ff8080" },
+  error: { color: "#ff8080", fontSize: 12, marginTop: 8, lineHeight: 17 },
+  notice: { color: colors.green, fontSize: 12, marginTop: 8, lineHeight: 17 },
   friendRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -585,9 +851,69 @@ const s = StyleSheet.create({
     marginTop: 6,
   },
   friendName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
-  friendRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6 },
+  friendOpen: { color: colors.gold, fontSize: 12, fontWeight: "800" },
+  friendRemove: {
+    color: colors.muted,
+    fontSize: 14,
+    paddingHorizontal: 6,
+    marginLeft: 6,
+  },
+  requestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 11,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    marginTop: 6,
+  },
+  requestHandle: { color: colors.muted, fontSize: 12, fontWeight: "500" },
+  pendingName: { color: colors.muted, fontSize: 14, flex: 1, fontWeight: "700" },
+  acceptButton: {
+    backgroundColor: colors.pink,
+    borderRadius: 9,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+  },
+  acceptText: { color: "#fff", fontWeight: "800", fontSize: 12 },
+  declineButton: { paddingHorizontal: 10, paddingVertical: 8 },
+  declineText: { color: colors.muted, fontWeight: "700", fontSize: 12 },
   settings: { backgroundColor: colors.card, borderRadius: 14, padding: 16 },
   email: { color: colors.ink, fontSize: 15, marginTop: 5 },
+  changePassword: {
+    marginTop: 17,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+  },
+  changePasswordText: { color: colors.gold, fontWeight: "800" },
+  passwordBlock: {
+    marginTop: 17,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  passwordInput: {
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    color: colors.ink,
+    padding: 12,
+    fontSize: 15,
+    marginTop: 8,
+  },
+  savePassword: {
+    backgroundColor: colors.pink,
+    borderRadius: 10,
+    padding: 13,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  savePasswordText: { color: "#fff", fontWeight: "800" },
+  cancelPassword: { padding: 11, alignItems: "center" },
+  cancelPasswordText: { color: colors.muted, fontWeight: "700", fontSize: 13 },
   signOut: {
     marginTop: 17,
     borderWidth: 1,

@@ -4,9 +4,13 @@ export type AppTab = "Home" | "My Venues" | "Want to learn" | "Learned" | "Profi
 export function BottomTabs({
   activeTab,
   onChange,
+  // Unread counts per tab — currently just pending friend requests on
+  // Profile, which is otherwise easy to never notice.
+  badges,
 }: {
   activeTab: AppTab;
   onChange: (tab: AppTab) => void;
+  badges?: Partial<Record<AppTab, number>>;
 }) {
   const tabs: { name: AppTab; icon: string }[] = [
     { name: "Home", icon: "⌂" },
@@ -17,20 +21,30 @@ export function BottomTabs({
   ];
   return (
     <View style={s.tabs}>
-      {tabs.map((tab) => (
-        <Pressable
-          key={tab.name}
-          style={s.tab}
-          onPress={() => onChange(tab.name)}
-        >
-          <Text style={[s.icon, activeTab === tab.name && s.active]}>
-            {tab.icon}
-          </Text>
-          <Text style={[s.label, activeTab === tab.name && s.active]}>
-            {tab.name}
-          </Text>
-        </Pressable>
-      ))}
+      {tabs.map((tab) => {
+        const badge = badges?.[tab.name] ?? 0;
+        return (
+          <Pressable
+            key={tab.name}
+            style={s.tab}
+            onPress={() => onChange(tab.name)}
+          >
+            <View>
+              <Text style={[s.icon, activeTab === tab.name && s.active]}>
+                {tab.icon}
+              </Text>
+              {badge > 0 && (
+                <View style={s.badge}>
+                  <Text style={s.badgeText}>{badge > 9 ? "9+" : badge}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[s.label, activeTab === tab.name && s.active]}>
+              {tab.name}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -51,4 +65,17 @@ const s = StyleSheet.create({
   icon: { fontSize: 22, color: colors.muted },
   label: { fontSize: 10, color: colors.muted, marginTop: 3 },
   active: { color: colors.gold },
+  badge: {
+    position: "absolute",
+    top: -3,
+    right: -10,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: colors.pink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
 });

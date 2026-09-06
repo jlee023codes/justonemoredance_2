@@ -15,12 +15,21 @@ export function DanceCard({
   progress,
   onPress,
   fromFriend,
+  // When defined, the card is in pick-list mode and shows a checkbox
+  // instead of the chevron (see FriendDancesModal's "select dances").
+  selected,
+  note,
+  dimmed,
 }: {
   dance: Dance;
   song: string;
   progress?: DanceProgress;
   onPress: () => void;
   fromFriend?: string;
+  selected?: boolean;
+  /** Short line under the song, e.g. "Already in your list". */
+  note?: string;
+  dimmed?: boolean;
 }) {
   const icon =
     progress?.status === "learned"
@@ -35,7 +44,7 @@ export function DanceCard({
   const otherSongs = dance.songSwaps.map((swap) => swap.songName);
 
   return (
-    <Pressable style={s.card} onPress={onPress}>
+    <Pressable style={[s.card, dimmed && s.dimmed]} onPress={onPress}>
       <Text style={s.icon}>{icon}</Text>
       <View style={s.copy}>
         <View style={s.titleRow}>
@@ -82,8 +91,15 @@ export function DanceCard({
         )}
 
         {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
+        {note ? <Text style={s.note}>{note}</Text> : null}
       </View>
-      {!fromFriend && <Text style={s.arrow}>›</Text>}
+      {selected !== undefined ? (
+        <View style={[s.checkbox, selected && s.checkboxOn]}>
+          {selected && <Text style={s.checkmark}>✓</Text>}
+        </View>
+      ) : (
+        !fromFriend && <Text style={s.arrow}>›</Text>
+      )}
     </Pressable>
   );
 }
@@ -127,5 +143,19 @@ const s = StyleSheet.create({
   },
   catalogSwaps: { color: colors.muted, fontSize: 11, marginTop: 4 },
   meta: { color: colors.green, fontSize: 11, fontWeight: "700", marginTop: 7 },
+  note: { color: colors.gold, fontSize: 11, fontWeight: "700", marginTop: 6 },
   arrow: { color: colors.gold, fontSize: 27 },
+  dimmed: { opacity: 0.5 },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: colors.line,
+    marginLeft: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  checkmark: { color: "#fff", fontSize: 14, fontWeight: "900" },
 });

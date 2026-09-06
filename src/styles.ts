@@ -7,4 +7,5 @@ export const colors = {
   gold: "#ffc75a",
   line: "#43364d",
   green: "#77d9a4",
+  red: "#FF0000",
 };

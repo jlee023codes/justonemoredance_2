@@ -4,8 +4,8 @@
   "main": "expo/AppEntry",
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
-    "android": "expo start --android",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
     "web": "expo start --web",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit"
   },
@@ -14,6 +14,7 @@
     "@supabase/supabase-js": "^2.112.4",
     "eas-cli": "^23.2.0",
     "expo": "~54.0.0",
+    "expo-linking": "~8.0.12",
     "expo-status-bar": "~3.0.8",
     "react": "19.1.0",
     "react-dom": "19.1.0",
