@@ -27,7 +27,7 @@ import {
 import { FriendDancesModal } from "./FriendDancesModal";
 import { NotesImportModal } from "./NotesImportModal";
 import { countPendingImport } from "../services/notesImport";
-import { Dance, DanceProgress } from "../types";
+import { Dance, DanceProgress, LearningStatus } from '../types';
 
 const awards = [
   { count: 1, icon: "🌟", title: "First Steps", note: "Learn 1 dance" },
@@ -197,9 +197,7 @@ export function ProfileScreen({
       const result = await sendFriendRequest(usernameSearch);
       if (result.status === "accepted") {
         addToFriendList(result.friend);
-        publishRequests(
-          requests.filter((r) => r.from.id !== result.friend.id),
-        );
+        publishRequests(requests.filter((r) => r.from.id !== result.friend.id));
         setAddNotice(
           `${result.friend.displayName} had already asked you — you're friends now.`,
         );
@@ -296,7 +294,10 @@ export function ProfileScreen({
     setNewPassword("");
     setConfirmNewPassword("");
     setPasswordOpen(false);
-    showAlert("Password changed", "Use your new password next time you sign in.");
+    showAlert(
+      "Password changed",
+      "Use your new password next time you sign in.",
+    );
   };
 
   const incoming = requests.filter((r) => r.direction === "incoming");
@@ -304,53 +305,12 @@ export function ProfileScreen({
 
   return (
     <ScrollView contentContainerStyle={s.page}>
-      <Text style={s.heading}>Your dance journey</Text>
-      <View style={s.hero}>
-        <Text style={s.number}>{learnedCount}</Text>
-        <View>
-          <Text style={s.heroTitle}>dances learned</Text>
-          <Text style={s.heroNote}>
-            {next
-              ? `${next.count - learnedCount} more to unlock ${next.title}`
-              : "Every award unlocked — amazing!"}
-          </Text>
-        </View>
-      </View>
-
-      <Text style={s.section}>AWARDS</Text>
-      {awards.map((award) => {
-        const unlocked = learnedCount >= award.count;
-        return (
-          <View
-            key={award.title}
-            style={[s.award, unlocked && s.awardUnlocked]}
-          >
-            <Text style={s.awardIcon}>{award.icon}</Text>
-            <View style={s.awardCopy}>
-              <Text style={[s.awardTitle, unlocked && s.unlockedText]}>
-                {award.title}
-              </Text>
-              <Text style={s.awardNote}>{award.note}</Text>
-            </View>
-            <Text style={s.status}>
-              {unlocked ? "UNLOCKED" : `${learnedCount}/${award.count}`}
-            </Text>
-          </View>
-        );
-      })}
-
-      <Text style={s.section}>PROGRESS</Text>
-      <View style={s.statRow}>
-        <Text style={s.statLabel}>Want to learn</Text>
-        <Text style={s.statValue}>{wantCount}</Text>
-      </View>
-
       <Text style={s.section}>IMPORT</Text>
       <View style={s.friendsCard}>
-        <Text style={s.settingLabel}>APPLE NOTES</Text>
+        <Text style={s.settingLabel}>Keeping Track Somewhere Already?</Text>
         <Text style={s.hint}>
-          Paste a checklist of line dances from your Notes app and match each
-          one to the real dance. Stop any time and pick up where you left off.
+          Paste your list of line dances from your Notes app, Google sheet, etc. Then match each
+          one to the real dance you want. {"\n\n"}Stop any time and pick up where you left off. {"\n"} ** For best experience paste a bullet list (click button for example)
         </Text>
         <Pressable
           style={s.setUsernameButton}
@@ -606,6 +566,46 @@ export function ProfileScreen({
           </View>
         </View>
       )}
+      <Text style={s.section}>Your dance journey</Text>
+      <View style={s.hero}>
+        <Text style={s.number}>{learnedCount}</Text>
+        <View>
+          <Text style={s.heroTitle}>dances learned</Text>
+          <Text style={s.heroNote}>
+            {next
+              ? `${next.count - learnedCount} more to unlock ${next.title}`
+              : "Every award unlocked — amazing!"}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={s.section}>AWARDS</Text>
+      {awards.map((award) => {
+        const unlocked = learnedCount >= award.count;
+        return (
+          <View
+            key={award.title}
+            style={[s.award, unlocked && s.awardUnlocked]}
+          >
+            <Text style={s.awardIcon}>{award.icon}</Text>
+            <View style={s.awardCopy}>
+              <Text style={[s.awardTitle, unlocked && s.unlockedText]}>
+                {award.title}
+              </Text>
+              <Text style={s.awardNote}>{award.note}</Text>
+            </View>
+            <Text style={s.status}>
+              {unlocked ? "UNLOCKED" : `${learnedCount}/${award.count}`}
+            </Text>
+          </View>
+        );
+      })}
+
+      <Text style={s.section}>PROGRESS</Text>
+      <View style={s.statRow}>
+        <Text style={s.statLabel}>Want to learn</Text>
+        <Text style={s.statValue}>{wantCount}</Text>
+      </View>
 
       <Text style={s.section}>SETTINGS</Text>
       <View style={s.settings}>
@@ -734,7 +734,7 @@ const s = StyleSheet.create({
   },
   number: {
     color: colors.gold,
-    fontSize: 44,
+    fontSize: 30,
     fontWeight: "900",
     marginRight: 14,
   },
@@ -913,7 +913,12 @@ const s = StyleSheet.create({
     marginTop: 6,
   },
   requestHandle: { color: colors.muted, fontSize: 12, fontWeight: "500" },
-  pendingName: { color: colors.muted, fontSize: 14, flex: 1, fontWeight: "700" },
+  pendingName: {
+    color: colors.muted,
+    fontSize: 14,
+    flex: 1,
+    fontWeight: "700",
+  },
   acceptButton: {
     backgroundColor: colors.pink,
     borderRadius: 9,

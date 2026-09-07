@@ -397,27 +397,26 @@ export function DanceDetailsModal({
             </Pressable>
             {/* )} */}
 
-            {danceState === "learned" ? (
-              // "Review" on a learned dance moves it back to Want to learn.
-              <Pressable
-                style={s.tertiary}
-                onPress={() => handleStatus("want")}
-                disabled={saving}
-              >
-                <Text style={s.tertiaryText}>
-                  🔁 Review (move to Want to learn)
-                </Text>
-              </Pressable>
-            ) : danceState !== "maybe" ? (
-              <Pressable
-                style={s.tertiary}
-                onPress={() => handleStatus("maybe")}
-                disabled={saving}
-              >
-                <Text style={s.tertiaryText}>💭 Save for Later</Text>
-              </Pressable>
-            ) : null}
             <View style={s.statusButtons}>
+              {danceState === "learned" && (
+                // "Review" moves a learned dance back to Want to learn.
+                <Pressable
+                  style={s.tertiary}
+                  onPress={() => handleStatus("want")}
+                  disabled={saving}
+                >
+                  <Text style={s.tertiaryText}>🔁 Review</Text>
+                </Pressable>
+              )}
+              {danceState !== "learned" && danceState !== "maybe" && (
+                <Pressable
+                  style={s.tertiary}
+                  onPress={() => handleStatus("maybe")}
+                  disabled={saving}
+                >
+                  <Text style={s.tertiaryText}>💭 Save for Later</Text>
+                </Pressable>
+              )}
               {danceState !== "want" && danceState !== "learned" && (
                 <Pressable
                   style={s.secondary}
@@ -561,8 +560,9 @@ const s = StyleSheet.create({
   },
   statusButtons: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
-    marginTop: 10,
+    marginTop: 20,
   },
   tags: {
     flexDirection: "row",
@@ -687,19 +687,26 @@ const s = StyleSheet.create({
     opacity: 0.4,
   },
   tertiary: {
+    flexGrow: 1,
+    flexBasis: "46%",
+    minWidth: 0,
     borderColor: colors.line,
     borderWidth: 1,
     borderRadius: 12,
-    padding: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: "center",
-    marginTop: 22,
+    justifyContent: "center",
   },
   tertiaryText: {
     color: colors.muted,
-    fontWeight: "700",
+    fontWeight: "800",
+    fontSize: 13,
+    textAlign: "center",
   },
   primary: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "46%",
     minWidth: 0,
     backgroundColor: colors.pink,
     borderRadius: 12,
@@ -715,7 +722,8 @@ const s = StyleSheet.create({
     textAlign: "center",
   },
   secondary: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "46%",
     minWidth: 0,
     borderColor: colors.gold,
     borderWidth: 1,

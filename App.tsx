@@ -15,12 +15,16 @@ import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyVenuesScreen } from "./src/components/MyVenuesScreen";
+import {
+  BulkRemoveBar,
+  SelectToRemoveButton,
+} from "./src/components/BulkRemoveBar";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
 import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
-import { showAlert } from "./src/lib/alerts";
+import { confirmAction, showAlert } from "./src/lib/alerts";
 import {
   applyRecoveryLink,
   clearRecoveryLinkFromUrl,
@@ -30,6 +34,7 @@ import {
   loadProgress,
   saveProgress,
   deleteProgress,
+  removeDancesEverywhere,
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
@@ -71,7 +76,10 @@ export default function App() {
     // True once a password-reset link has been turned into a session and
     // we owe the user a "pick a new password" screen.
     [resetPassword, setResetPassword] = useState(false),
-    [pendingRequestCount, setPendingRequestCount] = useState(0);
+    [pendingRequestCount, setPendingRequestCount] = useState(0),
+    // "Select to remove" mode on the Want / Learned tabs.
+    [selectMode, setSelectMode] = useState(false),
+    [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -144,6 +152,12 @@ export default function App() {
   };
 
   useEffect(refreshRequestCount, [userId]);
+
+  // Leave "select to remove" behind when switching tabs.
+  useEffect(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, [tab]);
 
   const mergeIntoCache = (dances: Dance[]) => {
     if (!dances.length) return;
@@ -305,6 +319,55 @@ export default function App() {
     setVenuesRefreshKey((k) => k + 1);
   };
 
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (danceId: string) =>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.has(danceId) ? next.delete(danceId) : next.add(danceId);
+      return next;
+    });
+
+  // Removes the given dances from every list + venue. `confirm` is caller
+  // text; pass "" to skip the prompt. The list updates immediately and the
+  // delete runs in the background — a failure rolls the dances back.
+  const removeDances = async (danceIds: string[], confirm: string) => {
+    if (!danceIds.length || !session) return;
+    if (confirm) {
+      const ok = await confirmAction(
+        danceIds.length === 1 ? "Remove this dance?" : "Remove these dances?",
+        confirm,
+        "Remove",
+        true,
+      );
+      if (!ok) return;
+    }
+
+    const removed: Record<string, DanceProgress> = {};
+    for (const id of danceIds) {
+      if (progress[id]) removed[id] = progress[id];
+    }
+
+    setProgress((current) => {
+      const next = { ...current };
+      for (const id of danceIds) delete next[id];
+      return next;
+    });
+    setVenuesRefreshKey((k) => k + 1);
+    exitSelect();
+
+    try {
+      await removeDancesEverywhere(session.user.id, danceIds);
+    } catch (err: any) {
+      setProgress((current) => ({ ...removed, ...current }));
+      setVenuesRefreshKey((k) => k + 1);
+      showAlert("Could not remove", err.message ?? "Please try again.");
+    }
+  };
+
   const list = tab === "Want to learn" ? want : learned;
   const achievement =
     learnedCount >= 10
@@ -339,8 +402,10 @@ export default function App() {
           <MyVenuesScreen
             userId={session.user.id}
             progress={progress}
+            catalogCache={catalogCache}
             onOpenDance={openDance}
             onQuickStatus={handleQuickStatus}
+            onRemoveDances={(ids) => removeDances(ids, "")}
             refreshKey={venuesRefreshKey}
           />
         ) : tab === "Home" ? (
@@ -381,7 +446,12 @@ export default function App() {
             {message ? <Text style={s.message}>{message}</Text> : null}
           </ScrollView>
         ) : (
-          <ScrollView contentContainerStyle={s.content}>
+          <ScrollView
+            contentContainerStyle={[
+              s.content,
+              selectMode && s.contentSelecting,
+            ]}
+          >
             <Text style={s.greeting}>
               {tab === "Learned"
                 ? learnedCount + " dances in your pocket"
@@ -394,25 +464,46 @@ export default function App() {
               </View>
             )}
 
-            <Text style={s.section}>
-              {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
-            </Text>
-            {list
-              .map((d) => (
-                <DanceCard
-                  key={d.id}
-                  dance={d}
-                  song={d.defaultSong}
-                  progress={progress[d.id]}
-                  onPress={() => openDance(d)}
-                  onQuickStatus={(status) => handleQuickStatus(d, status)}
-                  quickActions={
-                    tab === "Want to learn"
-                      ? [{ status: "learned", icon: "★", label: "Learned it" }]
-                      : [{ status: "want", icon: "🔁", label: "Review" }]
-                  }
-                />
-              ))}
+            <View style={s.listHead}>
+              <Text style={s.section}>
+                {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
+              </Text>
+              {list.length > 0 &&
+                (selectMode ? (
+                  <Text style={s.selectCount}>
+                    {selectedIds.size} selected
+                  </Text>
+                ) : (
+                  <SelectToRemoveButton onPress={() => setSelectMode(true)} />
+                ))}
+            </View>
+            {list.map((d) => (
+              <DanceCard
+                key={d.id}
+                dance={d}
+                song={d.defaultSong}
+                progress={progress[d.id]}
+                selected={selectMode ? selectedIds.has(d.id) : undefined}
+                onPress={
+                  selectMode ? () => toggleSelected(d.id) : () => openDance(d)
+                }
+                onQuickStatus={(status) => handleQuickStatus(d, status)}
+                quickActions={
+                  tab === "Want to learn"
+                    ? [
+                        { status: "maybe", icon: "🔖", label: "Save for Later" },
+                        { status: "learned", icon: "★", label: "Learned it" },
+                      ]
+                    : [{ status: "want", icon: "🔁", label: "Review" }]
+                }
+                onDelete={() =>
+                  removeDances(
+                    [d.id],
+                    `Remove "${d.name}" from your lists and every venue you've tagged it to?`,
+                  )
+                }
+              />
+            ))}
             {!list.length && (
               <Text style={s.empty}>
                 Nothing here yet — choose a dance from Home.
@@ -420,6 +511,21 @@ export default function App() {
             )}
           </ScrollView>
         )}
+        {selectMode &&
+          (tab === "Want to learn" || tab === "Learned") && (
+            <BulkRemoveBar
+              count={selectedIds.size}
+              onCancel={exitSelect}
+              onRemove={() =>
+                removeDances(
+                  [...selectedIds],
+                  `Remove ${selectedIds.size} dance${
+                    selectedIds.size === 1 ? "" : "s"
+                  } from your lists and every venue you've tagged them to?`,
+                )
+              }
+            />
+          )}
         <BottomTabs
           activeTab={tab}
           onChange={setTab}
@@ -485,6 +591,13 @@ const s = StyleSheet.create({
     marginTop: 24,
     marginBottom: 8,
   },
+  listHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
+  contentSelecting: { paddingBottom: 190 },
   share: {
     borderWidth: 1,
     borderColor: colors.pink,

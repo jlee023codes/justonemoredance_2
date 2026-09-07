@@ -10,7 +10,9 @@ import {
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
+import { confirmAction } from "../lib/alerts";
 import { DanceCard, QuickStatus } from "./DanceCard";
+import { BulkRemoveBar, SelectToRemoveButton } from "./BulkRemoveBar";
 import { VenuePicker } from "./VenuePicker";
 import {
   addUserVenue,
@@ -40,15 +42,22 @@ function danceFromProgress(progress: DanceProgress): Dance {
 export function MyVenuesScreen({
   userId,
   progress,
+  catalogCache,
   onOpenDance,
   onQuickStatus,
+  onRemoveDances,
   refreshKey,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
+  // Full BootStepper dances resolved by the parent — lets My List cards
+  // show choreographer / counts / swaps like the Want / Learned tabs.
+  catalogCache: Record<string, Dance>;
   onOpenDance: (dance: Dance) => void;
   // Same quick-add row as the Home cards — set/clear a status inline.
   onQuickStatus: (dance: Dance, status: QuickStatus) => void;
+  // Removes dances from every list + venue (My List quick-delete / bulk).
+  onRemoveDances: (danceIds: string[]) => Promise<void>;
   // Bumped by the parent whenever a dance is removed elsewhere, so the
   // currently-selected venue's (locally cached) dance list refetches.
   refreshKey: number;
@@ -65,7 +74,21 @@ export function MyVenuesScreen({
     >([]),
     [dancesLoading, setDancesLoading] = useState(false),
     [dancesError, setDancesError] = useState(""),
-    [danceQuery, setDanceQuery] = useState("");
+    [danceQuery, setDanceQuery] = useState(""),
+    // "Select to remove" mode (My List view only).
+    [selectMode, setSelectMode] = useState(false),
+    [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+  const toggleSelected = (danceId: string) =>
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.has(danceId) ? next.delete(danceId) : next.add(danceId);
+      return next;
+    });
 
   useEffect(() => {
     setVenuesLoading(true);
@@ -88,6 +111,7 @@ export function MyVenuesScreen({
   // add/clear a status without waiting on this effect.
   useEffect(() => {
     setDanceQuery("");
+    exitSelect();
     if (isMyList) return;
 
     setDancesLoading(true);
@@ -103,9 +127,16 @@ export function MyVenuesScreen({
       });
   }, [userId, selectedVenueId, refreshKey, isMyList]);
 
+  // Prefer the parent's fully-resolved BootStepper dance; fall back to the
+  // saved snapshot until it arrives.
   const dances: { dance: Dance; songSwap?: string }[] = isMyList
-    ? Object.values(progress).map((p) => ({ dance: danceFromProgress(p) }))
-    : venueDances;
+    ? Object.values(progress).map((p) => ({
+        dance: catalogCache[p.danceId] ?? danceFromProgress(p),
+      }))
+    : venueDances.map((vd) => ({
+        ...vd,
+        dance: catalogCache[vd.dance.id] ?? vd.dance,
+      }));
 
   const filteredVenueDances = danceQuery.trim()
     ? dances.filter(({ dance }) =>
@@ -115,6 +146,25 @@ export function MyVenuesScreen({
           .includes(danceQuery.trim().toLowerCase()),
       )
     : dances;
+
+  const canManage = isMyList && dances.length > 0;
+
+  const removeWithConfirm = async (danceIds: string[], message: string) => {
+    if (!danceIds.length) return;
+    const ok = await confirmAction(
+      danceIds.length === 1 ? "Remove this dance?" : "Remove these dances?",
+      message,
+      "Remove",
+      true,
+    );
+    if (!ok) return;
+    try {
+      await onRemoveDances(danceIds);
+      exitSelect();
+    } catch (err: any) {
+      setDancesError(err.message ?? "Could not remove.");
+    }
+  };
 
   const dropdownOptions = [MY_LIST_OPTION, ...myVenues];
   const selectedVenue = dropdownOptions.find((v) => v.id === selectedVenueId);
@@ -142,8 +192,9 @@ export function MyVenuesScreen({
   };
 
   return (
+    <>
     <ScrollView
-      contentContainerStyle={s.page}
+      contentContainerStyle={[s.page, selectMode && s.pageSelecting]}
       keyboardShouldPersistTaps="handled"
     >
       <Text style={s.heading}>My List</Text>
@@ -215,12 +266,20 @@ export function MyVenuesScreen({
         </Text>
       )}
 
-      <Text style={s.section}>
-        {isMyList
-          ? "ALL YOUR DANCES"
-          : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
-      </Text>
-      {dances.length > 0 && (
+      <View style={s.listHead}>
+        <Text style={s.section}>
+          {isMyList
+            ? "ALL YOUR DANCES"
+            : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
+        </Text>
+        {canManage &&
+          (selectMode ? (
+            <Text style={s.selectCount}>{selectedIds.size} selected</Text>
+          ) : (
+            <SelectToRemoveButton onPress={() => setSelectMode(true)} />
+          ))}
+      </View>
+      {dances.length > 0 && !selectMode && (
         <TextInput
           value={danceQuery}
           onChangeText={setDanceQuery}
@@ -240,8 +299,22 @@ export function MyVenuesScreen({
             dance={dance}
             song={songSwap ? `${songSwap} (swap)` : dance.defaultSong}
             progress={progress[dance.id]}
-            onPress={() => onOpenDance(dance)}
+            selected={selectMode ? selectedIds.has(dance.id) : undefined}
+            onPress={
+              selectMode
+                ? () => toggleSelected(dance.id)
+                : () => onOpenDance(dance)
+            }
             onQuickStatus={(status) => onQuickStatus(dance, status)}
+            onDelete={
+              isMyList
+                ? () =>
+                    removeWithConfirm(
+                      [dance.id],
+                      `Remove "${dance.name}" from your lists and every venue you've tagged it to?`,
+                    )
+                : undefined
+            }
           />
         ))}
       {!dancesLoading && !dances.length && !dancesError && (
@@ -264,6 +337,21 @@ export function MyVenuesScreen({
         onClose={() => setAddPickerOpen(false)}
       />
     </ScrollView>
+    {selectMode && (
+      <BulkRemoveBar
+        count={selectedIds.size}
+        onCancel={exitSelect}
+        onRemove={() =>
+          removeWithConfirm(
+            [...selectedIds],
+            `Remove ${selectedIds.size} dance${
+              selectedIds.size === 1 ? "" : "s"
+            } from your lists and every venue you've tagged them to?`,
+          )
+        }
+      />
+    )}
+    </>
   );
 }
 
@@ -272,6 +360,7 @@ const s = StyleSheet.create({
     padding: 20,
     paddingBottom: 115,
   },
+  pageSelecting: { paddingBottom: 190 },
   heading: {
     color: colors.ink,
     fontSize: 25,
@@ -358,6 +447,12 @@ const s = StyleSheet.create({
     marginTop: 26,
     marginBottom: 8,
   },
+  listHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
   danceSearch: {
     backgroundColor: colors.card,
     borderWidth: 1,

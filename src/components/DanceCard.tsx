@@ -35,8 +35,12 @@ export function DanceCard({
   // Override which quick actions show (default: Later / Want / Learned).
   quickActions = DEFAULT_QUICK_ACTIONS,
   // When defined, the card is in pick-list mode and shows a checkbox
-  // instead of the chevron (see FriendDancesModal's "select dances").
+  // instead of the chevron (FriendDancesModal's "select dances", and the
+  // "Select to remove" mode on the My List / Want / Learned tabs).
   selected,
+  // When defined (and not in pick-list mode), shows a small trash button
+  // on the right — the parent handles the confirm.
+  onDelete,
   note,
   dimmed,
 }: {
@@ -48,10 +52,12 @@ export function DanceCard({
   onQuickStatus?: (status: QuickStatus) => void;
   quickActions?: QuickAction[];
   selected?: boolean;
+  onDelete?: () => void;
   /** Short line under the song, e.g. "Already in your list". */
   note?: string;
   dimmed?: boolean;
 }) {
+  const picking = selected !== undefined;
   const status = progress?.status;
   const icon =
     status === "learned"
@@ -67,59 +73,68 @@ export function DanceCard({
 
   return (
     <View style={[s.card, dimmed && s.dimmed]}>
-      <Pressable style={s.main} onPress={onPress}>
-        <Text style={s.icon}>{icon}</Text>
-        <View style={s.copy}>
-          <View style={s.titleRow}>
-            <Text style={s.title} numberOfLines={1}>
-              {dance.name}
-            </Text>
-            <View
-              style={[
-                s.badge,
-                { borderColor: DIFFICULTY_COLOR[dance.difficulty] },
-              ]}
-            >
-              <Text
+      <View style={s.mainRow}>
+        <Pressable style={s.main} onPress={onPress}>
+          <Text style={s.icon}>{icon}</Text>
+          <View style={s.copy}>
+            <View style={s.titleRow}>
+              <Text style={s.title} numberOfLines={1}>
+                {dance.name}
+              </Text>
+              <View
                 style={[
-                  s.badgeText,
-                  { color: DIFFICULTY_COLOR[dance.difficulty] },
+                  s.badge,
+                  { borderColor: DIFFICULTY_COLOR[dance.difficulty] },
                 ]}
               >
-                {dance.difficulty}
-              </Text>
+                <Text
+                  style={[
+                    s.badgeText,
+                    { color: DIFFICULTY_COLOR[dance.difficulty] },
+                  ]}
+                >
+                  {dance.difficulty}
+                </Text>
+              </View>
             </View>
+
+            {choreographer && (
+              <Text style={s.choreographer} numberOfLines={1}>
+                by {choreographer}
+              </Text>
+            )}
+
+            <Text style={s.song} numberOfLines={1}>
+              {song}
+            </Text>
+
+            {otherSongs.length > 0 && (
+              <Text style={s.catalogSwaps} numberOfLines={1}>
+                Also danced to: {otherSongs.join(", ")}
+              </Text>
+            )}
+
+            {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
+            {note ? <Text style={s.note}>{note}</Text> : null}
           </View>
 
-          {choreographer && (
-            <Text style={s.choreographer} numberOfLines={1}>
-              by {choreographer}
-            </Text>
-          )}
+          {picking ? (
+            <View style={[s.checkbox, selected && s.checkboxOn]}>
+              {selected && <Text style={s.checkmark}>✓</Text>}
+            </View>
+          ) : !onDelete && !fromFriend && !onQuickStatus ? (
+            <Text style={s.arrow}>›</Text>
+          ) : null}
+        </Pressable>
 
-          <Text style={s.song} numberOfLines={1}>
-            {song}
-          </Text>
-
-          {otherSongs.length > 0 && (
-            <Text style={s.catalogSwaps} numberOfLines={1}>
-              Also danced to: {otherSongs.join(", ")}
-            </Text>
-          )}
-
-          {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
-          {note ? <Text style={s.note}>{note}</Text> : null}
-        </View>
-        {selected !== undefined ? (
-          <View style={[s.checkbox, selected && s.checkboxOn]}>
-            {selected && <Text style={s.checkmark}>✓</Text>}
-          </View>
-        ) : (
-          !fromFriend && !onQuickStatus && <Text style={s.arrow}>›</Text>
+        {!picking && onDelete && (
+          <Pressable style={s.deleteButton} onPress={onDelete} hitSlop={8}>
+            <Text style={s.deleteIcon}>🗑</Text>
+          </Pressable>
         )}
-      </Pressable>
+      </View>
 
-      {onQuickStatus && (
+      {onQuickStatus && !picking && (
         <View style={s.quickRow}>
           {quickActions.map((action) => {
             const active = status === action.status;
@@ -133,7 +148,10 @@ export function DanceCard({
                 <Text style={[s.quickIcon, active && s.quickTextOn]}>
                   {action.icon}
                 </Text>
-                <Text style={[s.quickLabel, active && s.quickTextOn]}>
+                <Text
+                  style={[s.quickLabel, active && s.quickTextOn]}
+                  numberOfLines={1}
+                >
                   {action.label}
                 </Text>
               </Pressable>
@@ -152,7 +170,8 @@ const s = StyleSheet.create({
     padding: 13,
     marginBottom: 9,
   },
-  main: { flexDirection: "row", alignItems: "center" },
+  mainRow: { flexDirection: "row", alignItems: "center" },
+  main: { flex: 1, flexDirection: "row", alignItems: "center" },
   icon: { fontSize: 23, width: 38 },
   copy: { flex: 1 },
   titleRow: {
@@ -192,6 +211,17 @@ const s = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: colors.pink, borderColor: colors.pink },
   checkmark: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  deleteButton: {
+    marginLeft: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteIcon: { fontSize: 15 },
   quickRow: {
     flexDirection: "row",
     gap: 8,
@@ -205,17 +235,23 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
+    gap: 4,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 10,
     paddingVertical: 8,
+    paddingHorizontal: 4,
   },
   quickButtonOn: {
     borderColor: colors.pink,
     backgroundColor: "#3a1f30",
   },
-  quickIcon: { fontSize: 14, color: colors.muted },
-  quickLabel: { fontSize: 12, fontWeight: "800", color: colors.muted },
+  quickIcon: { fontSize: 13, color: colors.muted },
+  quickLabel: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "800",
+    color: colors.muted,
+  },
   quickTextOn: { color: colors.pink },
 });

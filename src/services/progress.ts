@@ -105,22 +105,31 @@ export async function deleteProgress(userId: string, danceId: string) {
   if (error) throw error;
 }
 
-// Wipes a dance from everything for this user: its want/learned/maybe
-// status, and every venue it's been tagged to. Used by the modal's
-// "Remove" action, which asks for confirmation before calling this.
-export async function removeDanceEverywhere(userId: string, danceId: string) {
+// Wipes one or more dances from everything for this user: their
+// want/learned/maybe status, and every venue they've been tagged to.
+// Used by the modal's "Remove" action and the list quick-delete / bulk
+// remove — all of which confirm before calling this.
+export async function removeDancesEverywhere(
+  userId: string,
+  danceIds: string[],
+) {
+  if (!danceIds.length) return;
   const [progressResult, venueResult] = await Promise.all([
     supabase
       .from("user_dance_progress")
       .delete()
       .eq("user_id", userId)
-      .eq("dance_id", danceId),
+      .in("dance_id", danceIds),
     supabase
       .from("user_venue_dances")
       .delete()
       .eq("user_id", userId)
-      .eq("dance_id", danceId),
+      .in("dance_id", danceIds),
   ]);
   if (progressResult.error) throw progressResult.error;
   if (venueResult.error) throw venueResult.error;
+}
+
+export function removeDanceEverywhere(userId: string, danceId: string) {
+  return removeDancesEverywhere(userId, [danceId]);
 }

@@ -201,7 +201,10 @@ export function NotesImportModal({
       await finishImportItem(item.id, "done");
     } catch (err: any) {
       onProgressChange(dance.id, null); // roll back the optimistic add
-      showError(err, `"${dance.name}" didn't save — it's still in your import.`);
+      showError(
+        err,
+        `"${dance.name}" didn't save — it's still in your import.`,
+      );
     }
   };
 
@@ -303,6 +306,14 @@ export function NotesImportModal({
                   🔗 {current.rawLink.replace(/^https?:\/\//, "")}
                 </Text>
               )}
+              <View style={s.statusRow}>
+                <Pressable style={s.statusButton} onPress={handleSkip}>
+                  <Text style={s.skipText}>Skip</Text>
+                </Pressable>
+                <Pressable style={s.statusButton} onPress={close}>
+                  <Text style={s.laterText}>That's all for now</Text>
+                </Pressable>
+              </View>
 
               <Text style={s.fieldLabel}>SEARCH BOOTSTEPPER</Text>
               <TextInput
@@ -353,16 +364,11 @@ export function NotesImportModal({
               ))}
               {!searching && !results.length && (
                 <Text style={s.empty}>
-                  No matches for “{query.trim()}”. Line dance name or song name not found. Please make sure you're looking for either the dance name OR song name.
+                  No matches for “{query.trim()}”. Line dance name or song name
+                  not found. Please make sure you're looking for either the
+                  dance name OR song name.
                 </Text>
               )}
-
-              <Pressable style={s.skip} onPress={handleSkip}>
-                <Text style={s.skipText}>Skip this dance</Text>
-              </Pressable>
-              <Pressable style={s.later} onPress={close}>
-                <Text style={s.laterText}>That's all for now</Text>
-              </Pressable>
             </ScrollView>
           )}
 
