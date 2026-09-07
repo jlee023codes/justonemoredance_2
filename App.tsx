@@ -15,6 +15,7 @@ import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyVenuesScreen } from "./src/components/MyVenuesScreen";
+import { StatusLegendModal } from "./src/components/StatusLegendModal";
 import {
   BulkRemoveBar,
   SelectToRemoveButton,
@@ -77,6 +78,7 @@ export default function App() {
     // we owe the user a "pick a new password" screen.
     [resetPassword, setResetPassword] = useState(false),
     [pendingRequestCount, setPendingRequestCount] = useState(0),
+    [legendOpen, setLegendOpen] = useState(false),
     // "Select to remove" mode on the Want / Learned tabs.
     [selectMode, setSelectMode] = useState(false),
     [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -383,8 +385,18 @@ export default function App() {
       <SafeAreaView style={s.safe}>
         <StatusBar style="light" />
         <View style={s.header}>
-          <Text style={s.logo}>JUST ONE MORE</Text>
-          <Text style={s.dance}>DANCE</Text>
+          <View style={s.headerText}>
+            <Text style={s.logo}>JUST ONE MORE</Text>
+            <Text style={s.dance}>DANCE</Text>
+          </View>
+          <Pressable
+            style={s.infoButton}
+            onPress={() => setLegendOpen(true)}
+            hitSlop={10}
+            accessibilityLabel="What the dance card icons mean"
+          >
+            <Text style={s.infoIcon}>ⓘ</Text>
+          </Pressable>
         </View>
         {tab === "Profile" ? (
           <ProfileScreen
@@ -537,6 +549,10 @@ export default function App() {
           onChange={setTab}
           badges={{ Profile: pendingRequestCount }}
         />
+        <StatusLegendModal
+          visible={legendOpen}
+          onClose={() => setLegendOpen(false)}
+        />
         <DanceDetailsModal
           dance={selected ? (catalogCache[selected.id] ?? selected) : null}
           userId={session.user.id}
@@ -558,7 +574,23 @@ const s = StyleSheet.create({
     marginTop: 100,
     fontSize: 16,
   },
-  header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 10 },
+  header: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerText: { flexShrink: 1 },
+  infoButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoIcon: { color: colors.gold, fontSize: 20, fontWeight: "700" },
   logo: {
     color: colors.gold,
     fontSize: 13,
