@@ -70,6 +70,7 @@ export function ProfileScreen({
 
   // My username / display name
   const [username, setLocalUsername] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [usernameError, setUsernameError] = useState("");
   const [editingUsername, setEditingUsername] = useState(false);
   const [usernameInput, setUsernameInput] = useState("");
@@ -143,7 +144,8 @@ export function ProfileScreen({
           err.message ??
             "Could not load your profile — has migration_friend_requests.sql been run?",
         );
-      });
+      })
+      .finally(() => setProfileLoaded(true));
     refreshFriends();
     refreshPendingImport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -370,7 +372,7 @@ export function ProfileScreen({
                   Tap to change it. Long-press to copy.
                 </Text>
               </Pressable>
-            ) : (
+            ) : profileLoaded ? (
               <Pressable
                 style={s.setUsernameButton}
                 onPress={() => {
@@ -383,6 +385,8 @@ export function ProfileScreen({
                   Set a username so friends can add you
                 </Text>
               </Pressable>
+            ) : (
+              <Text style={s.myUsername}> </Text>
             )}
             {usernameError ? (
               <Text style={s.error}>{usernameError}</Text>
