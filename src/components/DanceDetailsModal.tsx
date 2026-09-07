@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -13,7 +14,11 @@ import {
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
 import { VenuePicker } from "./VenuePicker";
-import { saveProgress, removeDanceEverywhere } from "../services/progress";
+import {
+  saveProgress,
+  removeDanceEverywhere,
+  setDanceLink,
+} from "../services/progress";
 import {
   saveVenueDance,
   loadDanceVenueIds,
@@ -66,6 +71,9 @@ export function DanceDetailsModal({
   const [mySwaps, setMySwaps] = useState<SongSwapEntry[]>([]);
   const [mySwapsOpen, setMySwapsOpen] = useState(false);
   const [addingSwap, setAddingSwap] = useState(false);
+  // A reference video link (YouTube / TikTok / …) kept on the progress row.
+  const [linkInput, setLinkInput] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
 
   useEffect(() => {
     if (dance) {
@@ -76,6 +84,7 @@ export function DanceDetailsModal({
       setDanceVenueIds([]);
       setMySwaps([]);
       setMySwapsOpen(false);
+      setLinkInput(progress?.link ?? "");
       loadDanceVenueIds(userId, dance.id)
         .then(setDanceVenueIds)
         .catch(() => {
@@ -134,6 +143,9 @@ export function DanceDetailsModal({
         danceName: dance.name,
         danceSong: dance.defaultSong,
         danceDifficulty: dance.difficulty,
+        // saveProgress never touches the link column, so carry it through
+        // local state too — otherwise the chip vanishes until a reload.
+        link: progress?.link,
       };
       await saveProgress(userId, next, dance, sharedFrom, { overwrite: true });
       onProgressChange(dance.id, next);
@@ -203,6 +215,36 @@ export function DanceDetailsModal({
       setMySwaps((current) => current.filter((entry) => entry.id !== id));
     } catch (err: any) {
       showError(err, "Could not remove that song swap.");
+    }
+  };
+
+  // Saves (or clears) the reference video link on this dance's progress
+  // row. Only reachable once the dance is in a list — there's no row to
+  // hang the link on otherwise.
+  const handleSaveLink = async () => {
+    const raw = linkInput.trim();
+    const url = raw
+      ? /^https?:\/\//i.test(raw)
+        ? raw
+        : `https://${raw}`
+      : null;
+    setSavingLink(true);
+    try {
+      await setDanceLink(userId, dance.id, url);
+      onProgressChange(dance.id, {
+        danceId: dance.id,
+        status: danceState,
+        fromFriend: progress?.fromFriend,
+        danceName: progress?.danceName ?? dance.name,
+        danceSong: progress?.danceSong ?? dance.defaultSong,
+        danceDifficulty: progress?.danceDifficulty ?? dance.difficulty,
+        link: url ?? undefined,
+      });
+      setLinkInput(url ?? "");
+    } catch (err: any) {
+      showError(err, "Could not save that link.");
+    } finally {
+      setSavingLink(false);
     }
   };
 
@@ -307,6 +349,52 @@ export function DanceDetailsModal({
                 </View>
               )}
             </View>
+
+            {progress ? (
+              <>
+                <Text style={s.fieldLabel}>
+                  VIDEO LINK <Text style={s.optional}>(optional)</Text>
+                </Text>
+                <View style={s.swapRow}>
+                  <TextInput
+                    value={linkInput}
+                    onChangeText={setLinkInput}
+                    placeholder="Paste a YouTube / TikTok link"
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    style={s.swapInput}
+                  />
+                  <Pressable
+                    style={[
+                      s.swapAddButton,
+                      linkInput.trim() === (progress.link ?? "") && s.disabled,
+                    ]}
+                    onPress={handleSaveLink}
+                    disabled={
+                      savingLink ||
+                      linkInput.trim() === (progress.link ?? "")
+                    }
+                  >
+                    <Text style={s.swapAddButtonText}>
+                      {savingLink ? "…" : "✓"}
+                    </Text>
+                  </Pressable>
+                </View>
+                {progress.link ? (
+                  <Pressable
+                    onPress={() =>
+                      Linking.openURL(progress.link!).catch(() => {})
+                    }
+                  >
+                    <Text style={s.openLink} numberOfLines={1}>
+                      🎬 Open saved video
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </>
+            ) : null}
 
             <Text style={s.fieldLabel}>
               VENUE <Text style={s.optional}>(optional)</Text>
@@ -670,6 +758,12 @@ const s = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
     marginTop: 7,
+  },
+  openLink: {
+    color: colors.pink,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 9,
   },
   venueAction: {
     borderColor: colors.gold,

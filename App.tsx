@@ -304,6 +304,9 @@ export default function App() {
           danceName: dance.name,
           danceSong: dance.defaultSong,
           danceDifficulty: dance.difficulty,
+          // saveProgress leaves the link column alone — keep it in local
+          // state so the card's video chip survives a quick status change.
+          link: progress[dance.id]?.link,
         };
         await saveProgress(session.user.id, next, dance, sharedFrom, {
           overwrite: true,

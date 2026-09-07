@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 
@@ -116,6 +116,18 @@ export function DanceCard({
 
             {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
             {note ? <Text style={s.note}>{note}</Text> : null}
+
+            {progress?.link ? (
+              <Pressable
+                style={s.videoLink}
+                onPress={() => Linking.openURL(progress.link!).catch(() => {})}
+                hitSlop={6}
+              >
+                <Text style={s.videoLinkText} numberOfLines={1}>
+                  🎬 Watch video
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
 
           {picking ? (
@@ -197,6 +209,8 @@ const s = StyleSheet.create({
   catalogSwaps: { color: colors.muted, fontSize: 11, marginTop: 4 },
   meta: { color: colors.green, fontSize: 11, fontWeight: "700", marginTop: 7 },
   note: { color: colors.gold, fontSize: 11, fontWeight: "700", marginTop: 6 },
+  videoLink: { alignSelf: "flex-start", marginTop: 6 },
+  videoLinkText: { color: colors.pink, fontSize: 11, fontWeight: "800" },
   arrow: { color: colors.gold, fontSize: 27 },
   dimmed: { opacity: 0.5 },
   checkbox: {
