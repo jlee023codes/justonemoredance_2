@@ -373,8 +373,7 @@ export function DanceDetailsModal({
                     ]}
                     onPress={handleSaveLink}
                     disabled={
-                      savingLink ||
-                      linkInput.trim() === (progress.link ?? "")
+                      savingLink || linkInput.trim() === (progress.link ?? "")
                     }
                   >
                     <Text style={s.swapAddButtonText}>
@@ -399,18 +398,33 @@ export function DanceDetailsModal({
             <Text style={s.fieldLabel}>
               VENUE <Text style={s.optional}>(optional)</Text>
             </Text>
-
-            <Pressable style={s.select} onPress={() => setPickerOpen(true)}>
-              <Text style={s.selectText}>
-                {venue ? venue.name : "Choose a venue"}
-              </Text>
-              <Text style={s.caret}>▾</Text>
-            </Pressable>
+            <View style={s.swapRow}>
+              <Pressable style={s.select} onPress={() => setPickerOpen(true)}>
+                <Text style={s.selectText}>
+                  {venue ? venue.name : "Choose a venue"}
+                </Text>
+                <Text style={s.caret}>▾</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  s.swapAddButton,
+                  (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
+                ]}
+                onPress={handleAddVenue}
+                disabled={!venue || danceVenueIds.includes(venue.id) || saving}
+              >
+                <Text style={s.swapAddButtonText}>
+                  {saving ? "…" : "＋"}
+                </Text>
+              </Pressable>
+            </View>
+            {venue && danceVenueIds.includes(venue.id) && (
+              <Text style={s.hint}>📍 Already tagged to {venue.name}.</Text>
+            )}
 
             <Text style={s.fieldLabel}>
               SONG SWAP <Text style={s.optional}>(optional)</Text>
             </Text>
-
             <View style={s.swapRow}>
               <TextInput
                 value={songSwap}
@@ -465,25 +479,6 @@ export function DanceDetailsModal({
                 )}
               </>
             )}
-
-            {/* {activeTab != "Home" && ( */}
-            <Pressable
-              style={[
-                s.venueAction,
-                (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
-              ]}
-              onPress={handleAddVenue}
-              disabled={!venue || danceVenueIds.includes(venue.id) || saving}
-            >
-              <Text style={s.venueActionText}>
-                {venue && danceVenueIds.includes(venue.id)
-                  ? "📍 Already at this venue"
-                  : saving
-                    ? "Saving…"
-                    : "＋ Add to this venue"}
-              </Text>
-            </Pressable>
-            {/* )} */}
 
             <View style={s.statusButtons}>
               {danceState === "learned" && (
@@ -701,6 +696,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     flexDirection: "row",
+    flex: 1,
   },
   selectText: {
     color: colors.ink,
@@ -764,18 +760,6 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     marginTop: 9,
-  },
-  venueAction: {
-    borderColor: colors.gold,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  venueActionText: {
-    color: colors.gold,
-    fontWeight: "800",
   },
   disabled: {
     opacity: 0.4,
