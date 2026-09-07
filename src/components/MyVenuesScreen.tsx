@@ -267,11 +267,18 @@ export function MyVenuesScreen({
         )}
 
         <View style={s.listHead}>
-          <Text style={s.section}>
-            {isMyList
-              ? "ALL YOUR DANCES"
-              : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
-          </Text>
+          <View style={s.listHeadLeft}>
+            <Text style={s.section}>
+              {isMyList
+                ? "YOUR DANCES"
+                : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
+            </Text>
+            {!dancesLoading && (
+              <Text style={s.listHeadCount}>
+                {dances.length} {dances.length === 1 ? "dance" : "dances"}
+              </Text>
+            )}
+          </View>
           {canManage &&
             (selectMode ? (
               <Text style={s.selectCount}>{selectedIds.size} selected</Text>
@@ -442,6 +449,7 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 1.4,
+    flexShrink: 1,
   },
   listHead: {
     flexDirection: "row",
@@ -449,6 +457,18 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 26,
     marginBottom: 8,
+  },
+  listHeadLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+  },
+  listHeadCount: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "500",
+    flexShrink: 0,
   },
   selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
   danceSearch: {

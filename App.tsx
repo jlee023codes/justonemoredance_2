@@ -465,9 +465,14 @@ export default function App() {
             )}
 
             <View style={s.listHead}>
-              <Text style={s.listHeadLabel}>
-                {tab === "Want to learn" ? "WANT TO LEARN" : "LEARNED"}
-              </Text>
+              <View style={s.listHeadLeft}>
+                <Text style={s.listHeadLabel}>
+                  {tab === "Want to learn" ? "WANT TO LEARN" : "LEARNED"}
+                </Text>
+                <Text style={s.listHeadCount}>
+                  {list.length} {list.length === 1 ? "dance" : "dances"}
+                </Text>
+              </View>
               {list.length > 0 &&
                 (selectMode ? (
                   <Text style={s.selectCount}>{selectedIds.size} selected</Text>
@@ -597,12 +602,19 @@ const s = StyleSheet.create({
     marginTop: 24,
     marginBottom: 8,
   },
+  listHeadLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+  },
   listHeadLabel: {
     color: colors.gold,
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 1.4,
   },
+  listHeadCount: { color: colors.muted, fontSize: 12, fontWeight: "500" },
   selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
   contentSelecting: { paddingBottom: 190 },
   share: {
