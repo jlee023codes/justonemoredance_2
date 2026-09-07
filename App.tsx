@@ -465,14 +465,12 @@ export default function App() {
             )}
 
             <View style={s.listHead}>
-              <Text style={s.section}>
-                {tab === "Want to learn" ? "MY LIST" : "LEARNED"}
+              <Text style={s.listHeadLabel}>
+                {tab === "Want to learn" ? "WANT TO LEARN" : "LEARNED"}
               </Text>
               {list.length > 0 &&
                 (selectMode ? (
-                  <Text style={s.selectCount}>
-                    {selectedIds.size} selected
-                  </Text>
+                  <Text style={s.selectCount}>{selectedIds.size} selected</Text>
                 ) : (
                   <SelectToRemoveButton onPress={() => setSelectMode(true)} />
                 ))}
@@ -491,7 +489,11 @@ export default function App() {
                 quickActions={
                   tab === "Want to learn"
                     ? [
-                        { status: "maybe", icon: "🔖", label: "Save for Later" },
+                        {
+                          status: "maybe",
+                          icon: "🔖",
+                          label: "Save for Later",
+                        },
                         { status: "learned", icon: "★", label: "Learned it" },
                       ]
                     : [{ status: "want", icon: "🔁", label: "Review" }]
@@ -511,30 +513,27 @@ export default function App() {
             )}
           </ScrollView>
         )}
-        {selectMode &&
-          (tab === "Want to learn" || tab === "Learned") && (
-            <BulkRemoveBar
-              count={selectedIds.size}
-              onCancel={exitSelect}
-              onRemove={() =>
-                removeDances(
-                  [...selectedIds],
-                  `Remove ${selectedIds.size} dance${
-                    selectedIds.size === 1 ? "" : "s"
-                  } from your lists and every venue you've tagged them to?`,
-                )
-              }
-            />
-          )}
+        {selectMode && (tab === "Want to learn" || tab === "Learned") && (
+          <BulkRemoveBar
+            count={selectedIds.size}
+            onCancel={exitSelect}
+            onRemove={() =>
+              removeDances(
+                [...selectedIds],
+                `Remove ${selectedIds.size} dance${
+                  selectedIds.size === 1 ? "" : "s"
+                } from your lists and every venue you've tagged them to?`,
+              )
+            }
+          />
+        )}
         <BottomTabs
           activeTab={tab}
           onChange={setTab}
           badges={{ Profile: pendingRequestCount }}
         />
         <DanceDetailsModal
-          dance={
-            selected ? (catalogCache[selected.id] ?? selected) : null
-          }
+          dance={selected ? (catalogCache[selected.id] ?? selected) : null}
           userId={session.user.id}
           activeTab={tab}
           progress={selected ? progress[selected.id] : undefined}
@@ -595,6 +594,14 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  listHeadLabel: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.4,
   },
   selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
   contentSelecting: { paddingBottom: 190 },

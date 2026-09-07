@@ -19,6 +19,10 @@ export type ParsedDanceLine = {
 const TASK_RE = /^[\s>]*(?:[-*+]\s*)?\[([ xX])\]\s*(.*)$/;
 const GLYPH_RE = /^[\s>]*([☑☒☐✅✓✔•])\s*(.*)$/u;
 const BULLET_RE = /^[\s>]*[-*+•·‣▪◦]\s+(.*)$/;
+// Numbered lists: "1. Foo", "2) Foo", "3 - Foo" (Apple Notes / Google Docs).
+// The digits must be a real list marker — "1000 Miles" or "5, 6, 7, 8" as a
+// dance name won't match because those aren't followed by . ) or " - ".
+const NUMBER_RE = /^[\s>]*\d{1,3}(?:[.)]|\s-)\s+(.*)$/;
 const CHECKED_GLYPHS = "☑☒✅✓✔";
 
 /** Pull a clean list of dance names (with optional links) out of pasted note text. */
@@ -43,7 +47,7 @@ export function parseNotesText(raw: string): ParsedDanceLine[] {
       });
       continue;
     }
-    m = line.match(BULLET_RE);
+    m = line.match(BULLET_RE) ?? line.match(NUMBER_RE);
     if (m) {
       rows.push({ text: m[1].trim(), checked: false, bulleted: true });
       continue;

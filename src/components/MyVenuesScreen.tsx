@@ -193,164 +193,162 @@ export function MyVenuesScreen({
 
   return (
     <>
-    <ScrollView
-      contentContainerStyle={[s.page, selectMode && s.pageSelecting]}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={s.heading}>My List</Text>
+      <ScrollView
+        contentContainerStyle={[s.page, selectMode && s.pageSelecting]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={s.heading}>My List</Text>
 
-      <Text style={s.dropdownLabel}>MY VENUES</Text>
-      <View style={s.venueRow}>
-        <View style={s.dropdownWrap}>
-          <Pressable
-            style={s.dropdownField}
-            onPress={() => setDropdownOpen((open) => !open)}
-          >
-            <TextInput
-              value={dropdownOpen ? venueQuery : (selectedVenue?.name ?? "")}
-              onChangeText={(text) => {
-                setVenueQuery(text);
-                setDropdownOpen(true);
-              }}
-              onFocus={() => {
-                setVenueQuery("");
-                setDropdownOpen(true);
-              }}
-              placeholder="Search your venues"
-              placeholderTextColor={colors.muted}
-              style={s.dropdownInput}
-            />
-            <Text style={s.caret}>{dropdownOpen ? "▴" : "▾"}</Text>
+        <Text style={s.dropdownLabel}>MY VENUES</Text>
+        <View style={s.venueRow}>
+          <View style={s.dropdownWrap}>
+            <Pressable
+              style={s.dropdownField}
+              onPress={() => setDropdownOpen((open) => !open)}
+            >
+              <TextInput
+                value={dropdownOpen ? venueQuery : (selectedVenue?.name ?? "")}
+                onChangeText={(text) => {
+                  setVenueQuery(text);
+                  setDropdownOpen(true);
+                }}
+                onFocus={() => {
+                  setVenueQuery("");
+                  setDropdownOpen(true);
+                }}
+                placeholder="Search your venues"
+                placeholderTextColor={colors.muted}
+                style={s.dropdownInput}
+              />
+              <Text style={s.caret}>{dropdownOpen ? "▴" : "▾"}</Text>
+            </Pressable>
+
+            {dropdownOpen && (
+              <View style={s.dropdownList}>
+                {filteredVenues.map((venue) => (
+                  <Pressable
+                    key={venue.id}
+                    style={s.dropdownOption}
+                    onPress={() => {
+                      setSelectedVenueId(venue.id);
+                      setVenueQuery("");
+                      setDropdownOpen(false);
+                    }}
+                  >
+                    <Text style={s.dropdownOptionText}>{venue.name}</Text>
+                    {selectedVenueId === venue.id && (
+                      <Text style={s.check}>✓</Text>
+                    )}
+                  </Pressable>
+                ))}
+                {!filteredVenues.length && (
+                  <Text style={s.dropdownEmpty}>No matching venues.</Text>
+                )}
+              </View>
+            )}
+          </View>
+
+          <Pressable style={s.addButton} onPress={() => setAddPickerOpen(true)}>
+            <Text style={s.addButtonText}>＋</Text>
           </Pressable>
-
-          {dropdownOpen && (
-            <View style={s.dropdownList}>
-              {filteredVenues.map((venue) => (
-                <Pressable
-                  key={venue.id}
-                  style={s.dropdownOption}
-                  onPress={() => {
-                    setSelectedVenueId(venue.id);
-                    setVenueQuery("");
-                    setDropdownOpen(false);
-                  }}
-                >
-                  <Text style={s.dropdownOptionText}>{venue.name}</Text>
-                  {selectedVenueId === venue.id && (
-                    <Text style={s.check}>✓</Text>
-                  )}
-                </Pressable>
-              ))}
-              {!filteredVenues.length && (
-                <Text style={s.dropdownEmpty}>No matching venues.</Text>
-              )}
-            </View>
-          )}
         </View>
 
-        <Pressable style={s.addButton} onPress={() => setAddPickerOpen(true)}>
-          <Text style={s.addButtonText}>＋</Text>
-        </Pressable>
-      </View>
+        {venuesError ? <Text style={s.error}>{venuesError}</Text> : null}
 
-      {venuesError ? <Text style={s.error}>{venuesError}</Text> : null}
+        {venuesLoading && !myVenues.length && (
+          <ActivityIndicator color={colors.gold} style={s.loader} />
+        )}
 
-      {venuesLoading && !myVenues.length && (
-        <ActivityIndicator color={colors.gold} style={s.loader} />
-      )}
+        {!venuesLoading && !myVenues.length && (
+          <Text style={s.hint}>
+            You haven't added a specific venue yet — tap ＋ to add one. Until
+            then, "My List" below has every dance you've marked from Home.
+          </Text>
+        )}
 
-      {!venuesLoading && !myVenues.length && (
-        <Text style={s.hint}>
-          You haven't added a specific venue yet — tap ＋ to add one. Until
-          then, "My List" below has every dance you've marked from Home.
-        </Text>
-      )}
-
-      <View style={s.listHead}>
-        <Text style={s.section}>
-          {isMyList
-            ? "ALL YOUR DANCES"
-            : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
-        </Text>
-        {canManage &&
-          (selectMode ? (
-            <Text style={s.selectCount}>{selectedIds.size} selected</Text>
-          ) : (
-            <SelectToRemoveButton onPress={() => setSelectMode(true)} />
-          ))}
-      </View>
-      {dances.length > 0 && !selectMode && (
-        <TextInput
-          value={danceQuery}
-          onChangeText={setDanceQuery}
-          placeholder="Search dances"
-          placeholderTextColor={colors.muted}
-          style={s.danceSearch}
-        />
-      )}
-      {dancesError ? <Text style={s.error}>{dancesError}</Text> : null}
-      {dancesLoading && (
-        <ActivityIndicator color={colors.gold} style={s.loader} />
-      )}
-      {!dancesLoading &&
-        filteredVenueDances.map(({ dance, songSwap }) => (
-          <DanceCard
-            key={dance.id}
-            dance={dance}
-            song={songSwap ? `${songSwap} (swap)` : dance.defaultSong}
-            progress={progress[dance.id]}
-            selected={selectMode ? selectedIds.has(dance.id) : undefined}
-            onPress={
-              selectMode
-                ? () => toggleSelected(dance.id)
-                : () => onOpenDance(dance)
-            }
-            onQuickStatus={(status) => onQuickStatus(dance, status)}
-            onDelete={
-              isMyList
-                ? () =>
-                    removeWithConfirm(
-                      [dance.id],
-                      `Remove "${dance.name}" from your lists and every venue you've tagged it to?`,
-                    )
-                : undefined
-            }
+        <View style={s.listHead}>
+          <Text style={s.section}>
+            {isMyList
+              ? "ALL YOUR DANCES"
+              : `DANCES AT ${selectedVenue?.name.toUpperCase()}`}
+          </Text>
+          {canManage &&
+            (selectMode ? (
+              <Text style={s.selectCount}>{selectedIds.size} selected</Text>
+            ) : (
+              <SelectToRemoveButton onPress={() => setSelectMode(true)} />
+            ))}
+        </View>
+        {dances.length > 0 && !selectMode && (
+          <TextInput
+            value={danceQuery}
+            onChangeText={setDanceQuery}
+            placeholder="Search dances"
+            placeholderTextColor={colors.muted}
+            style={s.danceSearch}
           />
-        ))}
-      {!dancesLoading && !dances.length && !dancesError && (
-        <Text style={s.empty}>
-          {selectedVenueId === MY_LIST_ID
-            ? "Nothing yet — find a dance on Home and mark it maybe/want/learned."
-            : "No dances added to this venue yet — find one on Home and add it."}
-        </Text>
-      )}
-      {!dancesLoading &&
-        dances.length > 0 &&
-        !filteredVenueDances.length && (
+        )}
+        {dancesError ? <Text style={s.error}>{dancesError}</Text> : null}
+        {dancesLoading && (
+          <ActivityIndicator color={colors.gold} style={s.loader} />
+        )}
+        {!dancesLoading &&
+          filteredVenueDances.map(({ dance, songSwap }) => (
+            <DanceCard
+              key={dance.id}
+              dance={dance}
+              song={songSwap ? `${songSwap} (swap)` : dance.defaultSong}
+              progress={progress[dance.id]}
+              selected={selectMode ? selectedIds.has(dance.id) : undefined}
+              onPress={
+                selectMode
+                  ? () => toggleSelected(dance.id)
+                  : () => onOpenDance(dance)
+              }
+              onQuickStatus={(status) => onQuickStatus(dance, status)}
+              onDelete={
+                isMyList
+                  ? () =>
+                      removeWithConfirm(
+                        [dance.id],
+                        `Remove "${dance.name}" from your lists and every venue you've tagged it to?`,
+                      )
+                  : undefined
+              }
+            />
+          ))}
+        {!dancesLoading && !dances.length && !dancesError && (
+          <Text style={s.empty}>
+            {selectedVenueId === MY_LIST_ID
+              ? "Nothing yet — find a dance on Home and mark it maybe/want/learned."
+              : "No dances added to this venue yet — find one on Home and add it."}
+          </Text>
+        )}
+        {!dancesLoading && dances.length > 0 && !filteredVenueDances.length && (
           <Text style={s.empty}>No dances match “{danceQuery}”.</Text>
         )}
 
-      <VenuePicker
-        visible={addPickerOpen}
-        title="Add a venue"
-        onSelect={handleAddVenue}
-        onClose={() => setAddPickerOpen(false)}
-      />
-    </ScrollView>
-    {selectMode && (
-      <BulkRemoveBar
-        count={selectedIds.size}
-        onCancel={exitSelect}
-        onRemove={() =>
-          removeWithConfirm(
-            [...selectedIds],
-            `Remove ${selectedIds.size} dance${
-              selectedIds.size === 1 ? "" : "s"
-            } from your lists and every venue you've tagged them to?`,
-          )
-        }
-      />
-    )}
+        <VenuePicker
+          visible={addPickerOpen}
+          title="Add a venue"
+          onSelect={handleAddVenue}
+          onClose={() => setAddPickerOpen(false)}
+        />
+      </ScrollView>
+      {selectMode && (
+        <BulkRemoveBar
+          count={selectedIds.size}
+          onCancel={exitSelect}
+          onRemove={() =>
+            removeWithConfirm(
+              [...selectedIds],
+              `Remove ${selectedIds.size} dance${
+                selectedIds.size === 1 ? "" : "s"
+              } from your lists and every venue you've tagged them to?`,
+            )
+          }
+        />
+      )}
     </>
   );
 }
@@ -444,13 +442,13 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 1.4,
-    marginTop: 26,
-    marginBottom: 8,
   },
   listHead: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginTop: 26,
+    marginBottom: 8,
   },
   selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
   danceSearch: {

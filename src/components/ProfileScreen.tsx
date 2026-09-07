@@ -27,7 +27,7 @@ import {
 import { FriendDancesModal } from "./FriendDancesModal";
 import { NotesImportModal } from "./NotesImportModal";
 import { countPendingImport } from "../services/notesImport";
-import { Dance, DanceProgress, LearningStatus } from '../types';
+import { Dance, DanceProgress } from "../types";
 
 const awards = [
   { count: 1, icon: "🌟", title: "First Steps", note: "Learn 1 dance" },
@@ -305,12 +305,12 @@ export function ProfileScreen({
 
   return (
     <ScrollView contentContainerStyle={s.page}>
-      <Text style={s.section}>IMPORT</Text>
+      <Text style={s.section}>Keeping Track Somewhere Else Already?</Text>
       <View style={s.friendsCard}>
-        <Text style={s.settingLabel}>Keeping Track Somewhere Already?</Text>
         <Text style={s.hint}>
-          Paste your list of line dances from your Notes app, Google sheet, etc. Then match each
-          one to the real dance you want. {"\n\n"}Stop any time and pick up where you left off. {"\n"} ** For best experience paste a bullet list (click button for example)
+          Paste your list of line dances from your Notes app, Google sheet, etc.
+          Then match each one to the real dance you want. {"\n\n"}Stop any time
+          and pick up where you left off later.
         </Text>
         <Pressable
           style={s.setUsernameButton}
@@ -319,7 +319,7 @@ export function ProfileScreen({
           <Text style={s.setUsernameText}>
             {pendingImport > 0
               ? `Resume import — ${pendingImport} left`
-              : "Import from Apple Notes"}
+              : "Import Dances"}
           </Text>
         </Pressable>
       </View>
@@ -568,15 +568,22 @@ export function ProfileScreen({
       )}
       <Text style={s.section}>Your dance journey</Text>
       <View style={s.hero}>
-        <Text style={s.number}>{learnedCount}</Text>
-        <View>
-          <Text style={s.heroTitle}>dances learned</Text>
-          <Text style={s.heroNote}>
-            {next
-              ? `${next.count - learnedCount} more to unlock ${next.title}`
-              : "Every award unlocked — amazing!"}
-          </Text>
+        <View style={s.heroStats}>
+          <View style={s.heroStat}>
+            <Text style={s.number}>{learnedCount}</Text>
+            <Text style={s.heroTitle}>learned</Text>
+          </View>
+          <View style={s.heroDivider} />
+          <View style={s.heroStat}>
+            <Text style={s.numberPink}>{wantCount}</Text>
+            <Text style={s.heroTitle}>want to learn</Text>
+          </View>
         </View>
+        <Text style={s.heroNote}>
+          {next
+            ? `${next.count - learnedCount} more to unlock ${next.title}`
+            : "Every award unlocked — amazing!"}
+        </Text>
       </View>
 
       <Text style={s.section}>AWARDS</Text>
@@ -600,12 +607,6 @@ export function ProfileScreen({
           </View>
         );
       })}
-
-      <Text style={s.section}>PROGRESS</Text>
-      <View style={s.statRow}>
-        <Text style={s.statLabel}>Want to learn</Text>
-        <Text style={s.statValue}>{wantCount}</Text>
-      </View>
 
       <Text style={s.section}>SETTINGS</Text>
       <View style={s.settings}>
@@ -728,18 +729,37 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#6c5630",
     borderRadius: 16,
-    padding: 18,
+    padding: 16,
+  },
+  heroStats: {
     flexDirection: "row",
     alignItems: "center",
   },
-  number: {
-    color: colors.gold,
-    fontSize: 30,
-    fontWeight: "900",
-    marginRight: 14,
+  heroStat: { flex: 1, alignItems: "center" },
+  heroDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "#6c5630",
+    marginVertical: 2,
   },
-  heroTitle: { color: colors.ink, fontWeight: "800", fontSize: 17 },
-  heroNote: { color: colors.muted, fontSize: 12, marginTop: 4 },
+  number: { color: colors.gold, fontSize: 32, fontWeight: "900" },
+  numberPink: { color: colors.pink, fontSize: 32, fontWeight: "900" },
+  heroTitle: {
+    color: colors.muted,
+    fontWeight: "800",
+    fontSize: 12,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  heroNote: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#6c5630",
+    textAlign: "center",
+  },
   section: {
     color: colors.gold,
     fontSize: 12,
@@ -771,7 +791,6 @@ const s = StyleSheet.create({
     flexDirection: "row",
   },
   statLabel: { color: colors.ink, fontSize: 16, flex: 1 },
-  statValue: { color: colors.pink, fontSize: 18, fontWeight: "900" },
   friendsCard: { backgroundColor: colors.card, borderRadius: 14, padding: 16 },
   settingLabel: {
     color: colors.muted,
@@ -816,7 +835,7 @@ const s = StyleSheet.create({
     fontSize: 14,
     marginLeft: 4,
   },
-  hint: { color: colors.muted, fontSize: 12, marginTop: 6, lineHeight: 17 },
+  hint: { color: colors.muted, fontSize: 14, lineHeight: 17 },
   inlineLoader: { alignSelf: "flex-start", marginTop: 6 },
   nameRow: {
     flexDirection: "row",
