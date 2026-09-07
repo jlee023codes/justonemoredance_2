@@ -41,4 +41,7 @@ export type DanceProgress = {
   danceName?: string;
   danceSong?: string;
   danceDifficulty?: Dance['difficulty'];
+  // A reference link (YouTube / TikTok / …) kept alongside the dance —
+  // currently only set by the Apple Notes import.
+  link?: string;
 };

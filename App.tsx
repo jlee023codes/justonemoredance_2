@@ -331,6 +331,7 @@ export default function App() {
             wantCount={want.length}
             progress={progress}
             onProgressChange={handleProgressChange}
+            onCacheDances={mergeIntoCache}
             onSignOut={() => void supabase.auth.signOut()}
             onPendingRequestCountChange={setPendingRequestCount}
           />

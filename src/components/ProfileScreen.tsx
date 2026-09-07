@@ -25,7 +25,9 @@ import {
   setUsername,
 } from "../services/friends";
 import { FriendDancesModal } from "./FriendDancesModal";
-import { DanceProgress } from "../types";
+import { NotesImportModal } from "./NotesImportModal";
+import { countPendingImport } from "../services/notesImport";
+import { Dance, DanceProgress } from "../types";
 
 const awards = [
   { count: 1, icon: "🌟", title: "First Steps", note: "Learn 1 dance" },
@@ -47,17 +49,20 @@ export function ProfileScreen({
   progress,
   onSignOut,
   onProgressChange,
+  onCacheDances,
   onPendingRequestCountChange,
 }: {
   userId: string;
   email?: string;
   learnedCount: number;
   wantCount: number;
-  /** Passed straight through to FriendDancesModal so it can mark dances
-   *  the user already has. */
+  /** Passed through to the friend + Notes-import modals so they can mark
+   *  dances the user already has. */
   progress: Record<string, DanceProgress>;
   onSignOut: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
+  /** Lets an imported dance render with full BootStepper details at once. */
+  onCacheDances: (dances: Dance[]) => void;
   // Keeps the badge on the Profile tab in step with what's on screen.
   onPendingRequestCountChange?: (count: number) => void;
 }) {
@@ -97,6 +102,15 @@ export function ProfileScreen({
   const [passwordError, setPasswordError] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
 
+  // Apple Notes import
+  const [importOpen, setImportOpen] = useState(false);
+  const [pendingImport, setPendingImport] = useState(0);
+  const refreshPendingImport = () => {
+    countPendingImport(userId)
+      .then(setPendingImport)
+      .catch(() => setPendingImport(0));
+  };
+
   const publishRequests = (next: FriendRequest[]) => {
     setRequests(next);
     onPendingRequestCountChange?.(
@@ -131,6 +145,7 @@ export function ProfileScreen({
         );
       });
     refreshFriends();
+    refreshPendingImport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
@@ -328,6 +343,25 @@ export function ProfileScreen({
       <View style={s.statRow}>
         <Text style={s.statLabel}>Want to learn</Text>
         <Text style={s.statValue}>{wantCount}</Text>
+      </View>
+
+      <Text style={s.section}>IMPORT</Text>
+      <View style={s.friendsCard}>
+        <Text style={s.settingLabel}>APPLE NOTES</Text>
+        <Text style={s.hint}>
+          Paste a checklist of line dances from your Notes app and match each
+          one to the real dance. Stop any time and pick up where you left off.
+        </Text>
+        <Pressable
+          style={s.setUsernameButton}
+          onPress={() => setImportOpen(true)}
+        >
+          <Text style={s.setUsernameText}>
+            {pendingImport > 0
+              ? `Resume import — ${pendingImport} left`
+              : "Import from Apple Notes"}
+          </Text>
+        </Pressable>
       </View>
 
       {email ? (
@@ -664,6 +698,18 @@ export function ProfileScreen({
         progress={progress}
         onClose={() => setSelectedFriend(null)}
         onProgressChange={onProgressChange}
+      />
+
+      <NotesImportModal
+        visible={importOpen}
+        userId={userId}
+        progress={progress}
+        onProgressChange={onProgressChange}
+        onCacheDances={onCacheDances}
+        onClose={() => {
+          setImportOpen(false);
+          refreshPendingImport();
+        }}
       />
     </ScrollView>
   );

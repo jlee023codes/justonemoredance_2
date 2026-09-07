@@ -8,6 +8,7 @@ type ProgressRow = {
   dance_name: string | null;
   dance_song: string | null;
   dance_difficulty: string | null;
+  link: string | null;
 };
 
 export async function loadProgress(
@@ -15,7 +16,7 @@ export async function loadProgress(
 ): Promise<Record<string, DanceProgress>> {
   const { data, error } = await supabase
     .from("user_dance_progress")
-    .select("dance_id,status,source,dance_name,dance_song,dance_difficulty")
+    .select("dance_id,status,source,dance_name,dance_song,dance_difficulty,link")
     .eq("user_id", userId);
   if (error) throw error;
   return Object.fromEntries(
@@ -30,6 +31,7 @@ export async function loadProgress(
         danceDifficulty:
           (row.dance_difficulty as DanceProgress["danceDifficulty"]) ??
           undefined,
+        link: row.link ?? undefined,
       },
     ]),
   );
@@ -74,6 +76,22 @@ export async function saveProgress(
   });
   if (error) throw error;
   return true;
+}
+
+// Sets (or clears) the reference link on an existing progress row —
+// kept separate from saveProgress so an `overwrite` status change can't
+// wipe it. Used by the Apple Notes import.
+export async function setDanceLink(
+  userId: string,
+  danceId: string,
+  link: string | null,
+) {
+  const { error } = await supabase
+    .from("user_dance_progress")
+    .update({ link })
+    .eq("user_id", userId)
+    .eq("dance_id", danceId);
+  if (error) throw error;
 }
 
 // Used by "Remove" — deletes the progress row entirely (no row = no
