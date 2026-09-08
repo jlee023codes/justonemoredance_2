@@ -99,6 +99,7 @@ export function FriendDancesModal({
       await Promise.all(
         fresh.map(async (friendDance) => {
           const dance = toDance(friendDance);
+          const now = new Date().toISOString();
           const next: DanceProgress = {
             danceId: dance.id,
             status: "maybe",
@@ -106,6 +107,9 @@ export function FriendDancesModal({
             danceName: dance.name,
             danceSong: dance.defaultSong,
             danceDifficulty: dance.difficulty,
+            // First time in the list = now; mirrors the DB row's created_at.
+            createdAt: now,
+            updatedAt: now,
           };
           const imported = await saveProgress(
             userId,

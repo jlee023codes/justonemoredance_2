@@ -194,6 +194,7 @@ export function NotesImportModal({
       return; // otherwise: stay put so they can pick a different match
     }
 
+    const now = new Date().toISOString();
     const next: DanceProgress = {
       danceId: dance.id,
       status,
@@ -201,6 +202,9 @@ export function NotesImportModal({
       danceSong: dance.defaultSong,
       danceDifficulty: dance.difficulty,
       link: item.rawLink,
+      // First time in the list = now; mirrors the DB row's created_at.
+      createdAt: now,
+      updatedAt: now,
     };
     // Update the app + advance now; persist in the background.
     onCacheDances([dance]);

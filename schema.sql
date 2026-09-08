@@ -32,6 +32,10 @@ create table user_dance_progress (
   dance_name text,
   dance_song text,
   dance_difficulty text,
+  -- created_at is set once, when the dance first enters the list (any
+  -- source); updated_at moves on every status change. My List sorts on
+  -- both ("Date added" vs "Last updated").
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (user_id, dance_id)
 );

@@ -51,7 +51,10 @@ export type DanceProgress = {
   // A reference link (YouTube / TikTok / …) kept alongside the dance —
   // currently only set by the Apple Notes import.
   link?: string;
+  // When this dance first entered the list (any source: BootStepper add,
+  // Notes/friend import, venue tag). Stable — drives My List's "Date added".
+  createdAt?: string;
   // When this row was last written — bumped on every status change. Drives
-  // the "Date added" (most-recently-updated) ordering in My List.
+  // My List's "Last updated" sort.
   updatedAt?: string;
 };

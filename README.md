@@ -23,8 +23,8 @@ You need a Supabase project connected first — see below.
 1. Create a free project at [supabase.com](https://supabase.com/).
 2. Copy `.env.example` to `.env` and fill in your project URL + publishable key.
 3. Run the SQL in `schema.sql`, then `migration_venues.sql`,
-   `migration_bootstepper.sql`, `migration_friend_requests.sql`, and
-   `migration_notes_import.sql`.
+   `migration_bootstepper.sql`, `migration_friend_requests.sql`,
+   `migration_notes_import.sql`, and `migration_my_list.sql`.
 4. Deploy the BootStepper proxy and set its key:
    ```sh
    supabase functions deploy bootstepper-proxy

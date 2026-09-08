@@ -293,8 +293,8 @@ export default function App() {
           // saveProgress leaves the link column alone — keep it in local
           // state so the card's video chip survives a quick status change.
           link: progress[dance.id]?.link,
-          // Mirrors the updated_at saveProgress writes, so My List's
-          // "Date added" ordering floats this dance to the top right away.
+          // Keep the original "date added" put; only bump "last updated".
+          createdAt: progress[dance.id]?.createdAt ?? new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
         await saveProgress(session.user.id, next, dance, sharedFrom, {

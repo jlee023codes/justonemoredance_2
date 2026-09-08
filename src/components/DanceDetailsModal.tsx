@@ -161,8 +161,8 @@ export function DanceDetailsModal({
         // saveProgress never touches the link column, so carry it through
         // local state too — otherwise the chip vanishes until a reload.
         link: progress?.link,
-        // Match the updated_at saveProgress writes, so My List's "Date
-        // added" sort floats this dance to the top without a reload.
+        // Keep the original "date added"; only "last updated" moves.
+        createdAt: progress?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       await saveProgress(userId, next, dance, sharedFrom, { overwrite: true });
@@ -204,13 +204,15 @@ export function DanceDetailsModal({
 
       let listed = false;
       if (!progress) {
+        const now = new Date().toISOString();
         const next: DanceProgress = {
           danceId: dance.id,
           status: "maybe",
           danceName: dance.name,
           danceSong: dance.defaultSong,
           danceDifficulty: dance.difficulty,
-          updatedAt: new Date().toISOString(),
+          createdAt: now,
+          updatedAt: now,
         };
         listed = await saveProgress(userId, next, dance);
         if (listed) onProgressChange(dance.id, next);
@@ -282,8 +284,9 @@ export function DanceDetailsModal({
         danceSong: progress?.danceSong ?? dance.defaultSong,
         danceDifficulty: progress?.danceDifficulty ?? dance.difficulty,
         link: url ?? undefined,
-        // A link edit isn't a status change — keep the existing position in
-        // My List's "Date added" ordering (setDanceLink doesn't bump it).
+        // A link edit isn't a status change — keep both timestamps as-is so
+        // My List ordering doesn't move (setDanceLink touches neither).
+        createdAt: progress?.createdAt,
         updatedAt: progress?.updatedAt,
       });
       setLinkInput(url ?? "");

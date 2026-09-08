@@ -14,7 +14,8 @@ export type SortKey =
   | "difficulty"
   | "counts"
   | "choreographer"
-  | "dateAdded";
+  | "dateAdded"
+  | "dateUpdated";
 
 export type MyListSort = { key: SortKey; dir: "asc" | "desc" };
 
@@ -55,6 +56,7 @@ export const SORT_LABELS: Record<SortKey, string> = {
   counts: "Counts",
   choreographer: "Choreographer",
   dateAdded: "Date added",
+  dateUpdated: "Last updated",
 };
 
 // Ascending direction reads differently per key — spell it out so the
@@ -66,6 +68,7 @@ export const SORT_DIR_LABELS: Record<SortKey, { asc: string; desc: string }> = {
   counts: { asc: "Fewest → most", desc: "Most → fewest" },
   choreographer: { asc: "A → Z", desc: "Z → A" },
   dateAdded: { asc: "Oldest first", desc: "Newest first" },
+  dateUpdated: { asc: "Oldest first", desc: "Newest first" },
 };
 
 const DIFFICULTY_RANK: Record<Dance["difficulty"], number> = {
@@ -155,6 +158,13 @@ function sortValue(row: MyListRow, key: SortKey): string | number | null {
     case "choreographer":
       return (dance.choreographers ?? [])[0]?.toLowerCase() || null;
     case "dateAdded":
+      // Stable — set once when the dance entered the list. Falls back to
+      // updatedAt for rows saved before created_at existed / before the
+      // local state carried it.
+      return progress?.createdAt || progress?.updatedAt
+        ? Date.parse((progress!.createdAt ?? progress!.updatedAt)!)
+        : null;
+    case "dateUpdated":
       return progress?.updatedAt ? Date.parse(progress.updatedAt) : null;
   }
 }
@@ -189,7 +199,8 @@ export function buildMyList(
       if (aMissing || bMissing) return primary;
       return primary * dirMul;
     }
-    // Tiebreak: most recently updated first.
+    // Tiebreak: most recently added first (stable — never the mutable
+    // updatedAt, so a status change doesn't reshuffle the list).
     const ta = sortValue(ra, "dateAdded");
     const tb = sortValue(rb, "dateAdded");
     return compare(tb, ta);

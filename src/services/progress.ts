@@ -9,6 +9,7 @@ type ProgressRow = {
   dance_song: string | null;
   dance_difficulty: string | null;
   link: string | null;
+  created_at: string | null;
   updated_at: string | null;
 };
 
@@ -18,7 +19,7 @@ export async function loadProgress(
   const { data, error } = await supabase
     .from("user_dance_progress")
     .select(
-      "dance_id,status,source,dance_name,dance_song,dance_difficulty,link,updated_at",
+      "dance_id,status,source,dance_name,dance_song,dance_difficulty,link,created_at,updated_at",
     )
     .eq("user_id", userId);
   if (error) throw error;
@@ -35,6 +36,7 @@ export async function loadProgress(
           (row.dance_difficulty as DanceProgress["danceDifficulty"]) ??
           undefined,
         link: row.link ?? undefined,
+        createdAt: row.created_at ?? undefined,
         updatedAt: row.updated_at ?? undefined,
       },
     ]),
@@ -68,6 +70,9 @@ export async function saveProgress(
     if (existingDance) return false;
   }
 
+  // created_at is deliberately absent: on an upsert conflict Postgres only
+  // writes the columns we list, so an existing "date added" survives every
+  // later status change; a fresh insert gets the column default (now()).
   const { error } = await supabase.from("user_dance_progress").upsert({
     user_id: userId,
     dance_id: progress.danceId,

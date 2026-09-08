@@ -30,6 +30,7 @@ const DIFFICULTIES: Dance["difficulty"][] = [
 ];
 const SORT_KEYS: SortKey[] = [
   "dateAdded",
+  "dateUpdated",
   "danceName",
   "songName",
   "difficulty",
@@ -94,7 +95,10 @@ export function MyListToolsModal({
     } else {
       // Sensible default direction per key: newest / hardest / most first.
       const dir =
-        key === "dateAdded" || key === "difficulty" || key === "counts"
+        key === "dateAdded" ||
+        key === "dateUpdated" ||
+        key === "difficulty" ||
+        key === "counts"
           ? "desc"
           : "asc";
       onSortChange({ key, dir });
