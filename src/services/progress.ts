@@ -9,6 +9,7 @@ type ProgressRow = {
   dance_song: string | null;
   dance_difficulty: string | null;
   link: string | null;
+  updated_at: string | null;
 };
 
 export async function loadProgress(
@@ -16,7 +17,9 @@ export async function loadProgress(
 ): Promise<Record<string, DanceProgress>> {
   const { data, error } = await supabase
     .from("user_dance_progress")
-    .select("dance_id,status,source,dance_name,dance_song,dance_difficulty,link")
+    .select(
+      "dance_id,status,source,dance_name,dance_song,dance_difficulty,link,updated_at",
+    )
     .eq("user_id", userId);
   if (error) throw error;
   return Object.fromEntries(
@@ -32,6 +35,7 @@ export async function loadProgress(
           (row.dance_difficulty as DanceProgress["danceDifficulty"]) ??
           undefined,
         link: row.link ?? undefined,
+        updatedAt: row.updated_at ?? undefined,
       },
     ]),
   );

@@ -24,18 +24,27 @@ import {
   queueImport,
 } from "../services/notesImport";
 
-const EXAMPLE = `Line dances (bullet/check)
+const EXAMPLE = `Line dances (Bullet list)
+- Raised Like That 
+- Rude Dude https://youtube.com
+- TATLO - https://youtube.com
+- Stetson | https://youtube.com
+
+OR 
+
+Line dances (Notes app check list)
 - [x] Raised Like That 
-- [x] TATLO - youtube.com
-- [x] Stetson | youtube.com
+- [x] Rude Dude https://youtube.com
+- [x] TATLO - https://youtube.com
+- [x] Stetson | https://youtube.com
 
-OR (numbered - needs #. format)
+OR 
 
-Line dances
+Line dances (Numbered - needs #. format)
 1. Raised Like That 
-2. TATLO - youtube.com
-3. Stetson | youtube.com
-`;
+2. Rude Dude https://youtube.com
+3. TATLO - https://youtube.com
+4. Stetson | https://youtube.com`;
 
 type Phase = "loading" | "paste" | "match" | "done";
 
@@ -238,11 +247,13 @@ export function NotesImportModal({
               contentContainerStyle={s.sheet}
               keyboardShouldPersistTaps="handled"
             >
-              <Text style={s.title}>Import from Apple Notes</Text>
+              <Text style={s.title}>Import Your List</Text>
               <Text style={s.subtitle}>
-                In the Notes app, open your list, select all the text and copy
-                it. Paste it below — a checklist, bullet list or numbered list
-                all work.
+                From your your Notes app (or spreadsheet, etc) select the dances
+                and copy them. Paste them below (a checklist, bullet list or
+                numbered list all work).
+                {"\n"}You can also bring in a demo/tutorial link if its in your
+                list already. See examples below.
               </Text>
 
               <TextInput

@@ -16,11 +16,6 @@ const STATUS_ROWS: { icon: string; label: string; note: string }[] = [
   },
   { icon: "💗", label: "Want to learn", note: "On your Want to Learn list" },
   { icon: "⭐", label: "Learned", note: "It's in your pocket" },
-  {
-    icon: "🔁",
-    label: "Review",
-    note: "Send back to Want to Learn... not confident yet",
-  },
 ];
 
 export function StatusLegendModal({

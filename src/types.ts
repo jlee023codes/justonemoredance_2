@@ -15,6 +15,13 @@ export type Dance = {
   difficulty: 'Beginner' | 'Improver' | 'Intermediate' | 'Advanced';
   details: string;
   songSwaps: SongSwap[];
+  // Structural facts from BootStepper, kept as raw numbers so My List can
+  // filter/sort on them (the human-readable `details` string is built from
+  // these too). Undefined on snapshot dances until BootStepper resolves them.
+  counts?: number;
+  walls?: number;
+  tags?: number;
+  restarts?: number;
   // Choreographer name(s), from BootStepper. Empty for locally-made Dance
   // objects (e.g. offline fallbacks).
   choreographers?: string[];
@@ -44,4 +51,7 @@ export type DanceProgress = {
   // A reference link (YouTube / TikTok / …) kept alongside the dance —
   // currently only set by the Apple Notes import.
   link?: string;
+  // When this row was last written — bumped on every status change. Drives
+  // the "Date added" (most-recently-updated) ordering in My List.
+  updatedAt?: string;
 };

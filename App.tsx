@@ -14,12 +14,8 @@ import { Dance, DanceProgress } from "./src/types";
 import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
-import { MyVenuesScreen } from "./src/components/MyVenuesScreen";
+import { MyListScreen } from "./src/components/MyListScreen";
 import { StatusLegendModal } from "./src/components/StatusLegendModal";
-import {
-  BulkRemoveBar,
-  SelectToRemoveButton,
-} from "./src/components/BulkRemoveBar";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
@@ -41,20 +37,6 @@ import { loadFriendRequests } from "./src/services/friends";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-
-// Falls back to whatever was snapshotted at save time if a dance can't be
-// resolved from BootStepper right now (offline, removed upstream, etc).
-function danceFromProgress(progress: DanceProgress): Dance {
-  return {
-    id: progress.danceId,
-    name: progress.danceName ?? "Dance",
-    defaultSong: progress.danceSong ?? "",
-    difficulty: progress.danceDifficulty ?? "Beginner",
-    details: "",
-    songSwaps: [],
-    snapshot: true,
-  };
-}
 
 export default function App() {
   const [tab, setTab] = useState<AppTab>("Home"),
@@ -79,9 +61,15 @@ export default function App() {
     [resetPassword, setResetPassword] = useState(false),
     [pendingRequestCount, setPendingRequestCount] = useState(0),
     [legendOpen, setLegendOpen] = useState(false),
-    // "Select to remove" mode on the Want / Learned tabs.
-    [selectMode, setSelectMode] = useState(false),
-    [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    // Bumped on every auth event that carries a session. On a cold start
+    // (or a Metro "reload app"), the *first* loadProgress() can race the
+    // Supabase client finishing its session restore and come back empty —
+    // RLS returns nothing to an as-yet-unauthenticated request, with no
+    // error, so nothing retries and you're left staring at an empty list.
+    // The INITIAL_SESSION / TOKEN_REFRESHED events fire once the client is
+    // ready; keying the loaders off this epoch gives them an authenticated
+    // second shot even when the user id never changed.
+    [sessionEpoch, setSessionEpoch] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -93,6 +81,7 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
+      if (nextSession) setSessionEpoch((n) => n + 1);
       if (event === "PASSWORD_RECOVERY") {
         // Web only: supabase-js read the recovery tokens out of the URL
         // fragment itself (detectSessionInUrl). Wipe them so a refresh
@@ -129,16 +118,26 @@ export default function App() {
       );
   }, [deepLink]);
 
-  // Pull the saved want/learned/maybe list down whenever we have a user.
+  // Pull the saved want/learned/maybe list down whenever we have a user —
+  // and again on each post-restore auth event (see `sessionEpoch`), since
+  // the first attempt on a cold start can quietly return an empty set.
   const userId = session?.user.id;
   useEffect(() => {
     if (!userId) return;
     loadProgress(userId)
-      .then(setProgress)
+      .then((loaded) =>
+        // Never let an empty (likely unauthenticated) result blow away a
+        // list we already have in hand — a later epoch will refill it.
+        setProgress((current) =>
+          Object.keys(loaded).length === 0 && Object.keys(current).length > 0
+            ? current
+            : loaded,
+        ),
+      )
       .catch((err: any) =>
         setMessage(`Could not load your saved dances: ${err.message}`),
       );
-  }, [userId]);
+  }, [userId, sessionEpoch]);
 
   const refreshRequestCount = () => {
     if (!userId) return;
@@ -153,13 +152,7 @@ export default function App() {
       });
   };
 
-  useEffect(refreshRequestCount, [userId]);
-
-  // Leave "select to remove" behind when switching tabs.
-  useEffect(() => {
-    setSelectMode(false);
-    setSelectedIds(new Set());
-  }, [tab]);
+  useEffect(refreshRequestCount, [userId, sessionEpoch]);
 
   const mergeIntoCache = (dances: Dance[]) => {
     if (!dances.length) return;
@@ -224,18 +217,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress, catalogCache]);
 
-  const resolveDance = (id: string): Dance =>
-    catalogCache[id] ?? danceFromProgress(progress[id]);
-
-  const learnedCount = Object.values(progress).filter(
+  const progressValues = Object.values(progress);
+  const learnedCount = progressValues.filter(
     (p) => p.status === "learned",
   ).length;
-  const want = Object.values(progress)
-      .filter((p) => p.status === "want")
-      .map((p) => resolveDance(p.danceId)),
-    learned = Object.values(progress)
-      .filter((p) => p.status === "learned")
-      .map((p) => resolveDance(p.danceId));
+  const wantCount = progressValues.filter((p) => p.status === "want").length;
 
   if (authLoading)
     return (
@@ -307,6 +293,9 @@ export default function App() {
           // saveProgress leaves the link column alone — keep it in local
           // state so the card's video chip survives a quick status change.
           link: progress[dance.id]?.link,
+          // Mirrors the updated_at saveProgress writes, so My List's
+          // "Date added" ordering floats this dance to the top right away.
+          updatedAt: new Date().toISOString(),
         };
         await saveProgress(session.user.id, next, dance, sharedFrom, {
           overwrite: true,
@@ -323,18 +312,6 @@ export default function App() {
 
     setVenuesRefreshKey((k) => k + 1);
   };
-
-  const exitSelect = () => {
-    setSelectMode(false);
-    setSelectedIds(new Set());
-  };
-
-  const toggleSelected = (danceId: string) =>
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      next.has(danceId) ? next.delete(danceId) : next.add(danceId);
-      return next;
-    });
 
   // Removes the given dances from every list + venue. `confirm` is caller
   // text; pass "" to skip the prompt. The list updates immediately and the
@@ -362,7 +339,6 @@ export default function App() {
       return next;
     });
     setVenuesRefreshKey((k) => k + 1);
-    exitSelect();
 
     try {
       await removeDancesEverywhere(session.user.id, danceIds);
@@ -372,16 +348,6 @@ export default function App() {
       showAlert("Could not remove", err.message ?? "Please try again.");
     }
   };
-
-  const list = tab === "Want to learn" ? want : learned;
-  const achievement =
-    learnedCount >= 10
-      ? "🏆 Dance floor legend"
-      : learnedCount >= 5
-        ? "✨ High-five: 5 dances learned!"
-        : learnedCount
-          ? "🌟 First dance down!"
-          : "💃 Learn your first dance to unlock a milestone";
 
   return (
     <SafeAreaProvider>
@@ -406,15 +372,16 @@ export default function App() {
             userId={session.user.id}
             email={session.user.is_anonymous ? undefined : session.user.email}
             learnedCount={learnedCount}
-            wantCount={want.length}
+            wantCount={wantCount}
             progress={progress}
             onProgressChange={handleProgressChange}
             onCacheDances={mergeIntoCache}
             onSignOut={() => void supabase.auth.signOut()}
             onPendingRequestCountChange={setPendingRequestCount}
+            onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
           />
         ) : tab === "My List" ? (
-          <MyVenuesScreen
+          <MyListScreen
             userId={session.user.id}
             progress={progress}
             catalogCache={catalogCache}
@@ -423,7 +390,7 @@ export default function App() {
             onRemoveDances={(ids) => removeDances(ids, "")}
             refreshKey={venuesRefreshKey}
           />
-        ) : tab === "Home" ? (
+        ) : (
           <ScrollView
             contentContainerStyle={s.content}
             keyboardShouldPersistTaps="handled"
@@ -460,92 +427,6 @@ export default function App() {
             </Pressable>
             {message ? <Text style={s.message}>{message}</Text> : null}
           </ScrollView>
-        ) : (
-          <ScrollView
-            contentContainerStyle={[
-              s.content,
-              selectMode && s.contentSelecting,
-            ]}
-          >
-            <Text style={s.greeting}>
-              {tab === "Learned"
-                ? learnedCount + " dances in your pocket"
-                : "Your next moves, queued up"}
-            </Text>
-            {tab === "Learned" && (
-              <View style={s.achievement}>
-                <Text style={s.achievementText}>{achievement}</Text>
-                <Text style={s.tiny}>Next milestone: 5 dances</Text>
-              </View>
-            )}
-
-            <View style={s.listHead}>
-              <View style={s.listHeadLeft}>
-                <Text style={s.listHeadLabel}>
-                  {tab === "Want to learn" ? "WANT TO LEARN" : "LEARNED"}
-                </Text>
-                <Text style={s.listHeadCount}>
-                  {list.length} {list.length === 1 ? "dance" : "dances"}
-                </Text>
-              </View>
-              {list.length > 0 &&
-                (selectMode ? (
-                  <Text style={s.selectCount}>{selectedIds.size} selected</Text>
-                ) : (
-                  <SelectToRemoveButton onPress={() => setSelectMode(true)} />
-                ))}
-            </View>
-            {list.map((d) => (
-              <DanceCard
-                key={d.id}
-                dance={d}
-                song={d.defaultSong}
-                progress={progress[d.id]}
-                selected={selectMode ? selectedIds.has(d.id) : undefined}
-                onPress={
-                  selectMode ? () => toggleSelected(d.id) : () => openDance(d)
-                }
-                onQuickStatus={(status) => handleQuickStatus(d, status)}
-                quickActions={
-                  tab === "Want to learn"
-                    ? [
-                        {
-                          status: "maybe",
-                          icon: "🔖",
-                          label: "Save for Later",
-                        },
-                        { status: "learned", icon: "★", label: "Learned it" },
-                      ]
-                    : [{ status: "want", icon: "🔁", label: "Review" }]
-                }
-                onDelete={() =>
-                  removeDances(
-                    [d.id],
-                    `Remove "${d.name}" from your lists and every venue you've tagged it to?`,
-                  )
-                }
-              />
-            ))}
-            {!list.length && (
-              <Text style={s.empty}>
-                Nothing here yet — choose a dance from Home.
-              </Text>
-            )}
-          </ScrollView>
-        )}
-        {selectMode && (tab === "Want to learn" || tab === "Learned") && (
-          <BulkRemoveBar
-            count={selectedIds.size}
-            onCancel={exitSelect}
-            onRemove={() =>
-              removeDances(
-                [...selectedIds],
-                `Remove ${selectedIds.size} dance${
-                  selectedIds.size === 1 ? "" : "s"
-                } from your lists and every venue you've tagged them to?`,
-              )
-            }
-          />
         )}
         <BottomTabs
           activeTab={tab}
@@ -564,6 +445,7 @@ export default function App() {
           onClose={() => setSelected(null)}
           onProgressChange={handleProgressChange}
           onRemoved={handleRemoved}
+          onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
         />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -630,28 +512,6 @@ const s = StyleSheet.create({
     marginTop: 24,
     marginBottom: 8,
   },
-  listHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 24,
-    marginBottom: 8,
-  },
-  listHeadLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 1,
-  },
-  listHeadLabel: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-  },
-  listHeadCount: { color: colors.muted, fontSize: 12, fontWeight: "500" },
-  selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
-  contentSelecting: { paddingBottom: 190 },
   share: {
     borderWidth: 1,
     borderColor: colors.pink,
@@ -661,15 +521,6 @@ const s = StyleSheet.create({
     marginTop: 18,
   },
   shareText: { color: colors.pink, fontWeight: "800", letterSpacing: 1 },
-  achievement: {
-    backgroundColor: "#393028",
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#6c5630",
-  },
-  achievementText: { color: colors.gold, fontWeight: "800", fontSize: 16 },
-  tiny: { color: colors.muted, fontSize: 12, marginTop: 5 },
   empty: { color: colors.muted, fontSize: 15, marginTop: 10 },
   message: {
     color: colors.green,

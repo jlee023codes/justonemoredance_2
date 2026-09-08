@@ -115,6 +115,10 @@ function adaptDance(raw: RawDance): Dance {
     defaultSong: songNameFor(raw),
     difficulty: difficultyFor(raw.difficultyLevel),
     details: detailsFor(raw),
+    counts: raw.counts,
+    walls: raw.walls,
+    tags: raw.tags,
+    restarts: raw.restarts,
     songSwaps: songSwapsFor(raw),
     choreographers: choreographersFor(raw),
   };

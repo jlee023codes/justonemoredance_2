@@ -15,6 +15,9 @@ import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
 import { VenuePicker } from "./VenuePicker";
 import {
+  // The modal's status *buttons* are commented out (see handleStatus below),
+  // but saveVenueDance still needs this to keep venue-tagged dances visible
+  // in My List — see handleAddVenue.
   saveProgress,
   removeDanceEverywhere,
   setDanceLink,
@@ -46,6 +49,7 @@ export function DanceDetailsModal({
   onClose,
   onProgressChange,
   onRemoved,
+  onVenuesChanged,
 }: {
   dance: Dance | null;
   userId: string;
@@ -56,6 +60,8 @@ export function DanceDetailsModal({
   // Called after a full "remove everywhere" completes, so the parent can
   // clear this dance from progress and refresh any venue lists it was in.
   onRemoved: (danceId: string) => void;
+  // Called after a venue tie is added, so My List re-reads its venue links.
+  onVenuesChanged?: () => void;
 }) {
   const [venue, setVenue] = useState<VenueOption | null>(null);
   const [songSwap, setSongSwap] = useState("");
@@ -110,10 +116,19 @@ export function DanceDetailsModal({
   const showError = (err: any, fallback: string) =>
     Alert.alert("Something went wrong", err?.message ?? fallback);
 
+  // --- COMMENTED OUT: status actions from within this modal ---------------
+  // The "Save for Later / Want to learn / Learned it / Review" buttons were
+  // removed from the details modal (status is set from the dance cards on
+  // My List / Home instead). Left here, and the JSX block further down, so
+  // they can be switched back on. To restore: uncomment this function, the
+  // `<View style={s.statusButtons}>` block below, and the `saveProgress`
+  // import at the top of the file.
+  //
   // Any of the three status actions: saves the status, ties the venue if
   // one was picked (best-effort — a venue hiccup shouldn't block the
   // status update, they're conceptually independent), and lets the user
   // know where to find it afterward.
+  /*
   const handleStatus = async (status: LearningStatus) => {
     setSaving(true);
     let venueSaved = false;
@@ -133,7 +148,7 @@ export function DanceDetailsModal({
     }
     try {
       // Preserve the "Shared from" attribution across every status
-      // change (maybe → want → learned). Undefined means it's the
+      // change (maybe -> want -> learned). Undefined means it's the
       // user's own dance.
       const sharedFrom = progress?.fromFriend;
       const next: DanceProgress = {
@@ -146,6 +161,9 @@ export function DanceDetailsModal({
         // saveProgress never touches the link column, so carry it through
         // local state too — otherwise the chip vanishes until a reload.
         link: progress?.link,
+        // Match the updated_at saveProgress writes, so My List's "Date
+        // added" sort floats this dance to the top without a reload.
+        updatedAt: new Date().toISOString(),
       };
       await saveProgress(userId, next, dance, sharedFrom, { overwrite: true });
       onProgressChange(dance.id, next);
@@ -168,17 +186,42 @@ export function DanceDetailsModal({
       setSaving(false);
     }
   };
+  */
+  // --- END COMMENTED OUT --------------------------------------------------
 
-  // Ties this dance to the selected venue without touching status at all —
-  // used e.g. from My List, when a dance already has a status and the user
-  // just wants to tag another venue for it.
+  // Ties this dance to the selected venue. If the dance isn't in any list
+  // yet (e.g. tagged straight from Home search), it also gets a "Save for
+  // Later" progress row — otherwise it'd be tied to a venue but invisible
+  // in My List, which only shows dances that have a status. An existing
+  // status is never overwritten (saveProgress runs in non-overwrite mode).
   const handleAddVenue = async () => {
     if (!venue || danceVenueIds.includes(venue.id)) return;
     setSaving(true);
     try {
       await saveVenueDance(userId, venue.id, dance, songSwap.trim());
       setDanceVenueIds((current) => [...current, venue.id]);
-      Alert.alert("Added", `${dance.name} added to ${venue.name}.`);
+      onVenuesChanged?.();
+
+      let listed = false;
+      if (!progress) {
+        const next: DanceProgress = {
+          danceId: dance.id,
+          status: "maybe",
+          danceName: dance.name,
+          danceSong: dance.defaultSong,
+          danceDifficulty: dance.difficulty,
+          updatedAt: new Date().toISOString(),
+        };
+        listed = await saveProgress(userId, next, dance);
+        if (listed) onProgressChange(dance.id, next);
+      }
+
+      Alert.alert(
+        "Added",
+        listed
+          ? `${dance.name} added to ${venue.name} and saved to your list.`
+          : `${dance.name} added to ${venue.name}.`,
+      );
       setVenue(null);
       setSongSwap("");
     } catch (err: any) {
@@ -239,6 +282,9 @@ export function DanceDetailsModal({
         danceSong: progress?.danceSong ?? dance.defaultSong,
         danceDifficulty: progress?.danceDifficulty ?? dance.difficulty,
         link: url ?? undefined,
+        // A link edit isn't a status change — keep the existing position in
+        // My List's "Date added" ordering (setDanceLink doesn't bump it).
+        updatedAt: progress?.updatedAt,
       });
       setLinkInput(url ?? "");
     } catch (err: any) {
@@ -480,9 +526,12 @@ export function DanceDetailsModal({
               </>
             )}
 
+            {/* COMMENTED OUT: status action buttons in this modal. Status is
+                now set from the dance cards (My List / Home). "Remove from
+                all lists" below stays. To restore: uncomment this block, the
+                `handleStatus` function above, and the `saveProgress` import.
             <View style={s.statusButtons}>
               {danceState === "learned" && (
-                // "Review" moves a learned dance back to Want to learn.
                 <Pressable
                   style={s.tertiary}
                   onPress={() => handleStatus("want")}
@@ -519,6 +568,7 @@ export function DanceDetailsModal({
                 </Pressable>
               )}
             </View>
+            */}
 
             {(danceState || danceVenueIds.length > 0) &&
               activeTab != "Home" && (

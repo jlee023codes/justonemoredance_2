@@ -85,6 +85,35 @@ export async function addUserVenue(userId: string, venueId: string) {
   if (error) throw error;
 }
 
+/** Drops a venue from the user's "My Venues" list. Leaves any
+ *  `user_venue_dances` rows for that venue in place — same narrow scope as
+ *  `addUserVenue` — so re-adding the venue brings its tagged dances back. */
+export async function removeUserVenue(userId: string, venueId: string) {
+  const { error } = await supabase
+    .from("user_venues")
+    .delete()
+    .eq("user_id", userId)
+    .eq("venue_id", venueId);
+  if (error) throw error;
+}
+
+/** danceId → the venue ids this user has tagged it to. Powers the My List
+ *  venue filter without a per-dance round trip. */
+export async function loadVenueLinks(
+  userId: string,
+): Promise<Record<string, string[]>> {
+  const { data, error } = await supabase
+    .from("user_venue_dances")
+    .select("dance_id,venue_id")
+    .eq("user_id", userId);
+  if (error) throw error;
+  const links: Record<string, string[]> = {};
+  for (const row of (data ?? []) as { dance_id: string; venue_id: string }[]) {
+    (links[row.dance_id] ??= []).push(row.venue_id);
+  }
+  return links;
+}
+
 // ---------------------------------------------------------------------
 // Dances a user has tied to a particular venue, with an optional song swap.
 // ---------------------------------------------------------------------

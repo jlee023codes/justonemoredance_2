@@ -1,10 +1,12 @@
 # Just One More Dance
 
 An Expo / React Native app (iOS + web) for tracking line dances: search the
-[BootStepper](https://api.bootstepper.com) catalog, keep **Want to learn** and
-**Learned** lists, tag dances to the venues you dance them at, add friends and
-import from their lists, bulk-import a checklist pasted from Apple Notes, and
-unlock milestones.
+[BootStepper](https://api.bootstepper.com) catalog, keep everything you're
+learning in one **My List** (search it, quick-filter by Saved for Later / Want
+to Learn / Learned, filter by venue / difficulty / counts / walls / tags /
+video, and sort any way you like), tag dances to the venues you dance them at
+(managed from **Profile → My Venues**), add friends and import from their
+lists, bulk-import a checklist pasted from Apple Notes, and unlock milestones.
 
 ## Run locally
 

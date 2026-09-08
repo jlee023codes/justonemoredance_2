@@ -26,7 +26,14 @@ import {
 } from "../services/friends";
 import { FriendDancesModal } from "./FriendDancesModal";
 import { NotesImportModal } from "./NotesImportModal";
+import { VenuePicker } from "./VenuePicker";
 import { countPendingImport } from "../services/notesImport";
+import {
+  addUserVenue,
+  loadUserVenues,
+  removeUserVenue,
+  VenueOption,
+} from "../services/venues";
 import { Dance, DanceProgress } from "../types";
 
 const awards = [
@@ -51,6 +58,7 @@ export function ProfileScreen({
   onProgressChange,
   onCacheDances,
   onPendingRequestCountChange,
+  onVenuesChanged,
 }: {
   userId: string;
   email?: string;
@@ -65,6 +73,8 @@ export function ProfileScreen({
   onCacheDances: (dances: Dance[]) => void;
   // Keeps the badge on the Profile tab in step with what's on screen.
   onPendingRequestCountChange?: (count: number) => void;
+  // Lets My List re-read its venue filter after a venue is added/removed here.
+  onVenuesChanged?: () => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -112,6 +122,54 @@ export function ProfileScreen({
       .catch(() => setPendingImport(0));
   };
 
+  // My venues — the list of venues that show up as a filter in My List.
+  const [myVenues, setMyVenues] = useState<VenueOption[]>([]);
+  const [venuesLoading, setVenuesLoading] = useState(true);
+  const [venuesError, setVenuesError] = useState("");
+  const [venuePickerOpen, setVenuePickerOpen] = useState(false);
+  const refreshVenues = () => {
+    setVenuesLoading(true);
+    loadUserVenues(userId)
+      .then(setMyVenues)
+      .catch((err: any) =>
+        setVenuesError(err?.message ?? "Could not load your venues."),
+      )
+      .finally(() => setVenuesLoading(false));
+  };
+
+  const handleAddVenue = async (venue: VenueOption) => {
+    setVenuePickerOpen(false);
+    setVenuesError("");
+    try {
+      await addUserVenue(userId, venue.id);
+      setMyVenues((current) =>
+        current.some((v) => v.id === venue.id)
+          ? current
+          : [...current, venue].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      onVenuesChanged?.();
+    } catch (err: any) {
+      setVenuesError(err?.message ?? "Could not add that venue.");
+    }
+  };
+
+  const handleRemoveVenue = async (venue: VenueOption) => {
+    const ok = await confirmAction(
+      "Remove venue?",
+      `Remove ${venue.name} from your venues? Dances you tagged there stay in your list — they just won't be filterable by ${venue.name} anymore.`,
+      "Remove",
+      true,
+    );
+    if (!ok) return;
+    try {
+      await removeUserVenue(userId, venue.id);
+      setMyVenues((current) => current.filter((v) => v.id !== venue.id));
+      onVenuesChanged?.();
+    } catch (err: any) {
+      setVenuesError(err?.message ?? "Could not remove that venue.");
+    }
+  };
+
   const publishRequests = (next: FriendRequest[]) => {
     setRequests(next);
     onPendingRequestCountChange?.(
@@ -148,6 +206,7 @@ export function ProfileScreen({
       .finally(() => setProfileLoaded(true));
     refreshFriends();
     refreshPendingImport();
+    refreshVenues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
@@ -612,6 +671,37 @@ export function ProfileScreen({
         );
       })}
 
+      <Text style={s.section}>MY VENUES</Text>
+      <View style={s.settings}>
+        <Text style={s.hint}>
+          Venues you add here become a filter in My List — tag a dance to a
+          venue from its details, then filter your list by where you dance it.
+        </Text>
+        {venuesError ? <Text style={s.error}>{venuesError}</Text> : null}
+        {venuesLoading && !myVenues.length ? (
+          <ActivityIndicator color={colors.gold} style={s.inlineLoader} />
+        ) : null}
+        {!venuesLoading && !myVenues.length ? (
+          <Text style={[s.hint, s.venuesEmpty]}>No venues added yet.</Text>
+        ) : null}
+        {myVenues.map((venue) => (
+          <View key={venue.id} style={s.venueRow}>
+            <Text style={s.venueName} numberOfLines={1}>
+              {venue.name}
+            </Text>
+            <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
+              <Text style={s.venueRemove}>✕</Text>
+            </Pressable>
+          </View>
+        ))}
+        <Pressable
+          style={s.addVenueButton}
+          onPress={() => setVenuePickerOpen(true)}
+        >
+          <Text style={s.addVenueText}>＋ Add a venue</Text>
+        </Pressable>
+      </View>
+
       <Text style={s.section}>SETTINGS</Text>
       <View style={s.settings}>
         <Text style={s.settingLabel}>SIGNED IN AS</Text>
@@ -715,6 +805,14 @@ export function ProfileScreen({
           setImportOpen(false);
           refreshPendingImport();
         }}
+      />
+
+      <VenuePicker
+        visible={venuePickerOpen}
+        title="Add a venue"
+        alreadyAddedVenueIds={myVenues.map((v) => v.id)}
+        onSelect={handleAddVenue}
+        onClose={() => setVenuePickerOpen(false)}
       />
     </ScrollView>
   );
@@ -952,6 +1050,26 @@ const s = StyleSheet.create({
   declineButton: { paddingHorizontal: 10, paddingVertical: 8 },
   declineText: { color: colors.muted, fontWeight: "700", fontSize: 12 },
   settings: { backgroundColor: colors.card, borderRadius: 14, padding: 16 },
+  venuesEmpty: { marginTop: 12 },
+  venueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    marginTop: 12,
+  },
+  venueName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
+  venueRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6 },
+  addVenueButton: {
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: colors.pink,
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+  },
+  addVenueText: { color: colors.pink, fontWeight: "800", fontSize: 13 },
   email: { color: colors.ink, fontSize: 15, marginTop: 5 },
   changePassword: {
     marginTop: 17,
