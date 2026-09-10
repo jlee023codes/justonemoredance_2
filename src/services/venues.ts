@@ -1,14 +1,55 @@
 import { supabase } from "../lib/supabase";
 import { Dance } from "../types";
 
-export type VenueOption = { id: string; name: string };
+export type VenueOption = {
+  id: string;
+  name: string;
+  // Community "this is a real venue" signal — how many people have endorsed
+  // it, and whether the current user is one of them. Undefined when not
+  // loaded (e.g. a bare snapshot).
+  votes?: number;
+  votedByMe?: boolean;
+};
 
 // ---------------------------------------------------------------------
 // The global venue catalog (the `venues` table) — shared across all users.
 // ---------------------------------------------------------------------
 
+/** Normalized venue name — must match public.venue_key() in the DB. This is
+ *  what carries uniqueness: "Neon Boots", "neon boots" and "Neon  Boots!"
+ *  all map to "neonboots". */
+export function venueKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+// Fetches the thumbs-up tally for a set of venues and folds it in.
+async function attachVotes(
+  venues: VenueOption[],
+  userId?: string,
+): Promise<VenueOption[]> {
+  if (!venues.length) return venues;
+  const ids = venues.map((v) => v.id);
+  const { data, error } = await supabase
+    .from("venue_votes")
+    .select("venue_id,user_id")
+    .in("venue_id", ids);
+  if (error) return venues; // non-critical — just show them without counts
+  const counts = new Map<string, number>();
+  const mine = new Set<string>();
+  for (const row of (data ?? []) as { venue_id: string; user_id: string }[]) {
+    counts.set(row.venue_id, (counts.get(row.venue_id) ?? 0) + 1);
+    if (userId && row.user_id === userId) mine.add(row.venue_id);
+  }
+  return venues.map((v) => ({
+    ...v,
+    votes: counts.get(v.id) ?? 0,
+    votedByMe: mine.has(v.id),
+  }));
+}
+
 export async function searchGlobalVenues(
   query: string,
+  userId?: string,
   limit = 20,
 ): Promise<VenueOption[]> {
   let request = supabase
@@ -19,7 +60,12 @@ export async function searchGlobalVenues(
   if (query.trim()) request = request.ilike("name", `%${query.trim()}%`);
   const { data, error } = await request;
   if (error) throw error;
-  return data ?? [];
+  const withVotes = await attachVotes((data ?? []) as VenueOption[], userId);
+  // Best-endorsed first, then alphabetical — helps a real venue outrank a
+  // typo'd duplicate that slipped in before name_key existed.
+  return withVotes.sort(
+    (a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.name.localeCompare(b.name),
+  );
 }
 
 function slugify(name: string): string {
@@ -32,30 +78,71 @@ function slugify(name: string): string {
   return slug || `venue-${Date.now()}`;
 }
 
-/** Finds a venue by exact (case-insensitive) name, or creates one in the
- *  shared catalog. Two people typing "Neon Boots" both land on the same row. */
+/** Finds a venue by its normalized name, or creates one in the shared
+ *  catalog. Race-safe: if someone else inserts the same normalized name
+ *  between our lookup and our insert, the unique index rejects ours and we
+ *  return theirs. */
 export async function findOrCreateGlobalVenue(
   name: string,
 ): Promise<VenueOption> {
   const trimmed = name.trim();
-  if (!trimmed) throw new Error("Venue name can't be empty.");
+  const key = venueKey(trimmed);
+  if (!key) throw new Error("A venue name needs at least one letter or number.");
 
-  const { data: existing, error: findError } = await supabase
-    .from("venues")
-    .select("id,name")
-    .ilike("name", trimmed)
-    .limit(1)
-    .maybeSingle();
+  const findByKey = () =>
+    supabase.from("venues").select("id,name").eq("name_key", key).maybeSingle();
+
+  const { data: existing, error: findError } = await findByKey();
   if (findError) throw findError;
   if (existing) return existing;
 
   const { data: created, error: insertError } = await supabase
     .from("venues")
-    .insert({ id: slugify(trimmed), name: trimmed })
+    .insert({ id: slugify(trimmed) || key, name: trimmed, name_key: key })
     .select("id,name")
     .single();
-  if (insertError) throw insertError;
-  return created;
+  if (!insertError) return created;
+
+  // 23505 = unique violation: lost the race (name_key) or the readable id
+  // collided with a different venue. Either way, the canonical row is the
+  // one keyed by name_key.
+  if (insertError.code === "23505") {
+    const { data: raced } = await findByKey();
+    if (raced) return raced;
+    // id collided but name_key is free — retry with a unique id.
+    const { data: retry, error: retryError } = await supabase
+      .from("venues")
+      .insert({
+        id: `${slugify(trimmed)}-${key.slice(0, 6)}`,
+        name: trimmed,
+        name_key: key,
+      })
+      .select("id,name")
+      .single();
+    if (retryError) throw retryError;
+    return retry;
+  }
+  throw insertError;
+}
+
+/** Toggle the current user's thumbs-up for a venue. */
+export async function voteVenue(userId: string, venueId: string) {
+  const { error } = await supabase
+    .from("venue_votes")
+    .upsert(
+      { user_id: userId, venue_id: venueId },
+      { onConflict: "user_id,venue_id", ignoreDuplicates: true },
+    );
+  if (error) throw error;
+}
+
+export async function unvoteVenue(userId: string, venueId: string) {
+  const { error } = await supabase
+    .from("venue_votes")
+    .delete()
+    .eq("user_id", userId)
+    .eq("venue_id", venueId);
+  if (error) throw error;
 }
 
 // ---------------------------------------------------------------------
@@ -63,16 +150,51 @@ export async function findOrCreateGlobalVenue(
 // of whether they've tagged a dance to it yet.
 // ---------------------------------------------------------------------
 
+/** The user's "home bar" (profiles.default_venue_id) — pinned to the top of
+ *  every venue list. null when they haven't chosen one. */
+export async function loadHomeVenueId(userId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("default_venue_id")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.default_venue_id ?? null;
+}
+
+export async function setHomeVenue(
+  userId: string,
+  venueId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ default_venue_id: venueId })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+/** Home bar first, then whatever order the list already had. */
+export function homeFirst<T extends { id: string }>(
+  venues: T[],
+  homeVenueId: string | null,
+): T[] {
+  if (!homeVenueId) return venues;
+  const home = venues.filter((v) => v.id === homeVenueId);
+  const rest = venues.filter((v) => v.id !== homeVenueId);
+  return [...home, ...rest];
+}
+
 export async function loadUserVenues(userId: string): Promise<VenueOption[]> {
   const { data, error } = await supabase
     .from("user_venues")
     .select("venue_id, venues ( id, name )")
     .eq("user_id", userId);
   if (error) throw error;
-  return (data ?? [])
+  const venues = (data ?? [])
     .map((row: any) => row.venues as VenueOption | null)
     .filter((venue): venue is VenueOption => Boolean(venue))
     .sort((a, b) => a.name.localeCompare(b.name));
+  return attachVotes(venues, userId);
 }
 
 export async function addUserVenue(userId: string, venueId: string) {
@@ -83,6 +205,8 @@ export async function addUserVenue(userId: string, venueId: string) {
       { onConflict: "user_id,venue_id", ignoreDuplicates: true },
     );
   if (error) throw error;
+  // Adding a venue to your list is itself an endorsement.
+  await voteVenue(userId, venueId).catch(() => {});
 }
 
 /** Drops a venue from the user's "My Venues" list. Leaves any
@@ -172,17 +296,36 @@ export async function saveVenueDance(
   if (error) throw error;
 }
 
-/** Every venue this user has already tied a specific dance to — used to
- *  disable re-adding the same venue and mark it in the picker. */
-export async function loadDanceVenueIds(
+/** Every venue this user has tied a specific dance to — with names, so the
+ *  details modal can list them and pre-check them in the multi-picker. */
+export async function loadDanceVenues(
   userId: string,
   danceId: string,
-): Promise<string[]> {
+): Promise<VenueOption[]> {
   const { data, error } = await supabase
     .from("user_venue_dances")
-    .select("venue_id")
+    .select("venue_id, venues ( id, name )")
     .eq("user_id", userId)
     .eq("dance_id", danceId);
   if (error) throw error;
-  return (data ?? []).map((row: any) => row.venue_id as string);
+  return (data ?? [])
+    .map((row: any) => row.venues as VenueOption | null)
+    .filter((v): v is VenueOption => Boolean(v))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Removes one dance⇄venue tie for this user (used when the multi-picker
+ *  save unchecks a venue). Leaves the venue on the user's My Venues list. */
+export async function removeVenueDance(
+  userId: string,
+  venueId: string,
+  danceId: string,
+) {
+  const { error } = await supabase
+    .from("user_venue_dances")
+    .delete()
+    .eq("user_id", userId)
+    .eq("venue_id", venueId)
+    .eq("dance_id", danceId);
+  if (error) throw error;
 }

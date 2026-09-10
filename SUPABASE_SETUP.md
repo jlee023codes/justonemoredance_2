@@ -2,13 +2,16 @@
 
 1. In Supabase **SQL Editor**, run the complete contents of `schema.sql`.
 2. Then run `migration_venues.sql`, `migration_bootstepper.sql`,
-   `migration_friend_requests.sql`, `migration_notes_import.sql`, and
-   `migration_my_list.sql` (in that order). `migration_friend_requests.sql`
-   adds friend *requests*, the `email_exists` helper the sign-in screen uses,
-   and fixes up a couple of CHECK constraints from the original schema.
-   `migration_notes_import.sql` adds the Apple Notes import queue and a
-   `link` column on `user_dance_progress`. `migration_my_list.sql` adds the
-   `created_at` column that powers My List's "Date added" sort. All are
+   `migration_friend_requests.sql`, `migration_notes_import.sql`,
+   `migration_my_list.sql`, and `migration_venue_dedup.sql` (in that order).
+   `migration_friend_requests.sql` adds friend *requests*, the `email_exists`
+   helper the sign-in screen uses, and fixes up a couple of CHECK constraints
+   from the original schema. `migration_notes_import.sql` adds the Apple Notes
+   import queue and a `link` column on `user_dance_progress`.
+   `migration_my_list.sql` adds the `created_at` column that powers My List's
+   "Date added" sort. `migration_venue_dedup.sql` normalizes the venue
+   catalog (a unique `name_key`), merges any existing duplicates, and adds the
+   `venue_votes` table (community "this is a real venue" thumbs-up). All are
    idempotent — safe to re-run.
 3. In **Authentication → Providers → Email**, keep Email enabled. For fast local
    testing, you may turn off **Confirm email**; leave it on for production.

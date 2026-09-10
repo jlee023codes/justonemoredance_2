@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -13,27 +13,43 @@ import { colors } from "../styles";
 import {
   findOrCreateGlobalVenue,
   searchGlobalVenues,
+  unvoteVenue,
   VenueOption,
+  voteVenue,
 } from "../services/venues";
 
 /** Searchable "find or add a venue" picker, backed by the shared `venues`
- *  table in Supabase (not a local list) — typing filters live, and if
- *  nothing matches exactly you can add your own as a new venue. */
+ *  table. Two modes:
+ *   - single (default): tap a venue → onSelect, sheet closes.
+ *   - multi: check any number, then Save → onSaveMulti with the full list.
+ *  Either way, each row shows a community thumbs-up count you can toggle. */
 export function VenuePicker({
   visible,
   title = "Find or add a venue",
+  userId,
+  homeVenueId,
   selectedVenueId,
   alreadyAddedVenueIds,
   onSelect,
+  multi = false,
+  initialSelected = [],
+  onSaveMulti,
   onClose,
 }: {
   visible: boolean;
   title?: string;
+  // Enables the thumbs-up control and "voted by me" state.
+  userId?: string;
+  // The user's home bar — pinned above the vote/name sort.
+  homeVenueId?: string | null;
+  // --- single-select ---
   selectedVenueId?: string;
-  // Venue ids this specific dance is already tied to — shown with a pin
-  // icon and not selectable (there's nothing to re-add).
   alreadyAddedVenueIds?: string[];
-  onSelect: (venue: VenueOption) => void;
+  onSelect?: (venue: VenueOption) => void;
+  // --- multi-select ---
+  multi?: boolean;
+  initialSelected?: VenueOption[];
+  onSaveMulti?: (venues: VenueOption[]) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -41,6 +57,8 @@ export function VenuePicker({
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+  // multi mode: id -> full VenueOption for everything currently checked.
+  const [picked, setPicked] = useState<Map<string, VenueOption>>(new Map());
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -48,7 +66,10 @@ export function VenuePicker({
       setQuery("");
       setResults([]);
       setError("");
+      setPicked(new Map(initialSelected.map((v) => [v.id, v])));
     }
+    // initialSelected identity churns; only re-seed when the sheet opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   useEffect(() => {
@@ -56,7 +77,7 @@ export function VenuePicker({
     const id = ++requestId.current;
     setLoading(true);
     const timer = setTimeout(() => {
-      searchGlobalVenues(query)
+      searchGlobalVenues(query, userId)
         .then((venues) => {
           if (requestId.current !== id) return;
           setResults(venues);
@@ -69,12 +90,74 @@ export function VenuePicker({
         });
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, visible]);
+  }, [query, visible, userId]);
 
   const trimmedQuery = query.trim();
   const exactMatch = results.some(
     (venue) => venue.name.toLowerCase() === trimmedQuery.toLowerCase(),
   );
+
+  // Merge in any freshly-picked venue that isn't in the current results, so
+  // the checkmark has somewhere to live.
+  const rows = useMemo(() => {
+    const byId = new Map(results.map((v) => [v.id, v]));
+    for (const v of picked.values()) if (!byId.has(v.id)) byId.set(v.id, v);
+    return [...byId.values()].sort(
+      (a, b) =>
+        Number(b.id === homeVenueId) - Number(a.id === homeVenueId) ||
+        Number(picked.has(b.id)) - Number(picked.has(a.id)) ||
+        (b.votes ?? 0) - (a.votes ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
+  }, [results, picked, homeVenueId]);
+
+  const applyVoteLocally = (id: string, delta: number, mine: boolean) => {
+    setResults((cur) =>
+      cur.map((v) =>
+        v.id === id
+          ? { ...v, votes: Math.max(0, (v.votes ?? 0) + delta), votedByMe: mine }
+          : v,
+      ),
+    );
+    setPicked((cur) => {
+      const hit = cur.get(id);
+      if (!hit) return cur;
+      const next = new Map(cur);
+      next.set(id, {
+        ...hit,
+        votes: Math.max(0, (hit.votes ?? 0) + delta),
+        votedByMe: mine,
+      });
+      return next;
+    });
+  };
+
+  const toggleVote = async (venue: VenueOption) => {
+    if (!userId) return;
+    const wasMine = !!venue.votedByMe;
+    applyVoteLocally(venue.id, wasMine ? -1 : 1, !wasMine);
+    try {
+      if (wasMine) await unvoteVenue(userId, venue.id);
+      else await voteVenue(userId, venue.id);
+    } catch {
+      applyVoteLocally(venue.id, wasMine ? 1 : -1, wasMine); // roll back
+    }
+  };
+
+  const togglePicked = (venue: VenueOption) => {
+    setPicked((cur) => {
+      const next = new Map(cur);
+      if (next.has(venue.id)) next.delete(venue.id);
+      else next.set(venue.id, venue);
+      return next;
+    });
+  };
+
+  const handleRowPress = (venue: VenueOption, alreadyAdded: boolean) => {
+    if (alreadyAdded) return;
+    if (multi) togglePicked(venue);
+    else onSelect?.(venue);
+  };
 
   const handleAddNew = async () => {
     if (!trimmedQuery) return;
@@ -82,7 +165,12 @@ export function VenuePicker({
     setError("");
     try {
       const venue = await findOrCreateGlobalVenue(trimmedQuery);
-      onSelect(venue);
+      if (multi) {
+        setPicked((cur) => new Map(cur).set(venue.id, venue));
+        setQuery("");
+      } else {
+        onSelect?.(venue);
+      }
     } catch (err: any) {
       setError(err.message ?? "Could not add that venue.");
     } finally {
@@ -115,42 +203,69 @@ export function VenuePicker({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {loading && (
+            {loading && !rows.length && (
               <ActivityIndicator color={colors.gold} style={s.loader} />
             )}
 
-            {!loading &&
-              results.map((venue) => {
-                const alreadyAdded = alreadyAddedVenueIds?.includes(venue.id);
-                return (
-                  <Pressable
-                    key={venue.id}
-                    style={[
-                      s.option,
-                      selectedVenueId === venue.id && s.selected,
-                      alreadyAdded && s.optionDisabled,
-                    ]}
-                    onPress={() => !alreadyAdded && onSelect(venue)}
-                    disabled={alreadyAdded}
-                  >
+            {rows.map((venue) => {
+              const alreadyAdded = alreadyAddedVenueIds?.includes(venue.id);
+              const checked = multi
+                ? picked.has(venue.id)
+                : selectedVenueId === venue.id;
+              return (
+                <Pressable
+                  key={venue.id}
+                  style={[
+                    s.option,
+                    checked && s.selected,
+                    alreadyAdded && s.optionDisabled,
+                  ]}
+                  onPress={() => handleRowPress(venue, !!alreadyAdded)}
+                  disabled={alreadyAdded}
+                >
+                  {multi && (
+                    <View style={[s.check, checked && s.checkOn]}>
+                      {checked && <Text style={s.checkMark}>✓</Text>}
+                    </View>
+                  )}
+                  <View style={s.optionCopy}>
                     <Text
-                      style={[s.optionText, alreadyAdded && s.optionTextDisabled]}
+                      style={[
+                        s.optionText,
+                        alreadyAdded && s.optionTextDisabled,
+                      ]}
                     >
-                      {alreadyAdded ? "📍 " : ""}
+                      {venue.id === homeVenueId
+                        ? "🏠 "
+                        : alreadyAdded
+                          ? "📍 "
+                          : ""}
                       {venue.name}
                     </Text>
-                    <Text style={s.check}>
-                      {alreadyAdded
-                        ? "Added"
-                        : selectedVenueId === venue.id
-                          ? "✓"
-                          : ""}
+                  </View>
+
+                  <Pressable
+                    style={s.voteButton}
+                    onPress={() => toggleVote(venue)}
+                    disabled={!userId}
+                    hitSlop={8}
+                  >
+                    <Text
+                      style={[s.voteText, venue.votedByMe && s.voteTextOn]}
+                    >
+                      {venue.votedByMe ? "★" : "☆"} {venue.votes ?? 0}
                     </Text>
                   </Pressable>
-                );
-              })}
 
-            {!loading && !results.length && !trimmedQuery && (
+                  {!multi && !alreadyAdded && checked && (
+                    <Text style={s.singleCheck}>✓</Text>
+                  )}
+                  {alreadyAdded && <Text style={s.addedTag}>Added</Text>}
+                </Pressable>
+              );
+            })}
+
+            {!loading && !rows.length && !trimmedQuery && (
               <Text style={s.empty}>Start typing to search venues.</Text>
             )}
 
@@ -161,7 +276,9 @@ export function VenuePicker({
                 disabled={adding}
               >
                 <Text style={s.addText}>
-                  {adding ? "Adding…" : `＋ Add “${trimmedQuery}” as a new venue`}
+                  {adding
+                    ? "Adding…"
+                    : `＋ Add “${trimmedQuery}” as a new venue`}
                 </Text>
               </Pressable>
             )}
@@ -169,8 +286,21 @@ export function VenuePicker({
 
           {error ? <Text style={s.error}>{error}</Text> : null}
 
+          {multi ? (
+            <Pressable
+              style={s.saveButton}
+              onPress={() => onSaveMulti?.([...picked.values()])}
+            >
+              <Text style={s.saveText}>
+                {picked.size
+                  ? `Save — ${picked.size} venue${picked.size === 1 ? "" : "s"}`
+                  : "Save (none selected)"}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <Pressable onPress={onClose}>
-            <Text style={s.cancel}>Cancel</Text>
+            <Text style={s.cancel}>{multi ? "Cancel" : "Cancel"}</Text>
           </Pressable>
         </View>
       </View>
@@ -208,15 +338,12 @@ const s = StyleSheet.create({
     fontSize: 15,
     marginBottom: 6,
   },
-  list: {
-    flexGrow: 0,
-  },
-  loader: {
-    marginVertical: 16,
-  },
+  list: { flexGrow: 0 },
+  loader: { marginVertical: 16 },
   option: {
-    paddingVertical: 16,
+    paddingVertical: 15,
     flexDirection: "row",
+    alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
   },
@@ -226,21 +353,40 @@ const s = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 8,
   },
-  optionText: {
-    color: colors.ink,
-    fontSize: 16,
-    flex: 1,
-  },
-  optionDisabled: {
-    opacity: 0.5,
-  },
-  optionTextDisabled: {
-    color: colors.muted,
-  },
+  optionDisabled: { opacity: 0.5 },
+  optionCopy: { flex: 1 },
+  optionText: { color: colors.ink, fontSize: 16 },
+  optionTextDisabled: { color: colors.muted },
   check: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.line,
+    marginRight: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  checkMark: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  voteButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginLeft: 8,
+  },
+  voteText: { color: colors.muted, fontSize: 13, fontWeight: "800" },
+  voteTextOn: { color: colors.gold },
+  singleCheck: {
     color: colors.gold,
     fontSize: 13,
     fontWeight: "900",
+    marginLeft: 6,
+  },
+  addedTag: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+    marginLeft: 6,
   },
   empty: {
     color: colors.muted,
@@ -248,24 +394,21 @@ const s = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 20,
   },
-  addOption: {
-    paddingVertical: 17,
-    marginTop: 6,
+  addOption: { paddingVertical: 17, marginTop: 6 },
+  addText: { color: colors.pink, fontSize: 16, fontWeight: "800" },
+  error: { color: "#ff8080", fontSize: 13, marginTop: 10 },
+  saveButton: {
+    backgroundColor: colors.pink,
+    borderRadius: 12,
+    padding: 15,
+    alignItems: "center",
+    marginTop: 16,
   },
-  addText: {
-    color: colors.pink,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  error: {
-    color: "#ff8080",
-    fontSize: 13,
-    marginTop: 10,
-  },
+  saveText: { color: "#fff", fontWeight: "900", fontSize: 15 },
   cancel: {
     color: colors.muted,
     textAlign: "center",
     fontWeight: "700",
-    marginTop: 20,
+    marginTop: 18,
   },
 });

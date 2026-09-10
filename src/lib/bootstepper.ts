@@ -33,6 +33,34 @@ type RawListResponse<T> = {
   dances?: T[];
 };
 
+// A non-2xx from the Edge Function comes back as a generic
+// "Edge Function returned a non-2xx status code" — the useful detail (our
+// proxy's `{ error: "..." }`, the upstream status) is on `error.context`,
+// the raw Response. Pull it out so failures are diagnosable.
+async function describeFunctionError(error: any): Promise<string> {
+  const base = error?.message ?? "Unknown error";
+  const ctx = error?.context;
+  try {
+    if (ctx && typeof ctx.text === "function") {
+      const body = (await ctx.text())?.trim();
+      if (body) {
+        let detail = body;
+        try {
+          detail = JSON.parse(body)?.error ?? body;
+        } catch {
+          /* not JSON — use the raw text */
+        }
+        const status = ctx.status ? ` (HTTP ${ctx.status})` : "";
+        return `${detail}${status}`;
+      }
+      if (ctx.status) return `${base} (HTTP ${ctx.status})`;
+    }
+  } catch {
+    /* fall through to base */
+  }
+  return base;
+}
+
 async function callProxy<T>(
   path: string,
   params: Record<string, string | number | undefined> = {},
@@ -41,8 +69,21 @@ async function callProxy<T>(
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) stringParams[key] = String(value);
   }
+
+  // The proxy requires a signed-in user. functions.invoke reuses whatever
+  // access token the client last cached, which can be stale after the tab
+  // sat idle / went offline; getSession() refreshes an expired one first,
+  // and we pass the token explicitly so there's no propagation race.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error("You're signed out — sign in again to load dances.");
+  }
+
   const { data, error } = await supabase.functions.invoke("bootstepper-proxy", {
     body: { path, params: stringParams },
+    headers: { Authorization: `Bearer ${session.access_token}` },
   });
   if (error) {
     // BootStepper answers 200 with an *empty body* for a lookup that
@@ -52,7 +93,7 @@ async function callProxy<T>(
     if (/JSON|Unexpected end of (JSON )?input/i.test(error.message ?? "")) {
       return null as T;
     }
-    throw error;
+    throw new Error(await describeFunctionError(error));
   }
   return (data ?? null) as T;
 }

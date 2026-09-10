@@ -1,5 +1,5 @@
 import "react-native-url-polyfill/auto";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 
@@ -27,3 +27,16 @@ export const supabase = createClient(url, key, {
     flowType: "implicit",
   },
 });
+
+// On the web, supabase-js refreshes the access token on its own (it watches
+// page visibility). On native it does NOT — you have to drive the refresh
+// loop from AppState, or the token silently expires after ~1h and every
+// authenticated call (RLS reads, the BootStepper proxy) starts failing with
+// "Not authenticated" until something calls getSession() by hand.
+if (!isWeb) {
+  supabase.auth.startAutoRefresh();
+  AppState.addEventListener("change", (state) => {
+    if (state === "active") supabase.auth.startAutoRefresh();
+    else supabase.auth.stopAutoRefresh();
+  });
+}

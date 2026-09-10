@@ -30,8 +30,11 @@ import { VenuePicker } from "./VenuePicker";
 import { countPendingImport } from "../services/notesImport";
 import {
   addUserVenue,
+  homeFirst,
+  loadHomeVenueId,
   loadUserVenues,
   removeUserVenue,
+  setHomeVenue,
   VenueOption,
 } from "../services/venues";
 import { Dance, DanceProgress } from "../types";
@@ -59,6 +62,9 @@ export function ProfileScreen({
   onCacheDances,
   onPendingRequestCountChange,
   onVenuesChanged,
+  openImport,
+  onImportHandled,
+  onOpenOfflineList,
 }: {
   userId: string;
   email?: string;
@@ -75,6 +81,11 @@ export function ProfileScreen({
   onPendingRequestCountChange?: (count: number) => void;
   // Lets My List re-read its venue filter after a venue is added/removed here.
   onVenuesChanged?: () => void;
+  // Set true right after an offline import is queued — opens the matcher.
+  openImport?: boolean;
+  onImportHandled?: () => void;
+  // Opens the on-device offline notepad (lives in App).
+  onOpenOfflineList?: () => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -113,7 +124,7 @@ export function ProfileScreen({
   const [passwordError, setPasswordError] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
 
-  // Apple Notes import
+  // Apple Notes import (also where an offline notepad import lands)
   const [importOpen, setImportOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState(0);
   const refreshPendingImport = () => {
@@ -122,19 +133,44 @@ export function ProfileScreen({
       .catch(() => setPendingImport(0));
   };
 
+  // App flips `openImport` right after queuing an offline notepad — jump
+  // straight into the matcher.
+  useEffect(() => {
+    if (!openImport) return;
+    setImportOpen(true);
+    refreshPendingImport();
+    onImportHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openImport]);
+
   // My venues — the list of venues that show up as a filter in My List.
   const [myVenues, setMyVenues] = useState<VenueOption[]>([]);
+  const [homeVenueId, setHomeVenueId] = useState<string | null>(null);
   const [venuesLoading, setVenuesLoading] = useState(true);
   const [venuesError, setVenuesError] = useState("");
   const [venuePickerOpen, setVenuePickerOpen] = useState(false);
   const refreshVenues = () => {
     setVenuesLoading(true);
-    loadUserVenues(userId)
-      .then(setMyVenues)
+    Promise.all([loadUserVenues(userId), loadHomeVenueId(userId)])
+      .then(([venues, homeId]) => {
+        setMyVenues(venues);
+        setHomeVenueId(homeId);
+      })
       .catch((err: any) =>
         setVenuesError(err?.message ?? "Could not load your venues."),
       )
       .finally(() => setVenuesLoading(false));
+  };
+
+  const handleSetHome = async (venueId: string | null) => {
+    setHomeVenueId(venueId); // optimistic
+    try {
+      await setHomeVenue(userId, venueId);
+      onVenuesChanged?.();
+    } catch (err: any) {
+      setVenuesError(err?.message ?? "Could not save your home bar.");
+      loadHomeVenueId(userId).then(setHomeVenueId).catch(() => {});
+    }
   };
 
   const handleAddVenue = async (venue: VenueOption) => {
@@ -142,10 +178,18 @@ export function ProfileScreen({
     setVenuesError("");
     try {
       await addUserVenue(userId, venue.id);
+      // addUserVenue also records an endorsement — reflect that locally.
+      const endorsed: VenueOption = {
+        ...venue,
+        votes: (venue.votes ?? 0) + (venue.votedByMe ? 0 : 1),
+        votedByMe: true,
+      };
       setMyVenues((current) =>
         current.some((v) => v.id === venue.id)
           ? current
-          : [...current, venue].sort((a, b) => a.name.localeCompare(b.name)),
+          : [...current, endorsed].sort((a, b) =>
+              a.name.localeCompare(b.name),
+            ),
       );
       onVenuesChanged?.();
     } catch (err: any) {
@@ -164,6 +208,8 @@ export function ProfileScreen({
     try {
       await removeUserVenue(userId, venue.id);
       setMyVenues((current) => current.filter((v) => v.id !== venue.id));
+      // Can't be your home bar if it's not in your list anymore.
+      if (homeVenueId === venue.id) await handleSetHome(null);
       onVenuesChanged?.();
     } catch (err: any) {
       setVenuesError(err?.message ?? "Could not remove that venue.");
@@ -383,6 +429,13 @@ export function ProfileScreen({
               : "Import Dances"}
           </Text>
         </Pressable>
+        {onOpenOfflineList ? (
+          <Pressable style={s.offlineNotepadButton} onPress={onOpenOfflineList}>
+            <Text style={s.offlineNotepadText}>
+              ✏️ Offline notepad — jot dances with no signal
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {email ? (
@@ -676,6 +729,7 @@ export function ProfileScreen({
         <Text style={s.hint}>
           Venues you add here become a filter in My List — tag a dance to a
           venue from its details, then filter your list by where you dance it.
+          Tap 🏠 to set your home bar; it stays pinned to the top everywhere.
         </Text>
         {venuesError ? <Text style={s.error}>{venuesError}</Text> : null}
         {venuesLoading && !myVenues.length ? (
@@ -684,16 +738,31 @@ export function ProfileScreen({
         {!venuesLoading && !myVenues.length ? (
           <Text style={[s.hint, s.venuesEmpty]}>No venues added yet.</Text>
         ) : null}
-        {myVenues.map((venue) => (
-          <View key={venue.id} style={s.venueRow}>
-            <Text style={s.venueName} numberOfLines={1}>
-              {venue.name}
-            </Text>
-            <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
-              <Text style={s.venueRemove}>✕</Text>
-            </Pressable>
-          </View>
-        ))}
+        {homeFirst(myVenues, homeVenueId).map((venue) => {
+          const isHome = venue.id === homeVenueId;
+          return (
+            <View key={venue.id} style={s.venueRow}>
+              <Pressable
+                onPress={() => handleSetHome(isHome ? null : venue.id)}
+                hitSlop={8}
+              >
+                <Text style={[s.venueHome, isHome && s.venueHomeOn]}>
+                  {isHome ? "🏠" : "⌂"}
+                </Text>
+              </Pressable>
+              <Text style={s.venueName} numberOfLines={1}>
+                {venue.name}
+                {isHome ? (
+                  <Text style={s.venueHomeTag}>  home bar</Text>
+                ) : null}
+              </Text>
+              <Text style={s.venueVotes}>★ {venue.votes ?? 1}</Text>
+              <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
+                <Text style={s.venueRemove}>✕</Text>
+              </Pressable>
+            </View>
+          );
+        })}
         <Pressable
           style={s.addVenueButton}
           onPress={() => setVenuePickerOpen(true)}
@@ -810,6 +879,8 @@ export function ProfileScreen({
       <VenuePicker
         visible={venuePickerOpen}
         title="Add a venue"
+        userId={userId}
+        homeVenueId={homeVenueId}
         alreadyAddedVenueIds={myVenues.map((v) => v.id)}
         onSelect={handleAddVenue}
         onClose={() => setVenuePickerOpen(false)}
@@ -914,6 +985,15 @@ const s = StyleSheet.create({
     marginTop: 6,
   },
   setUsernameText: { color: "#fff", fontWeight: "800", fontSize: 13 },
+  offlineNotepadButton: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  offlineNotepadText: { color: colors.gold, fontWeight: "800", fontSize: 12 },
   usernameEditRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1059,7 +1139,21 @@ const s = StyleSheet.create({
     borderTopColor: colors.line,
     marginTop: 12,
   },
+  venueHome: {
+    fontSize: 15,
+    color: colors.muted,
+    width: 24,
+    marginRight: 6,
+  },
+  venueHomeOn: { color: colors.gold },
+  venueHomeTag: { color: colors.gold, fontSize: 11, fontWeight: "800" },
   venueName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
+  venueVotes: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: "800",
+    marginRight: 4,
+  },
   venueRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6 },
   addVenueButton: {
     marginTop: 14,

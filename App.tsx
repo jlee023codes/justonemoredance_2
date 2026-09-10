@@ -16,12 +16,21 @@ import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyListScreen } from "./src/components/MyListScreen";
 import { StatusLegendModal } from "./src/components/StatusLegendModal";
+import { OfflineBanner } from "./src/components/OfflineBanner";
+import { OfflineListModal } from "./src/components/OfflineListModal";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
 import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
 import { confirmAction, showAlert } from "./src/lib/alerts";
+import { useOnlineStatus } from "./src/lib/useOnlineStatus";
+import {
+  clearOfflineList,
+  countOfflineList,
+  OfflineDance,
+} from "./src/services/offlineList";
+import { queueImport } from "./src/services/notesImport";
 import {
   applyRecoveryLink,
   clearRecoveryLinkFromUrl,
@@ -69,7 +78,16 @@ export default function App() {
     // The INITIAL_SESSION / TOKEN_REFRESHED events fire once the client is
     // ready; keying the loaders off this epoch gives them an authenticated
     // second shot even when the user id never changed.
-    [sessionEpoch, setSessionEpoch] = useState(0);
+    [sessionEpoch, setSessionEpoch] = useState(0),
+    // The on-device "offline notepad": whether it's open, and how many
+    // lines are sitting in it waiting to be imported.
+    [offlineOpen, setOfflineOpen] = useState(false),
+    [offlineCount, setOfflineCount] = useState(0),
+    // Set when an offline import has been queued, so the Profile tab opens
+    // straight into the matcher.
+    [openImportOnProfile, setOpenImportOnProfile] = useState(false);
+
+  const online = useOnlineStatus();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -139,6 +157,14 @@ export default function App() {
       );
   }, [userId, sessionEpoch]);
 
+  // Keep the offline-notepad badge in step: on load, when connectivity
+  // flips, and after the notepad modal closes.
+  const refreshOfflineCount = () => {
+    if (!userId) return;
+    countOfflineList(userId).then(setOfflineCount).catch(() => {});
+  };
+  useEffect(refreshOfflineCount, [userId, online]);
+
   const refreshRequestCount = () => {
     if (!userId) return;
     loadFriendRequests()
@@ -201,6 +227,8 @@ export default function App() {
   // arrive as bare name/song/difficulty snapshots). Each id is attempted
   // once per session; a miss just leaves the snapshot in place.
   const resolveAttemptedRef = useRef<Set<string>>(new Set());
+  const resolveRetryRef = useRef(0);
+  const [resolveTick, setResolveTick] = useState(0);
   useEffect(() => {
     const needIds = Object.keys(progress).filter((id) => {
       if (resolveAttemptedRef.current.has(id)) return false;
@@ -208,14 +236,28 @@ export default function App() {
       return !cached || cached.snapshot;
     });
     if (!needIds.length) return;
-    needIds.forEach((id) => resolveAttemptedRef.current.add(id));
+    let cancelled = false;
     getDancesByIds(needIds)
-      .then(mergeIntoCache)
+      .then((dances) => {
+        if (cancelled) return;
+        // Mark tried only on success — a transient BootStepper / auth
+        // hiccup shouldn't permanently leave a card as a bare snapshot
+        // with no choreographer / counts until a full reload.
+        needIds.forEach((id) => resolveAttemptedRef.current.add(id));
+        resolveRetryRef.current = 0;
+        mergeIntoCache(dances);
+      })
       .catch(() => {
-        // Silently fall back to the progress snapshot — see danceFromProgress.
+        // Retry a few times, spaced out, then stop hammering.
+        if (cancelled || resolveRetryRef.current >= 4) return;
+        resolveRetryRef.current += 1;
+        setTimeout(() => setResolveTick((n) => n + 1), 15000);
       });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress, catalogCache]);
+  }, [progress, catalogCache, resolveTick]);
 
   const progressValues = Object.values(progress);
   const learnedCount = progressValues.filter(
@@ -313,6 +355,24 @@ export default function App() {
     setVenuesRefreshKey((k) => k + 1);
   };
 
+  // Back online: push every offline-notepad line into the normal import
+  // queue, wipe the notepad, and drop the user into the matcher on Profile.
+  const handleOfflineImport = async (items: OfflineDance[]) => {
+    if (!userId || !items.length) return;
+    await queueImport(
+      userId,
+      items.map((item) => ({
+        name: item.note ? `${item.name} — ${item.note}` : item.name,
+        checked: false,
+      })),
+    );
+    await clearOfflineList(userId);
+    setOfflineCount(0);
+    setOfflineOpen(false);
+    setOpenImportOnProfile(true);
+    setTab("Profile");
+  };
+
   // Removes the given dances from every list + venue. `confirm` is caller
   // text; pass "" to skip the prompt. The list updates immediately and the
   // delete runs in the background — a failure rolls the dances back.
@@ -367,6 +427,11 @@ export default function App() {
             <Text style={s.infoIcon}>ⓘ</Text>
           </Pressable>
         </View>
+        <OfflineBanner
+          online={online}
+          pendingCount={offlineCount}
+          onPress={() => setOfflineOpen(true)}
+        />
         {tab === "Profile" ? (
           <ProfileScreen
             userId={session.user.id}
@@ -376,6 +441,9 @@ export default function App() {
             progress={progress}
             onProgressChange={handleProgressChange}
             onCacheDances={mergeIntoCache}
+            openImport={openImportOnProfile}
+            onImportHandled={() => setOpenImportOnProfile(false)}
+            onOpenOfflineList={() => setOfflineOpen(true)}
             onSignOut={() => void supabase.auth.signOut()}
             onPendingRequestCountChange={setPendingRequestCount}
             onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
@@ -446,6 +514,16 @@ export default function App() {
           onProgressChange={handleProgressChange}
           onRemoved={handleRemoved}
           onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
+        />
+        <OfflineListModal
+          visible={offlineOpen}
+          online={online}
+          userId={session.user.id}
+          onClose={() => {
+            setOfflineOpen(false);
+            refreshOfflineCount();
+          }}
+          onImport={handleOfflineImport}
         />
       </SafeAreaView>
     </SafeAreaProvider>

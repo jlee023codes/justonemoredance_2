@@ -10,13 +10,32 @@
 -- they've tied to each of those venues. `venues` itself is a shared
 -- catalog — anyone can search it or add a new venue to it.
 
+-- name_key is a normalized (lowercase, alphanumeric-only) form of name — it
+-- carries the uniqueness so "Neon Boots" / "neon boots" / "Neon  Boots!"
+-- collapse to one row. The app sets it on insert (see venueKey in
+-- src/services/venues.ts); public.venue_key() is the SQL twin.
+create or replace function public.venue_key(name text)
+returns text language sql immutable as $$
+  select regexp_replace(lower(coalesce(name, '')), '[^a-z0-9]+', '', 'g')
+$$;
 create table venues (
   id text primary key,
-  name text not null unique
+  name text not null,
+  name_key text not null
 );
+create unique index venues_name_key_uniq on venues (name_key);
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   default_venue_id text references venues(id) on delete set null
+);
+
+-- One thumbs-up per user per venue — a community "this is a real venue"
+-- signal shown in the picker. Adding a venue to your list also endorses it.
+create table venue_votes (
+  user_id uuid references profiles(id) on delete cascade,
+  venue_id text references venues(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, venue_id)
 );
 
 -- Overall want/learned status for a dance — venue-independent.
@@ -81,10 +100,13 @@ create table shared_list_dances (
 -- Run this section after the schema above. It seeds the venues used by the
 -- app, creates a profile for each newly registered user, and protects user
 -- data with RLS.
-insert into venues (id, name) values
-  ('cancun-cantina', 'Cancun Cantina'), ('neon-boots', 'Neon Boots'),
-  ('starlight', 'Starlight Saloon'), ('boot-scoot', 'Boot Scoot Social'),
-  ('copper', 'The Copper Room') on conflict (id) do update set name = excluded.name;
+insert into venues (id, name, name_key) values
+  ('cancun-cantina', 'Cancun Cantina', public.venue_key('Cancun Cantina')),
+  ('neon-boots', 'Neon Boots', public.venue_key('Neon Boots')),
+  ('starlight', 'Starlight Saloon', public.venue_key('Starlight Saloon')),
+  ('boot-scoot', 'Boot Scoot Social', public.venue_key('Boot Scoot Social')),
+  ('copper', 'The Copper Room', public.venue_key('The Copper Room'))
+  on conflict (id) do update set name = excluded.name, name_key = excluded.name_key;
 
 create or replace function public.create_profile_for_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -97,6 +119,7 @@ drop trigger if exists create_profile_on_signup on auth.users;
 create trigger create_profile_on_signup after insert on auth.users for each row execute procedure public.create_profile_for_new_user();
 
 alter table venues enable row level security;
+alter table venue_votes enable row level security;
 alter table profiles enable row level security;
 alter table user_dance_progress enable row level security;
 alter table user_venues enable row level security;
@@ -111,6 +134,13 @@ drop policy if exists "read venues" on venues;
 drop policy if exists "insert venues" on venues;
 create policy "read venues" on venues for select to authenticated using (true);
 create policy "insert venues" on venues for insert to authenticated with check (true);
+
+-- Venue votes: everyone signed in can read the tally; you can only add or
+-- remove your own thumbs-up.
+drop policy if exists "read venue votes" on venue_votes;
+drop policy if exists "write own venue votes" on venue_votes;
+create policy "read venue votes" on venue_votes for select to authenticated using (true);
+create policy "write own venue votes" on venue_votes for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "read own profile" on profiles;
 drop policy if exists "update own profile" on profiles;

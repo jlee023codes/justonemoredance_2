@@ -24,7 +24,10 @@ import {
 } from "../services/progress";
 import {
   saveVenueDance,
-  loadDanceVenueIds,
+  removeVenueDance,
+  loadDanceVenues,
+  loadHomeVenueId,
+  homeFirst,
   VenueOption,
 } from "../services/venues";
 import {
@@ -63,15 +66,15 @@ export function DanceDetailsModal({
   // Called after a venue tie is added, so My List re-reads its venue links.
   onVenuesChanged?: () => void;
 }) {
-  const [venue, setVenue] = useState<VenueOption | null>(null);
   const [songSwap, setSongSwap] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [swapsOpen, setSwapsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Venue ids this dance is already tied to, for this user — drives the
-  // "Add to this venue" disabled state and the picker's "already added"
-  // markers.
-  const [danceVenueIds, setDanceVenueIds] = useState<string[]>([]);
+  // Venues this dance is currently tied to, for this user — the multi-picker
+  // pre-checks these and the modal lists them as chips.
+  const [danceVenues, setDanceVenues] = useState<VenueOption[]>([]);
+  // The user's "home bar" — pinned to the top of the chips and the picker.
+  const [homeVenueId, setHomeVenueId] = useState<string | null>(null);
   // The user's own saved song swaps for this dance (separate from
   // BootStepper's catalog list above).
   const [mySwaps, setMySwaps] = useState<SongSwapEntry[]>([]);
@@ -83,20 +86,22 @@ export function DanceDetailsModal({
 
   useEffect(() => {
     if (dance) {
-      setVenue(null);
       setSongSwap("");
       setPickerOpen(false);
       setSwapsOpen(false);
-      setDanceVenueIds([]);
+      setDanceVenues([]);
       setMySwaps([]);
       setMySwapsOpen(false);
       setLinkInput(progress?.link ?? "");
-      loadDanceVenueIds(userId, dance.id)
-        .then(setDanceVenueIds)
+      loadDanceVenues(userId, dance.id)
+        .then(setDanceVenues)
         .catch(() => {
-          // Non-critical — worst case, the picker just doesn't grey out an
-          // already-added venue until reopened.
+          // Non-critical — worst case the modal just doesn't show existing
+          // venue ties until reopened.
         });
+      loadHomeVenueId(userId)
+        .then(setHomeVenueId)
+        .catch(() => {});
       loadSongSwaps(userId, dance.id)
         .then(setMySwaps)
         .catch(() => {
@@ -122,7 +127,9 @@ export function DanceDetailsModal({
   // My List / Home instead). Left here, and the JSX block further down, so
   // they can be switched back on. To restore: uncomment this function, the
   // `<View style={s.statusButtons}>` block below, and the `saveProgress`
-  // import at the top of the file.
+  // import at the top of the file — and note the venue model changed since
+  // (single `venue` → `danceVenues: VenueOption[]`), so the venue-tying
+  // lines here need rewriting against `handleSaveVenues`.
   //
   // Any of the three status actions: saves the status, ties the venue if
   // one was picked (best-effort — a venue hiccup shouldn't block the
@@ -189,21 +196,32 @@ export function DanceDetailsModal({
   */
   // --- END COMMENTED OUT --------------------------------------------------
 
-  // Ties this dance to the selected venue. If the dance isn't in any list
-  // yet (e.g. tagged straight from Home search), it also gets a "Save for
-  // Later" progress row — otherwise it'd be tied to a venue but invisible
-  // in My List, which only shows dances that have a status. An existing
-  // status is never overwritten (saveProgress runs in non-overwrite mode).
-  const handleAddVenue = async () => {
-    if (!venue || danceVenueIds.includes(venue.id)) return;
+  // Save from the multi-picker: diff the checked venues against the ones
+  // this dance is already tied to, add the new ties, drop the unchecked
+  // ones. If the dance ends up tied to a venue but has no status yet (e.g.
+  // tagged straight from Home search), give it a "Save for Later" row so it
+  // shows in My List — an existing status is never overwritten.
+  const handleSaveVenues = async (picked: VenueOption[]) => {
+    setPickerOpen(false);
+    const currentIds = danceVenues.map((v) => v.id);
+    const pickedIds = picked.map((v) => v.id);
+    const toAdd = picked.filter((v) => !currentIds.includes(v.id));
+    const toRemove = danceVenues.filter((v) => !pickedIds.includes(v.id));
+    if (!toAdd.length && !toRemove.length) return;
+
     setSaving(true);
     try {
-      await saveVenueDance(userId, venue.id, dance, songSwap.trim());
-      setDanceVenueIds((current) => [...current, venue.id]);
+      for (const v of toAdd) {
+        await saveVenueDance(userId, v.id, dance, "");
+      }
+      for (const v of toRemove) {
+        await removeVenueDance(userId, v.id, dance.id);
+      }
+      setDanceVenues(picked);
       onVenuesChanged?.();
 
       let listed = false;
-      if (!progress) {
+      if (picked.length && !progress) {
         const now = new Date().toISOString();
         const next: DanceProgress = {
           danceId: dance.id,
@@ -218,31 +236,31 @@ export function DanceDetailsModal({
         if (listed) onProgressChange(dance.id, next);
       }
 
-      Alert.alert(
-        "Added",
-        listed
-          ? `${dance.name} added to ${venue.name} and saved to your list.`
-          : `${dance.name} added to ${venue.name}.`,
-      );
-      setVenue(null);
-      setSongSwap("");
+      if (listed) {
+        Alert.alert(
+          "Saved",
+          `${dance.name} was tagged to ${picked.length} venue${
+            picked.length === 1 ? "" : "s"
+          } and saved to your list.`,
+        );
+      }
     } catch (err: any) {
-      showError(err, "Could not save that venue.");
+      showError(err, "Could not save those venues.");
+      // Re-sync from the server so the chips reflect what actually stuck.
+      loadDanceVenues(userId, dance.id).then(setDanceVenues).catch(() => {});
     } finally {
       setSaving(false);
     }
   };
 
   // Saves a personal song swap to the user's own library for this dance —
-  // independent of the venue-tie/status flows. Venue is optional: if one's
-  // selected in the picker above, this swap is tagged to it; otherwise it's
-  // just "a swap I use" with no specific venue.
+  // independent of the venue flow.
   const handleAddSongSwap = async () => {
     const name = songSwap.trim();
     if (!name) return;
     setAddingSwap(true);
     try {
-      await addSongSwap(userId, dance.id, name, venue?.id ?? null);
+      await addSongSwap(userId, dance.id, name, null);
       const updated = await loadSongSwaps(userId, dance.id);
       setMySwaps(updated);
       setMySwapsOpen(true);
@@ -445,30 +463,40 @@ export function DanceDetailsModal({
             ) : null}
 
             <Text style={s.fieldLabel}>
-              VENUE <Text style={s.optional}>(optional)</Text>
+              VENUES <Text style={s.optional}>(optional)</Text>
             </Text>
-            <View style={s.swapRow}>
-              <Pressable style={s.select} onPress={() => setPickerOpen(true)}>
-                <Text style={s.selectText}>
-                  {venue ? venue.name : "Choose a venue"}
-                </Text>
-                <Text style={s.caret}>▾</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  s.swapAddButton,
-                  (!venue || danceVenueIds.includes(venue.id)) && s.disabled,
-                ]}
-                onPress={handleAddVenue}
-                disabled={!venue || danceVenueIds.includes(venue.id) || saving}
-              >
-                <Text style={s.swapAddButtonText}>
-                  {saving ? "…" : "＋"}
-                </Text>
-              </Pressable>
-            </View>
-            {venue && danceVenueIds.includes(venue.id) && (
-              <Text style={s.hint}>📍 Already tagged to {venue.name}.</Text>
+            <Pressable
+              style={s.select}
+              onPress={() => setPickerOpen(true)}
+              disabled={saving}
+            >
+              <Text style={s.selectText}>
+                {saving
+                  ? "Saving…"
+                  : danceVenues.length
+                    ? `${danceVenues.length} venue${
+                        danceVenues.length === 1 ? "" : "s"
+                      } — tap to change`
+                    : "Add venues you dance this at"}
+              </Text>
+              <Text style={s.caret}>▾</Text>
+            </Pressable>
+            {danceVenues.length > 0 && (
+              <View style={s.venueChips}>
+                {homeFirst(danceVenues, homeVenueId).map((v) => (
+                  <View
+                    key={v.id}
+                    style={[
+                      s.venueChip,
+                      v.id === homeVenueId && s.venueChipHome,
+                    ]}
+                  >
+                    <Text style={s.venueChipText}>
+                      {v.id === homeVenueId ? "🏠" : "📍"} {v.name}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             )}
 
             <Text style={s.fieldLabel}>
@@ -494,9 +522,7 @@ export function DanceDetailsModal({
             </View>
 
             <Text style={s.hint}>
-              {venue
-                ? `Saves as a swap for ${venue.name}. Also used below when you tag a venue.`
-                : "Saved without a venue unless you pick one above. Also used below when you tag a venue."}
+              Saved as a swap you use for this dance.
             </Text>
 
             {mySwaps.length > 0 && (
@@ -573,7 +599,7 @@ export function DanceDetailsModal({
             </View>
             */}
 
-            {(danceState || danceVenueIds.length > 0) &&
+            {(danceState || danceVenues.length > 0) &&
               activeTab != "Home" && (
                 <Pressable
                   style={s.remove}
@@ -589,12 +615,12 @@ export function DanceDetailsModal({
 
       <VenuePicker
         visible={pickerOpen}
-        selectedVenueId={venue?.id}
-        alreadyAddedVenueIds={danceVenueIds}
-        onSelect={(picked) => {
-          setVenue(picked);
-          setPickerOpen(false);
-        }}
+        title="Venues for this dance"
+        userId={userId}
+        homeVenueId={homeVenueId}
+        multi
+        initialSelected={danceVenues}
+        onSaveMulti={handleSaveVenues}
         onClose={() => setPickerOpen(false)}
       />
     </Modal>
@@ -749,7 +775,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     padding: 14,
     flexDirection: "row",
-    flex: 1,
+    alignItems: "center",
   },
   selectText: {
     color: colors.ink,
@@ -760,6 +786,20 @@ const s = StyleSheet.create({
     color: colors.gold,
     fontSize: 16,
   },
+  venueChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  venueChip: {
+    backgroundColor: "#392746",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  venueChipHome: { borderWidth: 1, borderColor: colors.gold },
+  venueChipText: { color: colors.ink, fontSize: 12, fontWeight: "700" },
   swapRow: {
     flexDirection: "row",
     alignItems: "center",
