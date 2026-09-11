@@ -33,6 +33,27 @@ export async function setDevPremiumOverride(on: boolean): Promise<void> {
   }
 }
 
+// The other source of "premium": a server-side grant on profiles.is_premium
+// that isn't tied to this device's local toggle at all. This is how you
+// comp specific people (by user id) ahead of having RevenueCat — flip it
+// directly in the Supabase dashboard/SQL editor:
+//   update profiles set is_premium = true where id = '<their user id>';
+// and it takes effect for them automatically, no app change needed. Once
+// RevenueCat exists, this is also where its webhook should write.
+export async function loadPremiumFromServer(userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("is_premium")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.is_premium === true;
+  } catch {
+    return false;
+  }
+}
+
 // Mirrors the local flag onto profiles.is_premium so DB-side logic (the
 // venue_dance_reports view only counts a premium user's tagged dances —
 // see migration_premium_venues.sql) has something to key off.

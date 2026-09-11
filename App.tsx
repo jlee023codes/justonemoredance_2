@@ -30,6 +30,7 @@ import { confirmAction, showAlert } from "./src/lib/alerts";
 import { useOnlineStatus } from "./src/lib/useOnlineStatus";
 import {
   loadIsPremium,
+  loadPremiumFromServer,
   setDevPremiumOverride,
   syncPremiumStatus,
 } from "./src/lib/entitlements";
@@ -101,10 +102,6 @@ export default function App() {
     [isPremium, setIsPremium] = useState(false);
 
   const online = useOnlineStatus();
-
-  useEffect(() => {
-    loadIsPremium().then(setIsPremium);
-  }, []);
 
   const handleSetPremiumPreview = async (on: boolean) => {
     setIsPremium(on); // optimistic; it's just a local preference either way
@@ -180,6 +177,19 @@ export default function App() {
       .catch((err: any) =>
         setMessage(`Could not load your saved dances: ${err.message}`),
       );
+  }, [userId, sessionEpoch]);
+
+  // Premium = the local dev-preview toggle OR a server-side grant on
+  // profiles.is_premium (e.g. someone manually flipped it in the Supabase
+  // dashboard for an early tester) — either one unlocks it. This is what
+  // lets you comp specific people by id ahead of RevenueCat: just
+  //   update profiles set is_premium = true where id = '<their uuid>';
+  // and it takes effect next time they open the app, no app change needed.
+  useEffect(() => {
+    if (!userId) return;
+    Promise.all([loadIsPremium(), loadPremiumFromServer(userId)]).then(
+      ([local, server]) => setIsPremium(local || server),
+    );
   }, [userId, sessionEpoch]);
 
   // Keep the offline-notepad badge in step: on load, when connectivity
