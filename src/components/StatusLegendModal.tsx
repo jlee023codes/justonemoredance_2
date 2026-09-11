@@ -9,12 +9,12 @@ const STATUS_ROWS: { icon: string; label: string; note: string }[] = [
     label: "Not on your lists",
     note: "You haven't saved this dance yet",
   },
-  {
-    icon: "🔖",
-    label: "Saved for later",
-    note: "Maybe someday — parked for now",
-  },
   { icon: "💗", label: "Want to learn", note: "On your Want to Learn list" },
+  {
+    icon: "🎯",
+    label: "Learning now",
+    note: "Actively working on this one",
+  },
   { icon: "⭐", label: "Learned", note: "It's in your pocket" },
 ];
 

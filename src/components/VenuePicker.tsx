@@ -12,7 +12,9 @@ import {
 import { colors } from "../styles";
 import {
   findOrCreateGlobalVenue,
+  findVenueByName,
   searchGlobalVenues,
+  searchMyVenues,
   unvoteVenue,
   VenueOption,
   voteVenue,
@@ -28,6 +30,12 @@ export function VenuePicker({
   title = "Find or add a venue",
   userId,
   homeVenueId,
+  // Free tier: only search venues this user has already added — browsing
+  // the whole shared catalog (everyone else's venues) is the premium
+  // feature. Typing the exact name of an existing venue still finds/
+  // attaches to it (findOrCreateGlobalVenue dedupes either way); this just
+  // removes the ability to *discover* venues by browsing/searching.
+  restrictToMine,
   selectedVenueId,
   alreadyAddedVenueIds,
   onSelect,
@@ -42,6 +50,7 @@ export function VenuePicker({
   userId?: string;
   // The user's home bar — pinned above the vote/name sort.
   homeVenueId?: string | null;
+  restrictToMine?: boolean;
   // --- single-select ---
   selectedVenueId?: string;
   alreadyAddedVenueIds?: string[];
@@ -59,6 +68,10 @@ export function VenuePicker({
   const [error, setError] = useState("");
   // multi mode: id -> full VenueOption for everything currently checked.
   const [picked, setPicked] = useState<Map<string, VenueOption>>(new Map());
+  // Free tier only: does the typed name already exist somewhere in the
+  // shared catalog (added by someone else)? Informational, not a block —
+  // adding still works, they just won't see anyone else's dances there.
+  const [globalMatch, setGlobalMatch] = useState<VenueOption | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -66,6 +79,7 @@ export function VenuePicker({
       setQuery("");
       setResults([]);
       setError("");
+      setGlobalMatch(null);
       setPicked(new Map(initialSelected.map((v) => [v.id, v])));
     }
     // initialSelected identity churns; only re-seed when the sheet opens.
@@ -77,10 +91,19 @@ export function VenuePicker({
     const id = ++requestId.current;
     setLoading(true);
     const timer = setTimeout(() => {
-      searchGlobalVenues(query, userId)
-        .then((venues) => {
+      const search =
+        restrictToMine && userId
+          ? searchMyVenues(userId, query)
+          : searchGlobalVenues(query, userId);
+      const globalCheck =
+        restrictToMine && query.trim()
+          ? findVenueByName(query).catch(() => null)
+          : Promise.resolve(null);
+      Promise.all([search, globalCheck])
+        .then(([venues, match]) => {
           if (requestId.current !== id) return;
           setResults(venues);
+          setGlobalMatch(match);
           setLoading(false);
         })
         .catch((err) => {
@@ -90,7 +113,7 @@ export function VenuePicker({
         });
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, visible, userId]);
+  }, [query, visible, userId, restrictToMine]);
 
   const trimmedQuery = query.trim();
   const exactMatch = results.some(
@@ -99,13 +122,15 @@ export function VenuePicker({
 
   // Merge in any freshly-picked venue that isn't in the current results, so
   // the checkmark has somewhere to live.
+  // Order stays fixed (home bar, then votes, then name) regardless of what
+  // you've checked — only the checkmark itself should move when you tap a
+  // row, not the row.
   const rows = useMemo(() => {
     const byId = new Map(results.map((v) => [v.id, v]));
     for (const v of picked.values()) if (!byId.has(v.id)) byId.set(v.id, v);
     return [...byId.values()].sort(
       (a, b) =>
         Number(b.id === homeVenueId) - Number(a.id === homeVenueId) ||
-        Number(picked.has(b.id)) - Number(picked.has(a.id)) ||
         (b.votes ?? 0) - (a.votes ?? 0) ||
         a.name.localeCompare(b.name),
     );
@@ -164,6 +189,10 @@ export function VenuePicker({
     setAdding(true);
     setError("");
     try {
+      // Adding always works, even on the free tier and even if the name
+      // already exists in the shared catalog — findOrCreateGlobalVenue
+      // just attaches to that existing row instead of duplicating it. The
+      // `globalMatch` note above already told them what that means.
       const venue = await findOrCreateGlobalVenue(trimmedQuery);
       if (multi) {
         setPicked((cur) => new Map(cur).set(venue.id, venue));
@@ -197,6 +226,12 @@ export function VenuePicker({
             autoCorrect={false}
             style={s.search}
           />
+          {restrictToMine && (
+            <Text style={s.upsell}>
+              🔒 Showing only your venues — Premium unlocks searching every
+              venue other dancers have added.
+            </Text>
+          )}
 
           <ScrollView
             style={s.list}
@@ -266,7 +301,20 @@ export function VenuePicker({
             })}
 
             {!loading && !rows.length && !trimmedQuery && (
-              <Text style={s.empty}>Start typing to search venues.</Text>
+              <Text style={s.empty}>
+                {restrictToMine
+                  ? "You haven't added any venues yet — type a name below to add one."
+                  : "Start typing to search venues."}
+              </Text>
+            )}
+
+            {!loading && restrictToMine && globalMatch && !exactMatch && (
+              <Text style={s.globalMatchNote}>
+                🔒 “{globalMatch.name}” already exists in the shared
+                catalog. Upgrade to Premium to see every dance reported
+                there — you can still add it now, but you'll only see the
+                dances you add yourself.
+              </Text>
             )}
 
             {!loading && trimmedQuery.length > 0 && !exactMatch && (
@@ -278,7 +326,9 @@ export function VenuePicker({
                 <Text style={s.addText}>
                   {adding
                     ? "Adding…"
-                    : `＋ Add “${trimmedQuery}” as a new venue`}
+                    : restrictToMine
+                      ? `＋ Add “${trimmedQuery}” to your venues`
+                      : `＋ Add “${trimmedQuery}” as a new venue`}
                 </Text>
               </Pressable>
             )}
@@ -337,6 +387,19 @@ const s = StyleSheet.create({
     padding: 13,
     fontSize: 15,
     marginBottom: 6,
+  },
+  upsell: {
+    color: colors.gold,
+    fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  globalMatchNote: {
+    color: colors.gold,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+    marginBottom: 4,
   },
   list: { flexGrow: 0 },
   loader: { marginVertical: 16 },

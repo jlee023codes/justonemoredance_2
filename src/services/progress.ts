@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 
 type ProgressRow = {
   dance_id: string;
-  status: "maybe" | "want" | "learned";
+  status: "want" | "learning" | "learned";
   source: string | null;
   dance_name: string | null;
   dance_song: string | null;
@@ -44,14 +44,14 @@ export async function loadProgress(
 }
 
 // `dance` is the BootStepper dance being saved — we snapshot its
-// name/song/difficulty onto the progress row so the Want/Learned lists can
-// still render if a later live re-fetch fails (offline, removed upstream).
+// name/song/difficulty onto the progress row so My List can still render
+// it if a later live re-fetch fails (offline, removed upstream).
 //
 // Returns true if a row was written, false if it was left alone. `false`
 // only happens in the default (non-overwrite) mode, which friend import
-// uses — it must not clobber a status the user set themselves. The status
-// buttons in the details modal and the quick actions pass `overwrite: true`
-// so a want→learned move actually persists.
+// uses — it must not clobber a status the user set themselves. The quick
+// actions pass `overwrite: true` so a want→learning→learned move actually
+// persists.
 export async function saveProgress(
   userId: string,
   progress: DanceProgress,
@@ -104,7 +104,7 @@ export async function setDanceLink(
 }
 
 // Used by "Remove" — deletes the progress row entirely (no row = no
-// status at all, distinct from any of maybe/want/learned).
+// status at all, distinct from any of want/learning/learned).
 export async function deleteProgress(userId: string, danceId: string) {
   const { error } = await supabase
     .from("user_dance_progress")
@@ -115,7 +115,7 @@ export async function deleteProgress(userId: string, danceId: string) {
 }
 
 // Wipes one or more dances from everything for this user: their
-// want/learned/maybe status, and every venue they've been tagged to.
+// want/learning/learned status, and every venue they've been tagged to.
 // Used by the modal's "Remove" action and the list quick-delete / bulk
 // remove — all of which confirm before calling this.
 export async function removeDancesEverywhere(

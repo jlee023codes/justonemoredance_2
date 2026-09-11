@@ -3,20 +3,29 @@
 1. In Supabase **SQL Editor**, run the complete contents of `schema.sql`.
 2. Then run `migration_venues.sql`, `migration_bootstepper.sql`,
    `migration_friend_requests.sql`, `migration_notes_import.sql`,
-   `migration_my_list.sql`, `migration_venue_dedup.sql`, and
-   `migration_venues_page.sql` (in that order).
-   `migration_friend_requests.sql` adds friend *requests*, the `email_exists`
-   helper the sign-in screen uses, and fixes up a couple of CHECK constraints
-   from the original schema. `migration_notes_import.sql` adds the Apple Notes
-   import queue and a `link` column on `user_dance_progress`.
-   `migration_my_list.sql` adds the `created_at` column that powers My List's
-   "Date added" sort. `migration_venue_dedup.sql` normalizes the venue
-   catalog (a unique `name_key`), merges any existing duplicates, and adds the
-   `venue_votes` table (community "this is a real venue" thumbs-up).
-   `migration_venues_page.sql` adds `venue_dance_reports`, a view that
-   aggregates every user's venue-tagged dances into a public "N people
-   report this here" count without exposing who, for the Venues tab. All are
-   idempotent — safe to re-run.
+   `migration_my_list.sql`, `migration_venue_dedup.sql`,
+   `migration_venues_page.sql`, `migration_learning_status.sql`,
+   `migration_friends_page.sql`, and `migration_premium_venues.sql` (in that
+   order). `migration_friend_requests.sql` adds friend *requests*, the
+   `email_exists` helper the sign-in screen uses, and fixes up a couple of
+   CHECK constraints from the original schema. `migration_notes_import.sql`
+   adds the Apple Notes import queue and a `link` column on
+   `user_dance_progress`. `migration_my_list.sql` adds the `created_at`
+   column that powers My List's "Date added" sort. `migration_venue_dedup.sql`
+   normalizes the venue catalog (a unique `name_key`), merges any existing
+   duplicates, and adds the `venue_votes` table (community "this is a real
+   venue" thumbs-up). `migration_venues_page.sql` adds `venue_dance_reports`,
+   a view that aggregates every user's venue-tagged dances into a public "N
+   people report this here" count without exposing who, for the Venues tab.
+   `migration_learning_status.sql` replaces the "Save for Later" status with
+   "Learning now" (existing Later rows become Want) — Want → Learning →
+   Learned. `migration_friends_page.sql` lets friends read each other's
+   `user_venues` (for the activity feed) and adds `events` / `event_rsvps`
+   for the Friends tab's "Make Event" / RSVP feature. `migration_premium_venues.sql`
+   adds `profiles.is_premium` and makes `venue_dance_reports` only count a
+   premium user's tagged dances — enrolling in Premium makes your existing
+   tags count immediately, since it's a live view. All are idempotent —
+   safe to re-run.
 3. In **Authentication → Providers → Email**, keep Email enabled. For fast local
    testing, you may turn off **Confirm email**; leave it on for production.
 4. Set up redirect URLs for password reset — see below.

@@ -68,6 +68,18 @@ export async function searchGlobalVenues(
   );
 }
 
+/** Same shape as searchGlobalVenues, but scoped to venues *this user* has
+ *  already added — the free-tier picker. Browsing the full shared catalog
+ *  (everyone else's venues) is the premium feature. */
+export async function searchMyVenues(
+  userId: string,
+  query: string,
+): Promise<VenueOption[]> {
+  const mine = await loadUserVenues(userId);
+  const needle = query.trim().toLowerCase();
+  return needle ? mine.filter((v) => v.name.toLowerCase().includes(needle)) : mine;
+}
+
 /** One venue by id, with votes attached — used to hydrate a default
  *  selection (the home bar) where we only have the id, not the row. */
 export async function loadVenueById(
@@ -140,6 +152,24 @@ export async function findOrCreateGlobalVenue(
     return retry;
   }
   throw insertError;
+}
+
+/** Plain lookup by exact (normalized) name — no create. Used by the
+ *  free-tier picker to warn "this already exists in the shared catalog"
+ *  *before* they commit to adding it, without blocking the add itself:
+ *  free users can still add a venue that already exists elsewhere, they
+ *  just won't see anyone else's dances there until they go Premium (see
+ *  venue_dance_reports in migration_premium_venues.sql). */
+export async function findVenueByName(name: string): Promise<VenueOption | null> {
+  const key = venueKey(name);
+  if (!key) return null;
+  const { data, error } = await supabase
+    .from("venues")
+    .select("id,name")
+    .eq("name_key", key)
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? null;
 }
 
 /** Toggle the current user's thumbs-up for a venue. */

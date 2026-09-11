@@ -1,11 +1,11 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
-export type AppTab = "Home" | "My List" | "Venues" | "Profile";
+export type AppTab = "Home" | "My List" | "Venues" | "Friends" | "Profile";
 export function BottomTabs({
   activeTab,
   onChange,
   // Unread counts per tab — currently just pending friend requests on
-  // Profile, which is otherwise easy to never notice.
+  // Friends, which is otherwise easy to never notice.
   badges,
 }: {
   activeTab: AppTab;
@@ -16,6 +16,7 @@ export function BottomTabs({
     { name: "Home", icon: "⌂" },
     { name: "My List", icon: "≣" },
     { name: "Venues", icon: "📍" },
+    { name: "Friends", icon: "👥" },
     { name: "Profile", icon: "☻" },
   ];
   return (

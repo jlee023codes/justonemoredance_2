@@ -39,8 +39,8 @@ import {
 
 const STATUS_LABEL: Record<LearningStatus, string> = {
   none: "👢 Dont Know It (yet)",
-  maybe: "🔖 Save for Later",
   want: "♡ Want to learn",
+  learning: "🎯 Learning now",
   learned: "★ Learned",
 };
 
@@ -53,6 +53,7 @@ export function DanceDetailsModal({
   onProgressChange,
   onRemoved,
   onVenuesChanged,
+  isPremium,
 }: {
   dance: Dance | null;
   userId: string;
@@ -65,6 +66,9 @@ export function DanceDetailsModal({
   onRemoved: (danceId: string) => void;
   // Called after a venue tie is added, so My List re-reads its venue links.
   onVenuesChanged?: () => void;
+  // Free tier only searches venues the user already added when tagging a
+  // dance — browsing everyone else's venues is premium (see VenuePicker).
+  isPremium?: boolean;
 }) {
   const [songSwap, setSongSwap] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -122,7 +126,7 @@ export function DanceDetailsModal({
     Alert.alert("Something went wrong", err?.message ?? fallback);
 
   // --- COMMENTED OUT: status actions from within this modal ---------------
-  // The "Save for Later / Want to learn / Learned it / Review" buttons were
+  // The "Want to learn / Learning now / Learned it / Review" buttons were
   // removed from the details modal (status is set from the dance cards on
   // My List / Home instead). Left here, and the JSX block further down, so
   // they can be switched back on. To restore: uncomment this function, the
@@ -155,7 +159,7 @@ export function DanceDetailsModal({
     }
     try {
       // Preserve the "Shared from" attribution across every status
-      // change (maybe -> want -> learned). Undefined means it's the
+      // change (want -> learning -> learned). Undefined means it's the
       // user's own dance.
       const sharedFrom = progress?.fromFriend;
       const next: DanceProgress = {
@@ -199,7 +203,7 @@ export function DanceDetailsModal({
   // Save from the multi-picker: diff the checked venues against the ones
   // this dance is already tied to, add the new ties, drop the unchecked
   // ones. If the dance ends up tied to a venue but has no status yet (e.g.
-  // tagged straight from Home search), give it a "Save for Later" row so it
+  // tagged straight from Home search), give it a "Want to Learn" row so it
   // shows in My List — an existing status is never overwritten.
   const handleSaveVenues = async (picked: VenueOption[]) => {
     setPickerOpen(false);
@@ -225,7 +229,7 @@ export function DanceDetailsModal({
         const now = new Date().toISOString();
         const next: DanceProgress = {
           danceId: dance.id,
-          status: "maybe",
+          status: "want",
           danceName: dance.name,
           danceSong: dance.defaultSong,
           danceDifficulty: dance.difficulty,
@@ -561,30 +565,33 @@ export function DanceDetailsModal({
                 `handleStatus` function above, and the `saveProgress` import.
             <View style={s.statusButtons}>
               {danceState === "learned" && (
+                // Going back to Learning is how you "review" a dance
+                // you've already learned — there's no separate Review
+                // status, just moving it back a step.
                 <Pressable
                   style={s.tertiary}
-                  onPress={() => handleStatus("want")}
+                  onPress={() => handleStatus("learning")}
                   disabled={saving}
                 >
                   <Text style={s.tertiaryText}>🔁 Review</Text>
                 </Pressable>
               )}
-              {danceState !== "learned" && danceState !== "maybe" && (
-                <Pressable
-                  style={s.tertiary}
-                  onPress={() => handleStatus("maybe")}
-                  disabled={saving}
-                >
-                  <Text style={s.tertiaryText}>💭 Save for Later</Text>
-                </Pressable>
-              )}
-              {danceState !== "want" && danceState !== "learned" && (
+              {danceState !== "want" && (
                 <Pressable
                   style={s.secondary}
                   onPress={() => handleStatus("want")}
                   disabled={saving}
                 >
                   <Text style={s.secondaryText}>♡ Want to learn</Text>
+                </Pressable>
+              )}
+              {danceState !== "learning" && danceState !== "learned" && (
+                <Pressable
+                  style={s.tertiary}
+                  onPress={() => handleStatus("learning")}
+                  disabled={saving}
+                >
+                  <Text style={s.tertiaryText}>🎯 Learning now</Text>
                 </Pressable>
               )}
               {danceState !== "learned" && (
@@ -618,6 +625,7 @@ export function DanceDetailsModal({
         title="Venues for this dance"
         userId={userId}
         homeVenueId={homeVenueId}
+        restrictToMine={!isPremium}
         multi
         initialSelected={danceVenues}
         onSaveMulti={handleSaveVenues}

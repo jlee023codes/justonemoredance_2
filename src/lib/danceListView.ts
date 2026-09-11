@@ -3,7 +3,7 @@ import { Dance, DanceProgress, LearningStatus } from "../types";
 // All of the "what shows in My List, in what order" logic, kept pure so the
 // screen just renders whatever `buildMyList` returns.
 
-export type StatusFilter = Exclude<LearningStatus, "none">; // maybe | want | learned
+export type StatusFilter = Exclude<LearningStatus, "none">; // want | learning | learned
 export type CountBucket = "eq32" | "lt32" | "gt32";
 export type WallFilter = 2 | 4;
 export type TagsFilter = "has" | "none";

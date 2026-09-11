@@ -11,20 +11,6 @@ import {
 import { colors } from "../styles";
 import { confirmAction, showAlert } from "../lib/alerts";
 import { supabase } from "../lib/supabase";
-import {
-  Friend,
-  FriendRequest,
-  cancelFriendRequest,
-  getMyProfile,
-  loadFriendRequests,
-  loadFriends,
-  removeFriend,
-  respondToFriendRequest,
-  sendFriendRequest,
-  setDisplayName,
-  setUsername,
-} from "../services/friends";
-import { FriendDancesModal } from "./FriendDancesModal";
 import { NotesImportModal } from "./NotesImportModal";
 import { VenuePicker } from "./VenuePicker";
 import { countPendingImport } from "../services/notesImport";
@@ -60,25 +46,24 @@ export function ProfileScreen({
   onSignOut,
   onProgressChange,
   onCacheDances,
-  onPendingRequestCountChange,
   onVenuesChanged,
   openImport,
   onImportHandled,
   onOpenOfflineList,
+  isPremium,
+  onSetPremiumPreview,
 }: {
   userId: string;
   email?: string;
   learnedCount: number;
   wantCount: number;
-  /** Passed through to the friend + Notes-import modals so they can mark
-   *  dances the user already has. */
+  /** Passed through to the Notes-import modal so it can mark dances the
+   *  user already has. */
   progress: Record<string, DanceProgress>;
   onSignOut: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
   /** Lets an imported dance render with full BootStepper details at once. */
   onCacheDances: (dances: Dance[]) => void;
-  // Keeps the badge on the Profile tab in step with what's on screen.
-  onPendingRequestCountChange?: (count: number) => void;
   // Lets My List re-read its venue filter after a venue is added/removed here.
   onVenuesChanged?: () => void;
   // Set true right after an offline import is queued — opens the matcher.
@@ -86,36 +71,12 @@ export function ProfileScreen({
   onImportHandled?: () => void;
   // Opens the on-device offline notepad (lives in App).
   onOpenOfflineList?: () => void;
+  // Dev-only stand-in for a real RevenueCat entitlement — see
+  // src/lib/entitlements.ts. Remove this toggle once real purchases exist.
+  isPremium: boolean;
+  onSetPremiumPreview: (on: boolean) => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
-
-  // My username / display name
-  const [username, setLocalUsername] = useState<string | null>(null);
-  const [profileLoaded, setProfileLoaded] = useState(false);
-  const [usernameError, setUsernameError] = useState("");
-  const [editingUsername, setEditingUsername] = useState(false);
-  const [usernameInput, setUsernameInput] = useState("");
-  const [savingUsername, setSavingUsername] = useState(false);
-  const [displayName, setLocalDisplayName] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState(false);
-  const [nameInput, setNameInput] = useState("");
-  const [savingName, setSavingName] = useState(false);
-
-  // Send a friend request
-  const [usernameSearch, setUsernameSearch] = useState("");
-  const [addingFriend, setAddingFriend] = useState(false);
-  const [addError, setAddError] = useState("");
-  const [addNotice, setAddNotice] = useState("");
-
-  // Friends list
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [friendsLoading, setFriendsLoading] = useState(true);
-  const [friendsError, setFriendsError] = useState("");
-  const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
-
-  // Pending friend requests, both directions
-  const [requests, setRequests] = useState<FriendRequest[]>([]);
-  const [answering, setAnswering] = useState<string | null>(null);
 
   // Change password
   const [newPassword, setNewPassword] = useState("");
@@ -161,6 +122,12 @@ export function ProfileScreen({
       )
       .finally(() => setVenuesLoading(false));
   };
+
+  useEffect(() => {
+    refreshPendingImport();
+    refreshVenues();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   const handleSetHome = async (venueId: string | null) => {
     setHomeVenueId(venueId); // optimistic
@@ -216,175 +183,6 @@ export function ProfileScreen({
     }
   };
 
-  const publishRequests = (next: FriendRequest[]) => {
-    setRequests(next);
-    onPendingRequestCountChange?.(
-      next.filter((r) => r.direction === "incoming").length,
-    );
-  };
-
-  const refreshFriends = () => {
-    setFriendsLoading(true);
-    setFriendsError("");
-    Promise.all([loadFriends(userId), loadFriendRequests()])
-      .then(([nextFriends, nextRequests]) => {
-        setFriends(nextFriends);
-        publishRequests(nextRequests);
-      })
-      .catch((err: any) =>
-        setFriendsError(err.message ?? "Could not load friends."),
-      )
-      .finally(() => setFriendsLoading(false));
-  };
-
-  useEffect(() => {
-    getMyProfile(userId)
-      .then(({ username, displayName }) => {
-        setLocalUsername(username);
-        setLocalDisplayName(displayName);
-      })
-      .catch((err: any) => {
-        setUsernameError(
-          err.message ??
-            "Could not load your profile — has migration_friend_requests.sql been run?",
-        );
-      })
-      .finally(() => setProfileLoaded(true));
-    refreshFriends();
-    refreshPendingImport();
-    refreshVenues();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
-
-  const handleSaveUsername = async () => {
-    setSavingUsername(true);
-    setUsernameError("");
-    try {
-      const saved = await setUsername(userId, usernameInput);
-      setLocalUsername(saved);
-      setEditingUsername(false);
-    } catch (err: any) {
-      setUsernameError(err.message ?? "Could not save that username.");
-    } finally {
-      setSavingUsername(false);
-    }
-  };
-
-  const handleSaveName = async () => {
-    setSavingName(true);
-    try {
-      await setDisplayName(userId, nameInput);
-      setLocalDisplayName(nameInput.trim() || null);
-      setEditingName(false);
-    } catch (err: any) {
-      showAlert("Could not save", err.message ?? "Could not save your name.");
-    } finally {
-      setSavingName(false);
-    }
-  };
-
-  const addToFriendList = (friend: Friend) =>
-    setFriends((current) =>
-      current.some((f) => f.id === friend.id)
-        ? current
-        : [...current, friend].sort((a, b) =>
-            a.displayName.localeCompare(b.displayName),
-          ),
-    );
-
-  /** Opens a *request* — nobody sees anybody's list until it's accepted.
-   *  The one exception is when they'd already asked you, in which case the
-   *  server accepts theirs and you're friends straight away. */
-  const handleSendRequest = async () => {
-    if (!usernameSearch.trim()) return;
-    setAddingFriend(true);
-    setAddError("");
-    setAddNotice("");
-    try {
-      const result = await sendFriendRequest(usernameSearch);
-      if (result.status === "accepted") {
-        addToFriendList(result.friend);
-        publishRequests(requests.filter((r) => r.from.id !== result.friend.id));
-        setAddNotice(
-          `${result.friend.displayName} had already asked you — you're friends now.`,
-        );
-      } else {
-        publishRequests([
-          {
-            requestId: result.requestId,
-            direction: "outgoing",
-            from: result.friend,
-            createdAt: new Date().toISOString(),
-          },
-          ...requests,
-        ]);
-        setAddNotice(
-          `Request sent to ${result.friend.displayName}. You'll see each other's lists once they accept.`,
-        );
-      }
-      setUsernameSearch("");
-    } catch (err: any) {
-      setAddError(err.message ?? "Could not send that friend request.");
-    } finally {
-      setAddingFriend(false);
-    }
-  };
-
-  const handleRespond = async (request: FriendRequest, accept: boolean) => {
-    setAnswering(request.requestId);
-    try {
-      const friend = await respondToFriendRequest(request.requestId, accept);
-      publishRequests(
-        requests.filter((r) => r.requestId !== request.requestId),
-      );
-      if (accept) addToFriendList(friend);
-    } catch (err: any) {
-      showAlert(
-        "Could not answer that request",
-        err.message ?? "Try again in a moment.",
-      );
-      refreshFriends();
-    } finally {
-      setAnswering(null);
-    }
-  };
-
-  const handleCancelRequest = async (request: FriendRequest) => {
-    setAnswering(request.requestId);
-    try {
-      await cancelFriendRequest(request.requestId);
-      publishRequests(
-        requests.filter((r) => r.requestId !== request.requestId),
-      );
-    } catch (err: any) {
-      showAlert(
-        "Could not cancel that request",
-        err.message ?? "Try again in a moment.",
-      );
-    } finally {
-      setAnswering(null);
-    }
-  };
-
-  const handleRemoveFriend = async (friend: Friend) => {
-    const confirmed = await confirmAction(
-      "Remove friend?",
-      `Remove ${friend.displayName} as a friend? You'll stop seeing each other's lists.`,
-      "Remove",
-      true,
-    );
-    if (!confirmed) return;
-    try {
-      await removeFriend(friend.id);
-      setFriends((current) => current.filter((f) => f.id !== friend.id));
-    } catch (err: any) {
-      showAlert(
-        "Could not remove",
-        err.message ?? "Could not remove that friend.",
-      );
-    }
-  };
-
   const handleChangePassword = async () => {
     setPasswordError("");
     if (newPassword.length < 6) {
@@ -406,9 +204,6 @@ export function ProfileScreen({
       "Use your new password next time you sign in.",
     );
   };
-
-  const incoming = requests.filter((r) => r.direction === "incoming");
-  const outgoing = requests.filter((r) => r.direction === "outgoing");
 
   return (
     <ScrollView contentContainerStyle={s.page}>
@@ -438,250 +233,6 @@ export function ProfileScreen({
         ) : null}
       </View>
 
-      {email ? (
-        <View>
-          <Text style={s.section}>FRIENDS</Text>
-          <View style={s.friendsCard}>
-            <Text style={s.settingLabel}>MY USERNAME</Text>
-            {editingUsername ? (
-              <View style={s.usernameEditRow}>
-                <Text style={s.atSign}>@</Text>
-                <TextInput
-                  value={usernameInput}
-                  onChangeText={(text) => {
-                    setUsernameInput(text.replace(/\s/g, ""));
-                    setUsernameError("");
-                  }}
-                  placeholder="yourname"
-                  placeholderTextColor={colors.muted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  style={s.usernameInput}
-                  autoFocus
-                />
-                <Pressable
-                  style={s.nameSaveButton}
-                  onPress={handleSaveUsername}
-                  disabled={savingUsername || !usernameInput.trim()}
-                >
-                  <Text style={s.nameSaveText}>
-                    {savingUsername ? "…" : "Save"}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : username ? (
-              <Pressable
-                onPress={() => {
-                  setUsernameInput(username);
-                  setUsernameError("");
-                  setEditingUsername(true);
-                }}
-              >
-                <Text style={s.myUsername} selectable>
-                  @{username}
-                </Text>
-                <Text style={s.hint}>
-                  Tap to change it. Long-press to copy.
-                </Text>
-              </Pressable>
-            ) : profileLoaded ? (
-              <Pressable
-                style={s.setUsernameButton}
-                onPress={() => {
-                  setUsernameInput("");
-                  setUsernameError("");
-                  setEditingUsername(true);
-                }}
-              >
-                <Text style={s.setUsernameText}>
-                  Set a username so friends can add you
-                </Text>
-              </Pressable>
-            ) : (
-              <Text style={s.myUsername}> </Text>
-            )}
-            {usernameError ? (
-              <Text style={s.error}>{usernameError}</Text>
-            ) : null}
-
-            {editingName ? (
-              <View style={s.nameEditRow}>
-                <TextInput
-                  value={nameInput}
-                  onChangeText={setNameInput}
-                  placeholder="Your name for friends"
-                  placeholderTextColor={colors.muted}
-                  style={s.nameInput}
-                  autoFocus
-                />
-                <Pressable
-                  style={s.nameSaveButton}
-                  onPress={handleSaveName}
-                  disabled={savingName}
-                >
-                  <Text style={s.nameSaveText}>
-                    {savingName ? "…" : "Save"}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable
-                style={s.nameRow}
-                onPress={() => {
-                  setNameInput(displayName ?? "");
-                  setEditingName(true);
-                }}
-              >
-                <Text style={s.nameRowText}>
-                  Shown to friends as:{" "}
-                  {displayName || "(unset — tap to add a name)"}
-                </Text>
-                <Text style={s.editLink}>Edit</Text>
-              </Pressable>
-            )}
-
-            <Text style={[s.settingLabel, s.addFriendLabel]}>
-              SEND A FRIEND REQUEST
-            </Text>
-            <View style={s.addFriendRow}>
-              <Text style={s.atSignInline}>@</Text>
-              <TextInput
-                value={usernameSearch}
-                onChangeText={(text) => {
-                  setUsernameSearch(text.replace(/\s/g, ""));
-                  setAddError("");
-                  setAddNotice("");
-                }}
-                placeholder="theirname"
-                placeholderTextColor={colors.muted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={s.addFriendInput}
-              />
-              <Pressable
-                style={[
-                  s.addFriendButton,
-                  !usernameSearch.trim() && s.disabled,
-                ]}
-                onPress={handleSendRequest}
-                disabled={!usernameSearch.trim() || addingFriend}
-              >
-                <Text style={s.addFriendButtonText}>
-                  {addingFriend ? "…" : "Send"}
-                </Text>
-              </Pressable>
-            </View>
-            {addError ? <Text style={s.error}>{addError}</Text> : null}
-            {addNotice ? <Text style={s.notice}>{addNotice}</Text> : null}
-
-            {friendsLoading && (
-              <ActivityIndicator color={colors.gold} style={s.inlineLoader} />
-            )}
-            {friendsError ? <Text style={s.error}>{friendsError}</Text> : null}
-
-            {!friendsLoading && incoming.length > 0 && (
-              <>
-                <Text style={[s.settingLabel, s.addFriendLabel]}>
-                  FRIEND REQUESTS ({incoming.length})
-                </Text>
-                {incoming.map((request) => (
-                  <View key={request.requestId} style={s.requestRow}>
-                    <Text style={s.friendName} numberOfLines={1}>
-                      {request.from.displayName}
-                      <Text style={s.requestHandle}>
-                        {"  @" + request.from.username}
-                      </Text>
-                    </Text>
-                    <Pressable
-                      style={[
-                        s.acceptButton,
-                        answering === request.requestId && s.disabled,
-                      ]}
-                      onPress={() => handleRespond(request, true)}
-                      disabled={answering === request.requestId}
-                    >
-                      <Text style={s.acceptText}>Accept</Text>
-                    </Pressable>
-                    <Pressable
-                      style={s.declineButton}
-                      onPress={() => handleRespond(request, false)}
-                      disabled={answering === request.requestId}
-                      hitSlop={6}
-                    >
-                      <Text style={s.declineText}>Decline</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </>
-            )}
-
-            {!friendsLoading && outgoing.length > 0 && (
-              <>
-                <Text style={[s.settingLabel, s.addFriendLabel]}>
-                  WAITING ON THEM
-                </Text>
-                {outgoing.map((request) => (
-                  <View key={request.requestId} style={s.requestRow}>
-                    <Text style={s.pendingName} numberOfLines={1}>
-                      @{request.from.username} · pending
-                    </Text>
-                    <Pressable
-                      style={s.declineButton}
-                      onPress={() => handleCancelRequest(request)}
-                      disabled={answering === request.requestId}
-                      hitSlop={6}
-                    >
-                      <Text style={s.declineText}>Cancel</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </>
-            )}
-
-            {!friendsLoading && friends.length > 0 && (
-              <Text style={[s.settingLabel, s.addFriendLabel]}>
-                MY FRIENDS ({friends.length})
-              </Text>
-            )}
-            {!friendsLoading &&
-              friends.length === 0 &&
-              !friendsError &&
-              incoming.length === 0 && (
-                <Text style={s.hint}>
-                  No friends yet — share your username above, or send someone a
-                  request. You'll see each other's lists once they accept.
-                </Text>
-              )}
-
-            {!friendsLoading &&
-              friends.map((friend) => (
-                <Pressable
-                  key={friend.id}
-                  style={s.friendRow}
-                  onPress={() => setSelectedFriend(friend)}
-                >
-                  <Text style={s.friendName}>{friend.displayName}</Text>
-                  <Text style={s.friendOpen}>View list ›</Text>
-                  <Pressable
-                    onPress={() => handleRemoveFriend(friend)}
-                    hitSlop={8}
-                  >
-                    <Text style={s.friendRemove}>✕</Text>
-                  </Pressable>
-                </Pressable>
-              ))}
-          </View>
-        </View>
-      ) : (
-        <View>
-          <Text style={s.section}>FRIENDS</Text>
-          <View style={s.statRow}>
-            <Text style={s.statLabel}>
-              You're signed in as a guest! Create an account to Add Friends.
-            </Text>
-          </View>
-        </View>
-      )}
       <Text style={s.section}>Your dance journey</Text>
       <View style={s.hero}>
         <View style={s.heroStats}>
@@ -752,9 +303,7 @@ export function ProfileScreen({
               </Pressable>
               <Text style={s.venueName} numberOfLines={1}>
                 {venue.name}
-                {isHome ? (
-                  <Text style={s.venueHomeTag}>  home bar</Text>
-                ) : null}
+                {isHome ? <Text style={s.venueHomeTag}>  home bar</Text> : null}
               </Text>
               <Text style={s.venueVotes}>★ {venue.votes ?? 1}</Text>
               <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
@@ -851,18 +400,24 @@ export function ProfileScreen({
           )
         ) : null}
 
+        {/* Stand-in for a real RevenueCat paywall — see
+            src/lib/entitlements.ts. Remove once subscriptions are live. */}
+        <Pressable
+          style={s.devPremiumRow}
+          onPress={() => onSetPremiumPreview(!isPremium)}
+        >
+          <Text style={s.devPremiumText}>
+            🔧 Dev: preview Premium (Friends tab)
+          </Text>
+          <View style={[s.devToggle, isPremium && s.devToggleOn]}>
+            <Text style={s.devToggleText}>{isPremium ? "ON" : "OFF"}</Text>
+          </View>
+        </Pressable>
+
         <Pressable style={s.signOut} onPress={onSignOut}>
           <Text style={s.signOutText}>Sign out</Text>
         </Pressable>
       </View>
-
-      <FriendDancesModal
-        userId={userId}
-        friend={selectedFriend}
-        progress={progress}
-        onClose={() => setSelectedFriend(null)}
-        onProgressChange={onProgressChange}
-      />
 
       <NotesImportModal
         visible={importOpen}
@@ -881,6 +436,7 @@ export function ProfileScreen({
         title="Add a venue"
         userId={userId}
         homeVenueId={homeVenueId}
+        restrictToMine={!isPremium}
         alreadyAddedVenueIds={myVenues.map((v) => v.id)}
         onSelect={handleAddVenue}
         onClose={() => setVenuePickerOpen(false)}
@@ -957,25 +513,12 @@ const s = StyleSheet.create({
   unlockedText: { color: colors.gold },
   awardNote: { color: colors.muted, fontSize: 12, marginTop: 3 },
   status: { color: colors.muted, fontSize: 10, fontWeight: "800" },
-  statRow: {
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    padding: 15,
-    flexDirection: "row",
-  },
-  statLabel: { color: colors.ink, fontSize: 16, flex: 1 },
   friendsCard: { backgroundColor: colors.card, borderRadius: 14, padding: 16 },
   settingLabel: {
     color: colors.muted,
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1,
-  },
-  myUsername: {
-    color: colors.gold,
-    fontSize: 22,
-    fontWeight: "900",
-    marginTop: 4,
   },
   setUsernameButton: {
     backgroundColor: colors.pink,
@@ -994,141 +537,11 @@ const s = StyleSheet.create({
     marginTop: 8,
   },
   offlineNotepadText: { color: colors.gold, fontWeight: "800", fontSize: 12 },
-  usernameEditRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 6,
-  },
-  atSign: { color: colors.gold, fontSize: 16, fontWeight: "900" },
-  atSignInline: {
-    color: colors.muted,
-    fontSize: 15,
-    fontWeight: "700",
-    marginRight: 4,
-  },
-  usernameInput: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 10,
-    color: colors.ink,
-    padding: 10,
-    fontSize: 14,
-    marginLeft: 4,
-  },
   hint: { color: colors.muted, fontSize: 14, lineHeight: 17 },
   inlineLoader: { alignSelf: "flex-start", marginTop: 6 },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-  },
-  nameRowText: { color: colors.ink, fontSize: 13, flex: 1 },
-  editLink: { color: colors.gold, fontSize: 12, fontWeight: "800" },
-  nameEditRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-  },
-  nameInput: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 10,
-    color: colors.ink,
-    padding: 10,
-    fontSize: 14,
-  },
-  nameSaveButton: {
-    backgroundColor: colors.pink,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    marginLeft: 8,
-  },
-  nameSaveText: { color: "#fff", fontWeight: "800", fontSize: 13 },
-  addFriendLabel: {
-    marginTop: 18,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-  },
-  addFriendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  addFriendInput: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 10,
-    color: colors.ink,
-    padding: 12,
-    fontSize: 15,
-    letterSpacing: 1,
-  },
-  addFriendButton: {
-    backgroundColor: colors.pink,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginLeft: 8,
-  },
-  addFriendButtonText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   disabled: { opacity: 0.4 },
   inputBad: { borderColor: "#ff8080" },
   error: { color: "#ff8080", fontSize: 12, marginTop: 8, lineHeight: 17 },
-  notice: { color: colors.green, fontSize: 12, marginTop: 8, lineHeight: 17 },
-  friendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 13,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    marginTop: 6,
-  },
-  friendName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
-  friendOpen: { color: colors.gold, fontSize: 12, fontWeight: "800" },
-  friendRemove: {
-    color: colors.muted,
-    fontSize: 14,
-    paddingHorizontal: 6,
-    marginLeft: 6,
-  },
-  requestRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 11,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    marginTop: 6,
-  },
-  requestHandle: { color: colors.muted, fontSize: 12, fontWeight: "500" },
-  pendingName: {
-    color: colors.muted,
-    fontSize: 14,
-    flex: 1,
-    fontWeight: "700",
-  },
-  acceptButton: {
-    backgroundColor: colors.pink,
-    borderRadius: 9,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-  },
-  acceptText: { color: "#fff", fontWeight: "800", fontSize: 12 },
-  declineButton: { paddingHorizontal: 10, paddingVertical: 8 },
-  declineText: { color: colors.muted, fontWeight: "700", fontSize: 12 },
   settings: { backgroundColor: colors.card, borderRadius: 14, padding: 16 },
   venuesEmpty: { marginTop: 12 },
   venueRow: {
@@ -1200,6 +613,25 @@ const s = StyleSheet.create({
   savePasswordText: { color: "#fff", fontWeight: "800" },
   cancelPassword: { padding: 11, alignItems: "center" },
   cancelPasswordText: { color: colors.muted, fontWeight: "700", fontSize: 13 },
+  devPremiumRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 17,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  devPremiumText: { color: colors.muted, fontSize: 12, flex: 1, marginRight: 8 },
+  devToggle: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  devToggleOn: { borderColor: colors.gold, backgroundColor: "#4a3a1e" },
+  devToggleText: { color: colors.muted, fontSize: 11, fontWeight: "800" },
   signOut: {
     marginTop: 17,
     borderWidth: 1,

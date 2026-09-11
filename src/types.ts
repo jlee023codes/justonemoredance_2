@@ -1,4 +1,4 @@
-export type LearningStatus = 'none' | 'maybe' | 'want' | 'learned';
+export type LearningStatus = 'none' | 'want' | 'learning' | 'learned';
 
 // BootStepper's "commonly swapped songs" for a dance — every song beyond
 // the primary one.

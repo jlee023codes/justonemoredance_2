@@ -81,7 +81,7 @@ export function FriendDancesModal({
       return next;
     });
 
-  /** Imports the given dances as "Save for later", tagged with whose list
+  /** Imports the given dances as "Want to learn", tagged with whose list
    *  they came from. Anything already in the user's list is skipped —
    *  importing shouldn't quietly overwrite a dance they've marked learned. */
   const importDances = async (chosen: FriendDance[]) => {
@@ -102,7 +102,7 @@ export function FriendDancesModal({
           const now = new Date().toISOString();
           const next: DanceProgress = {
             danceId: dance.id,
-            status: "maybe",
+            status: "want",
             fromFriend: friend.username,
             danceName: dance.name,
             danceSong: dance.defaultSong,
@@ -128,7 +128,7 @@ export function FriendDancesModal({
         added
           ? `${added} dance${added === 1 ? "" : "s"} from ${friend.displayName} ${
               added === 1 ? "is" : "are"
-            } now under 🔖 Save for Later.` +
+            } now under ♡ Want to Learn.` +
               (skipped ? ` ${skipped} you already had.` : "")
           : "You already had every one of those.",
       );

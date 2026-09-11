@@ -9,16 +9,15 @@ const DIFFICULTY_COLOR: Record<Dance["difficulty"], string> = {
   Advanced: colors.pink,
 };
 
-// `maybe` is "Save for Later".
-export type QuickStatus = "maybe" | "want" | "learned";
+export type QuickStatus = "want" | "learning" | "learned";
 export type QuickAction = { status: QuickStatus; icon: string; label: string };
 
-// The full row shown on Home / My List. Screens that only want one
-// contextual button (Want list → promote to Learned; Learned list →
-// "Review", i.e. back to Want) pass their own `quickActions`.
+// The full row shown everywhere a card appears. Want → Learning → Learned:
+// tapping "Learning" on an already-Learned dance is how you "review" it —
+// there's no separate Review control, it's just moving the status back.
 const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
-  { status: "maybe", icon: "🔖", label: "Later" },
   { status: "want", icon: "♡", label: "Want" },
+  { status: "learning", icon: "🎯", label: "Learning" },
   { status: "learned", icon: "★", label: "Learned" },
 ];
 
@@ -32,7 +31,7 @@ export function DanceCard({
   // Tapping one sets that status; tapping the one that's already lit
   // clears it. The card body still opens the details modal.
   onQuickStatus,
-  // Override which quick actions show (default: Later / Want / Learned).
+  // Override which quick actions show (default: Want / Learning / Learned).
   quickActions = DEFAULT_QUICK_ACTIONS,
   // When defined, the card is in pick-list mode and shows a checkbox
   // instead of the chevron (FriendDancesModal's "select dances", and the
@@ -62,10 +61,10 @@ export function DanceCard({
   const icon =
     status === "learned"
       ? "⭐"
-      : status === "want"
-        ? "💗"
-        : status === "maybe"
-          ? "🔖"
+      : status === "learning"
+        ? "🎯"
+        : status === "want"
+          ? "💗"
           : "👢";
 
   const choreographer = dance.choreographers?.join(", ");

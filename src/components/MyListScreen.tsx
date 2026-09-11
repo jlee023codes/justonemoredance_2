@@ -41,8 +41,8 @@ function danceFromProgress(progress: DanceProgress): Dance {
 }
 
 const STATUS_CHIPS: { status: StatusFilter; icon: string; label: string }[] = [
-  { status: "maybe", icon: "🔖", label: "Saved for Later" },
   { status: "want", icon: "♡", label: "Want to Learn" },
+  { status: "learning", icon: "🎯", label: "Learning Now" },
   { status: "learned", icon: "★", label: "Learned" },
 ];
 
@@ -268,8 +268,8 @@ export function MyListScreen({
 
         {!loading && nothingSaved && !error && (
           <Text style={s.empty}>
-            Nothing saved yet — find a dance on Home and mark it Saved for
-            Later, Want to Learn, or Learned.
+            Nothing saved yet — find a dance on Home and mark it Want to
+            Learn, Learning Now, or Learned.
           </Text>
         )}
         {!nothingSaved && visible.length === 0 && (

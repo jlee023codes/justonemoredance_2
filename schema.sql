@@ -26,7 +26,15 @@ create table venues (
 create unique index venues_name_key_uniq on venues (name_key);
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  default_venue_id text references venues(id) on delete set null
+  default_venue_id text references venues(id) on delete set null,
+  -- Stand-in for a real RevenueCat entitlement (see
+  -- src/lib/entitlements.ts) — the client currently writes this to its own
+  -- row directly, which is fine for a dev toggle but is NOT how this
+  -- should work once real subscriptions exist: a client can always assert
+  -- anything about itself. Once RevenueCat is wired up, this column
+  -- should only be written by a server-side webhook handler (a Supabase
+  -- Edge Function verifying the RevenueCat event), not the app.
+  is_premium boolean not null default false
 );
 
 -- One thumbs-up per user per venue — a community "this is a real venue"
@@ -88,16 +96,24 @@ create table user_venue_dances (
 -- runs as its owner and so bypasses the per-user RLS on
 -- user_venue_dances below — that's the point: the underlying rows stay
 -- private, only this aggregate is public.
+--
+-- Only premium users' tags count. This is what makes "enroll in premium"
+-- meaningful: the moment profiles.is_premium flips true for someone, their
+-- existing tags start counting here automatically (it's a live query, no
+-- backfill needed) — they've added their known venue dances to the bigger
+-- list, and Premium is what unlocks reading this view in the first place
+-- (see the Venues tab's paywall gate).
 create or replace view venue_dance_reports as
 select
-  venue_id,
-  dance_id,
-  max(dance_name) as dance_name,
-  max(dance_song) as dance_song,
-  max(dance_difficulty) as dance_difficulty,
-  count(distinct user_id)::int as reported_by
-from user_venue_dances
-group by venue_id, dance_id;
+  d.venue_id,
+  d.dance_id,
+  max(d.dance_name) as dance_name,
+  max(d.dance_song) as dance_song,
+  max(d.dance_difficulty) as dance_difficulty,
+  count(distinct d.user_id)::int as reported_by
+from user_venue_dances d
+join profiles p on p.id = d.user_id and p.is_premium
+group by d.venue_id, d.dance_id;
 
 create table shared_lists (
   id uuid primary key default gen_random_uuid(),

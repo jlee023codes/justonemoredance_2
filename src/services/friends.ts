@@ -11,7 +11,7 @@ export type FriendDance = {
   name: string;
   song: string;
   difficulty: "Beginner" | "Improver" | "Intermediate" | "Advanced";
-  status: "maybe" | "want" | "learned";
+  status: "want" | "learning" | "learned";
 };
 
 function labelFor(profile: { display_name: string | null; username: string }): string {

@@ -16,6 +16,8 @@ import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyListScreen } from "./src/components/MyListScreen";
 import { VenuesScreen } from "./src/components/VenuesScreen";
+import { FriendsScreen } from "./src/components/FriendsScreen";
+import { PaywallScreen } from "./src/components/PaywallScreen";
 import { StatusLegendModal } from "./src/components/StatusLegendModal";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { OfflineListModal } from "./src/components/OfflineListModal";
@@ -26,6 +28,11 @@ import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
 import { confirmAction, showAlert } from "./src/lib/alerts";
 import { useOnlineStatus } from "./src/lib/useOnlineStatus";
+import {
+  loadIsPremium,
+  setDevPremiumOverride,
+  syncPremiumStatus,
+} from "./src/lib/entitlements";
 import {
   clearOfflineList,
   countOfflineList,
@@ -87,9 +94,25 @@ export default function App() {
     [offlineCount, setOfflineCount] = useState(0),
     // Set when an offline import has been queued, so the Profile tab opens
     // straight into the matcher.
-    [openImportOnProfile, setOpenImportOnProfile] = useState(false);
+    [openImportOnProfile, setOpenImportOnProfile] = useState(false),
+    // Stand-in for a real RevenueCat entitlement (see
+    // src/lib/entitlements.ts) — gates the Friends tab. A dev-only toggle
+    // in Profile → Settings flips it until real purchases exist.
+    [isPremium, setIsPremium] = useState(false);
 
   const online = useOnlineStatus();
+
+  useEffect(() => {
+    loadIsPremium().then(setIsPremium);
+  }, []);
+
+  const handleSetPremiumPreview = async (on: boolean) => {
+    setIsPremium(on); // optimistic; it's just a local preference either way
+    await setDevPremiumOverride(on);
+    // Mirror onto profiles.is_premium so the shared "venue songs" aggregate
+    // (venue_dance_reports) picks up their history the moment they enroll.
+    if (userId) await syncPremiumStatus(userId, on);
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -138,7 +161,7 @@ export default function App() {
       );
   }, [deepLink]);
 
-  // Pull the saved want/learned/maybe list down whenever we have a user —
+  // Pull the saved want/learning/learned list down whenever we have a user —
   // and again on each post-restore auth event (see `sessionEpoch`), since
   // the first attempt on a cold start can quietly return an empty set.
   const userId = session?.user.id;
@@ -313,7 +336,7 @@ export default function App() {
   // aren't touched — those live in the details modal.
   const handleQuickStatus = async (
     dance: Dance,
-    status: "maybe" | "want" | "learned",
+    status: "want" | "learning" | "learned",
   ) => {
     if (!session) return;
     mergeIntoCache([dance]);
@@ -324,7 +347,7 @@ export default function App() {
         handleProgressChange(dance.id, null);
       } else {
         // Keep whoever shared this dance attached across every status
-        // change (maybe → want → learned), so the "Shared from" badge
+        // change (want → learning → learned), so the "Shared from" badge
         // survives. Undefined here means it's the user's own.
         const sharedFrom = progress[dance.id]?.fromFriend;
         const next: DanceProgress = {
@@ -367,7 +390,7 @@ export default function App() {
   // this venue is (re)loaded.
   const handleQuickStatusAtVenue = async (
     dance: Dance,
-    status: "maybe" | "want" | "learned",
+    status: "want" | "learning" | "learned",
     venueId: string,
   ) => {
     const wasStatus = progress[dance.id]?.status;
@@ -477,8 +500,9 @@ export default function App() {
             onImportHandled={() => setOpenImportOnProfile(false)}
             onOpenOfflineList={() => setOfflineOpen(true)}
             onSignOut={() => void supabase.auth.signOut()}
-            onPendingRequestCountChange={setPendingRequestCount}
             onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
+            isPremium={isPremium}
+            onSetPremiumPreview={handleSetPremiumPreview}
           />
         ) : tab === "My List" ? (
           <MyListScreen
@@ -491,15 +515,48 @@ export default function App() {
             refreshKey={venuesRefreshKey}
           />
         ) : tab === "Venues" ? (
-          <VenuesScreen
-            userId={session.user.id}
-            progress={progress}
-            catalogCache={catalogCache}
-            onOpenDance={openDance}
-            onQuickStatusAtVenue={handleQuickStatusAtVenue}
-            onCacheDances={mergeIntoCache}
-            refreshKey={venuesRefreshKey}
-          />
+          isPremium ? (
+            <VenuesScreen
+              userId={session.user.id}
+              progress={progress}
+              catalogCache={catalogCache}
+              onOpenDance={openDance}
+              onQuickStatusAtVenue={handleQuickStatusAtVenue}
+              onCacheDances={mergeIntoCache}
+              refreshKey={venuesRefreshKey}
+            />
+          ) : (
+            <PaywallScreen
+              title="Venues"
+              bullets={[
+                "Browse every venue in the shared catalog",
+                "See which dances people report dancing there",
+                "Set a home bar, pinned to the top everywhere",
+                "Endorse a venue so others know it's the real deal",
+              ]}
+            />
+          )
+        ) : tab === "Friends" ? (
+          isPremium ? (
+            <FriendsScreen
+              userId={session.user.id}
+              email={session.user.is_anonymous ? undefined : session.user.email}
+              progress={progress}
+              onProgressChange={handleProgressChange}
+              onOpenDance={openDance}
+              onPendingRequestCountChange={setPendingRequestCount}
+            />
+          ) : (
+            <PaywallScreen
+              title="Friends"
+              bullets={[
+                "See what your friends just learned or added",
+                "Get notified when a friend adds a new venue",
+                "Plan a night out — make an event, everyone RSVPs",
+                "Import dances straight from a friend's list",
+              ]}
+            />
+          )
         ) : (
           <ScrollView
             contentContainerStyle={s.content}
@@ -541,7 +598,7 @@ export default function App() {
         <BottomTabs
           activeTab={tab}
           onChange={setTab}
-          badges={{ Profile: pendingRequestCount }}
+          badges={{ Friends: pendingRequestCount }}
         />
         <StatusLegendModal
           visible={legendOpen}
@@ -556,6 +613,7 @@ export default function App() {
           onProgressChange={handleProgressChange}
           onRemoved={handleRemoved}
           onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
+          isPremium={isPremium}
         />
         <OfflineListModal
           visible={offlineOpen}

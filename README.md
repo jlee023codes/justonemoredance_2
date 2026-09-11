@@ -2,14 +2,20 @@
 
 An Expo / React Native app (iOS + web) for tracking line dances: search the
 [BootStepper](https://api.bootstepper.com) catalog, keep everything you're
-learning in one **My List** (search it, quick-filter by Saved for Later / Want
-to Learn / Learned, filter by venue / difficulty / counts / walls / tags /
+learning in one **My List** (search it, quick-filter by Want to Learn /
+Learning Now / Learned, filter by venue / difficulty / counts / walls / tags /
 video, and sort any way you like), tag dances to the venues you dance them at
 (managed from **Profile → My Venues**), browse a **Venues** page of every
 venue in the shared catalog to see which dances people report dancing there,
-add friends and import from their lists, bulk-import a checklist pasted from
-Apple Notes, jot dances into an on-device **offline notepad** when you lose
-signal (import them once you're back online), and unlock milestones.
+and — as a premium feature — add friends, see their activity, and plan
+nights out on the **Friends** tab (make an event, everyone RSVPs). Also:
+bulk-import a checklist pasted from Apple Notes, jot dances into an
+on-device **offline notepad** when you lose signal (import them once you're
+back online), and unlock milestones.
+
+Premium isn't wired up to a real store yet — see
+[src/lib/entitlements.ts](src/lib/entitlements.ts) and the "Dev: preview
+Premium" toggle in Profile → Settings.
 
 ## Run locally
 
@@ -28,7 +34,9 @@ You need a Supabase project connected first — see below.
 3. Run the SQL in `schema.sql`, then `migration_venues.sql`,
    `migration_bootstepper.sql`, `migration_friend_requests.sql`,
    `migration_notes_import.sql`, `migration_my_list.sql`,
-   `migration_venue_dedup.sql`, and `migration_venues_page.sql`.
+   `migration_venue_dedup.sql`, `migration_venues_page.sql`,
+   `migration_learning_status.sql`, `migration_friends_page.sql`, and
+   `migration_premium_venues.sql`.
 4. Deploy the BootStepper proxy and set its key:
    ```sh
    supabase functions deploy bootstepper-proxy
