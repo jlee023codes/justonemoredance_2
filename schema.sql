@@ -82,6 +82,23 @@ create table user_venue_dances (
   primary key (user_id, venue_id, dance_id)
 );
 
+-- Which dances have been tagged to each venue, and by how many distinct
+-- users — aggregated across *everyone*, without exposing who. Powers the
+-- Venues page ("dances reported here"). A bare view (not security_invoker)
+-- runs as its owner and so bypasses the per-user RLS on
+-- user_venue_dances below — that's the point: the underlying rows stay
+-- private, only this aggregate is public.
+create or replace view venue_dance_reports as
+select
+  venue_id,
+  dance_id,
+  max(dance_name) as dance_name,
+  max(dance_song) as dance_song,
+  max(dance_difficulty) as dance_difficulty,
+  count(distinct user_id)::int as reported_by
+from user_venue_dances
+group by venue_id, dance_id;
+
 create table shared_lists (
   id uuid primary key default gen_random_uuid(),
   sender_id uuid not null references profiles(id) on delete cascade,
@@ -158,3 +175,8 @@ create policy "read own venues" on user_venues for select using (auth.uid() = us
 create policy "write own venues" on user_venues for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "read own venue dances" on user_venue_dances for select using (auth.uid() = user_id);
 create policy "write own venue dances" on user_venue_dances for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Views need an explicit grant even once the table they read from has RLS —
+-- the view's own owner-privilege bypass only matters if a role can select
+-- from the view at all.
+grant select on venue_dance_reports to authenticated;

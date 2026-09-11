@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
-export type AppTab = "Home" | "My List" | "Profile";
+export type AppTab = "Home" | "My List" | "Venues" | "Profile";
 export function BottomTabs({
   activeTab,
   onChange,
@@ -15,6 +15,7 @@ export function BottomTabs({
   const tabs: { name: AppTab; icon: string }[] = [
     { name: "Home", icon: "⌂" },
     { name: "My List", icon: "≣" },
+    { name: "Venues", icon: "📍" },
     { name: "Profile", icon: "☻" },
   ];
   return (

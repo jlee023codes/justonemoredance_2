@@ -15,6 +15,7 @@ import { AppTab, BottomTabs } from "./src/components/BottomTabs";
 import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyListScreen } from "./src/components/MyListScreen";
+import { VenuesScreen } from "./src/components/VenuesScreen";
 import { StatusLegendModal } from "./src/components/StatusLegendModal";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { OfflineListModal } from "./src/components/OfflineListModal";
@@ -43,6 +44,7 @@ import {
   removeDancesEverywhere,
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
+import { saveVenueDance } from "./src/services/venues";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -349,6 +351,36 @@ export default function App() {
     }
   };
 
+  // Same as handleQuickStatus, but for a dance found on the Venues page —
+  // turning a status on also ties it to the venue you found it at, so it
+  // shows up in your My List filtered by that venue. Best-effort: a venue
+  // hiccup shouldn't undo the status change, and turning a status *off*
+  // never untags the venue (that's an explicit action in the dance modal).
+  //
+  // Deliberately does NOT bump venuesRefreshKey: that key drives a full
+  // network re-fetch in whichever screen is watching it, and VenuesScreen
+  // is exactly the screen this fires from — bumping it here just reloaded
+  // the whole "dances at this venue" list (and its loading spinner) under
+  // the user's thumb on every single tap. My List / Profile don't need the
+  // nudge either: switching to those tabs remounts them, which re-fetches
+  // on its own. The "N people report this here" count catches up next time
+  // this venue is (re)loaded.
+  const handleQuickStatusAtVenue = async (
+    dance: Dance,
+    status: "maybe" | "want" | "learned",
+    venueId: string,
+  ) => {
+    const wasStatus = progress[dance.id]?.status;
+    await handleQuickStatus(dance, status);
+    if (wasStatus !== status && session) {
+      try {
+        await saveVenueDance(session.user.id, venueId, dance, "");
+      } catch {
+        // non-critical
+      }
+    }
+  };
+
   const handleRemoved = (danceId: string) => {
     handleProgressChange(danceId, null);
 
@@ -456,6 +488,16 @@ export default function App() {
             onOpenDance={openDance}
             onQuickStatus={handleQuickStatus}
             onRemoveDances={(ids) => removeDances(ids, "")}
+            refreshKey={venuesRefreshKey}
+          />
+        ) : tab === "Venues" ? (
+          <VenuesScreen
+            userId={session.user.id}
+            progress={progress}
+            catalogCache={catalogCache}
+            onOpenDance={openDance}
+            onQuickStatusAtVenue={handleQuickStatusAtVenue}
+            onCacheDances={mergeIntoCache}
             refreshKey={venuesRefreshKey}
           />
         ) : (

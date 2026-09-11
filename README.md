@@ -5,10 +5,11 @@ An Expo / React Native app (iOS + web) for tracking line dances: search the
 learning in one **My List** (search it, quick-filter by Saved for Later / Want
 to Learn / Learned, filter by venue / difficulty / counts / walls / tags /
 video, and sort any way you like), tag dances to the venues you dance them at
-(managed from **Profile → My Venues**), add friends and import from their
-lists, bulk-import a checklist pasted from Apple Notes, jot dances into an
-on-device **offline notepad** when you lose signal (import them once you're
-back online), and unlock milestones.
+(managed from **Profile → My Venues**), browse a **Venues** page of every
+venue in the shared catalog to see which dances people report dancing there,
+add friends and import from their lists, bulk-import a checklist pasted from
+Apple Notes, jot dances into an on-device **offline notepad** when you lose
+signal (import them once you're back online), and unlock milestones.
 
 ## Run locally
 
@@ -26,8 +27,8 @@ You need a Supabase project connected first — see below.
 2. Copy `.env.example` to `.env` and fill in your project URL + publishable key.
 3. Run the SQL in `schema.sql`, then `migration_venues.sql`,
    `migration_bootstepper.sql`, `migration_friend_requests.sql`,
-   `migration_notes_import.sql`, `migration_my_list.sql`, and
-   `migration_venue_dedup.sql`.
+   `migration_notes_import.sql`, `migration_my_list.sql`,
+   `migration_venue_dedup.sql`, and `migration_venues_page.sql`.
 4. Deploy the BootStepper proxy and set its key:
    ```sh
    supabase functions deploy bootstepper-proxy

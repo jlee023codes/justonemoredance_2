@@ -68,6 +68,23 @@ export async function searchGlobalVenues(
   );
 }
 
+/** One venue by id, with votes attached — used to hydrate a default
+ *  selection (the home bar) where we only have the id, not the row. */
+export async function loadVenueById(
+  venueId: string,
+  userId?: string,
+): Promise<VenueOption | null> {
+  const { data, error } = await supabase
+    .from("venues")
+    .select("id,name")
+    .eq("id", venueId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const [withVotes] = await attachVotes([data], userId);
+  return withVotes;
+}
+
 function slugify(name: string): string {
   const slug = name
     .toLowerCase()
@@ -328,4 +345,46 @@ export async function removeVenueDance(
     .eq("venue_id", venueId)
     .eq("dance_id", danceId);
   if (error) throw error;
+}
+
+// ---------------------------------------------------------------------
+// The Venues page: dances reported at a venue by *everyone*, not just
+// this user — via the venue_dance_reports view (see migration_venues_page /
+// schema.sql), which aggregates without exposing who tagged what.
+// ---------------------------------------------------------------------
+
+export type VenueDanceReport = { dance: Dance; reportedBy: number };
+
+type VenueDanceReportRow = {
+  dance_id: string;
+  dance_name: string | null;
+  dance_song: string | null;
+  dance_difficulty: string | null;
+  reported_by: number;
+};
+
+export async function loadVenueDanceReports(
+  venueId: string,
+): Promise<VenueDanceReport[]> {
+  const { data, error } = await supabase
+    .from("venue_dance_reports")
+    .select("dance_id,dance_name,dance_song,dance_difficulty,reported_by")
+    .eq("venue_id", venueId)
+    .order("reported_by", { ascending: false })
+    .order("dance_name", { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as VenueDanceReportRow[]).map((row) => ({
+    dance: {
+      id: row.dance_id,
+      name: row.dance_name ?? "Dance",
+      defaultSong: row.dance_song ?? "",
+      difficulty: (row.dance_difficulty as Dance["difficulty"]) ?? "Beginner",
+      details: "",
+      songSwaps: [],
+      // Only the snapshot — App.tsx's catalog resolves the real BootStepper
+      // dance (choreographer, counts, …) the same way it does everywhere else.
+      snapshot: true,
+    },
+    reportedBy: row.reported_by,
+  }));
 }
