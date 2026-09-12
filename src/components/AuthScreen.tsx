@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -174,8 +175,12 @@ export function AuthScreen() {
 
   return (
     <View style={s.page}>
-      <Text style={s.logo}>JUST ONE MORE</Text>
-      <Text style={s.title}>DANCE</Text>
+      <Image
+        source={require("../../assets/logo-dark.png")}
+        style={s.logo}
+        resizeMode="contain"
+        accessibilityLabel="Just One More Dance"
+      />
       <Text style={s.subtitle}>
         Keep your dances synced across every dance floor.
       </Text>
@@ -281,16 +286,10 @@ const s = StyleSheet.create({
     padding: 28,
   },
   logo: {
-    color: colors.gold,
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 3,
-  },
-  title: {
-    color: colors.ink,
-    fontSize: 34,
-    fontWeight: "900",
-    letterSpacing: 5,
+    width: 168,
+    height: 168,
+    alignSelf: "center",
+    marginBottom: 4,
   },
   subtitle: {
     color: colors.muted,

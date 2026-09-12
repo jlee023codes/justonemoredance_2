@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +20,7 @@ import { VenuesScreen } from "./src/components/VenuesScreen";
 import { FriendsScreen } from "./src/components/FriendsScreen";
 import { PaywallScreen } from "./src/components/PaywallScreen";
 import { StatusLegendModal } from "./src/components/StatusLegendModal";
+import { HelpModal } from "./src/components/HelpModal";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { OfflineListModal } from "./src/components/OfflineListModal";
 import { colors } from "./src/styles";
@@ -80,6 +82,7 @@ export default function App() {
     [resetPassword, setResetPassword] = useState(false),
     [pendingRequestCount, setPendingRequestCount] = useState(0),
     [legendOpen, setLegendOpen] = useState(false),
+    [helpOpen, setHelpOpen] = useState(false),
     // Bumped on every auth event that carries a session. On a cold start
     // (or a Metro "reload app"), the *first* loadProgress() can race the
     // Supabase client finishing its session restore and come back empty —
@@ -474,10 +477,6 @@ export default function App() {
       <SafeAreaView style={s.safe}>
         <StatusBar style="light" />
         <View style={s.header}>
-          <View style={s.headerText}>
-            <Text style={s.logo}>JUST ONE MORE</Text>
-            <Text style={s.dance}>DANCE</Text>
-          </View>
           <Pressable
             style={s.infoButton}
             onPress={() => setLegendOpen(true)}
@@ -485,6 +484,20 @@ export default function App() {
             accessibilityLabel="What the dance card icons mean"
           >
             <Text style={s.infoIcon}>ⓘ</Text>
+          </Pressable>
+          <Image
+            source={require("./assets/no_circle_logo-dark.png")}
+            style={s.logo}
+            resizeMode="contain"
+            accessibilityLabel="Just One More Dance"
+          />
+          <Pressable
+            style={s.infoButton}
+            onPress={() => setHelpOpen(true)}
+            hitSlop={10}
+            accessibilityLabel="Where to find things"
+          >
+            <Text style={s.infoIcon}>?</Text>
           </Pressable>
         </View>
         <OfflineBanner
@@ -608,6 +621,7 @@ export default function App() {
           visible={legendOpen}
           onClose={() => setLegendOpen(false)}
         />
+        <HelpModal visible={helpOpen} onClose={() => setHelpOpen(false)} />
         <DanceDetailsModal
           dance={selected ? (catalogCache[selected.id] ?? selected) : null}
           userId={session.user.id}
@@ -649,7 +663,6 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  headerText: { flexShrink: 1 },
   infoButton: {
     width: 34,
     height: 34,
@@ -659,16 +672,8 @@ const s = StyleSheet.create({
   },
   infoIcon: { color: colors.gold, fontSize: 20, fontWeight: "700" },
   logo: {
-    color: colors.gold,
-    fontSize: 13,
-    fontWeight: "800",
-    letterSpacing: 3,
-  },
-  dance: {
-    color: colors.ink,
-    fontSize: 29,
-    fontWeight: "900",
-    letterSpacing: 5,
+    width: 96,
+    height: 64,
   },
   content: { padding: 20, paddingBottom: 110 },
   greeting: {
