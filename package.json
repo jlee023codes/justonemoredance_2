@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@revenuecat/purchases-js": "^1.60.1",
     "@supabase/supabase-js": "^2.112.4",
     "expo": "~54.0.0",
     "expo-linking": "~8.0.12",
@@ -18,6 +19,8 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.4",
+    "react-native-purchases": "^10.9.1",
+    "react-native-purchases-ui": "^10.9.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-url-polyfill": "^4.0.0",
     "react-native-web": "^0.21.0"

@@ -24,8 +24,10 @@
    for the Friends tab's "Make Event" / RSVP feature. `migration_premium_venues.sql`
    adds `profiles.is_premium` and makes `venue_dance_reports` only count a
    premium user's tagged dances — enrolling in Premium makes your existing
-   tags count immediately, since it's a live view. All are idempotent —
-   safe to re-run.
+   tags count immediately, since it's a live view.
+   `migration_comped_premium_rename.sql` renames that column to
+   `comped_premium`, to make clear it's the manual comp flag, not a real
+   RevenueCat entitlement. All are idempotent — safe to re-run.
 3. In **Authentication → Providers → Email**, keep Email enabled. For fast local
    testing, you may turn off **Confirm email**; leave it on for production.
 4. Set up redirect URLs for password reset — see below.

@@ -11,6 +11,7 @@ import {
 import { colors } from "../styles";
 import { confirmAction, showAlert } from "../lib/alerts";
 import { supabase } from "../lib/supabase";
+import { presentCustomerCenter, restorePurchases } from "../lib/entitlements";
 import { NotesImportModal } from "./NotesImportModal";
 import { VenuePicker } from "./VenuePicker";
 import { countPendingImport } from "../services/notesImport";
@@ -51,7 +52,6 @@ export function ProfileScreen({
   onImportHandled,
   onOpenOfflineList,
   isPremium,
-  onSetPremiumPreview,
 }: {
   userId: string;
   email?: string;
@@ -71,10 +71,10 @@ export function ProfileScreen({
   onImportHandled?: () => void;
   // Opens the on-device offline notepad (lives in App).
   onOpenOfflineList?: () => void;
-  // Dev-only stand-in for a real RevenueCat entitlement — see
-  // src/lib/entitlements.ts. Remove this toggle once real purchases exist.
+  // Real RevenueCat entitlement OR a manual server comp — see
+  // src/lib/entitlements.ts. Used here to scope the venue picker's search
+  // (Premium unlocks browsing the whole shared catalog, not just your own).
   isPremium: boolean;
-  onSetPremiumPreview: (on: boolean) => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -203,6 +203,26 @@ export function ProfileScreen({
       "Password changed",
       "Use your new password next time you sign in.",
     );
+  };
+
+  // Restoring re-links any past purchase on this Apple/Google account to
+  // this RevenueCat customer — no result handling needed beyond the
+  // message: a successful restore fires RevenueCat's customer-info
+  // listener, which App.tsx is already subscribed to, so `isPremium`
+  // (and anything gated on it) updates on its own.
+  const [restoring, setRestoring] = useState(false);
+  const handleRestorePurchases = async () => {
+    setRestoring(true);
+    try {
+      const result = await restorePurchases();
+      if (result.success) {
+        showAlert("Restored", "Your purchases have been restored.");
+      } else if (result.error) {
+        showAlert("Could not restore your purchases", result.error);
+      }
+    } finally {
+      setRestoring(false);
+    }
   };
 
   return (
@@ -400,18 +420,26 @@ export function ProfileScreen({
           )
         ) : null}
 
-        {/* Stand-in for a real RevenueCat paywall — see
-            src/lib/entitlements.ts. Remove once subscriptions are live. */}
-        <Pressable
-          style={s.devPremiumRow}
-          onPress={() => onSetPremiumPreview(!isPremium)}
-        >
-          <Text style={s.devPremiumText}>
-            🔧 Dev: preview Premium (Friends tab)
+        <View style={s.subscriptionRow}>
+          <Text style={s.settingLabel}>SUBSCRIPTION</Text>
+          <Text style={s.subscriptionStatus}>
+            {isPremium ? "★ Premium" : "Free"}
           </Text>
-          <View style={[s.devToggle, isPremium && s.devToggleOn]}>
-            <Text style={s.devToggleText}>{isPremium ? "ON" : "OFF"}</Text>
-          </View>
+        </View>
+        <Pressable
+          style={s.changePassword}
+          onPress={() => void presentCustomerCenter()}
+        >
+          <Text style={s.changePasswordText}>Manage subscription</Text>
+        </Pressable>
+        <Pressable
+          style={[s.cancelPassword, restoring && s.disabled]}
+          onPress={handleRestorePurchases}
+          disabled={restoring}
+        >
+          <Text style={s.cancelPasswordText}>
+            {restoring ? "Restoring…" : "Restore purchases"}
+          </Text>
         </Pressable>
 
         <Pressable style={s.signOut} onPress={onSignOut}>
@@ -613,7 +641,7 @@ const s = StyleSheet.create({
   savePasswordText: { color: "#fff", fontWeight: "800" },
   cancelPassword: { padding: 11, alignItems: "center" },
   cancelPasswordText: { color: colors.muted, fontWeight: "700", fontSize: 13 },
-  devPremiumRow: {
+  subscriptionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -622,16 +650,7 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
-  devPremiumText: { color: colors.muted, fontSize: 12, flex: 1, marginRight: 8 },
-  devToggle: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  devToggleOn: { borderColor: colors.gold, backgroundColor: "#4a3a1e" },
-  devToggleText: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+  subscriptionStatus: { color: colors.gold, fontSize: 13, fontWeight: "800" },
   signOut: {
     marginTop: 17,
     borderWidth: 1,

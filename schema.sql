@@ -27,14 +27,15 @@ create unique index venues_name_key_uniq on venues (name_key);
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   default_venue_id text references venues(id) on delete set null,
-  -- Stand-in for a real RevenueCat entitlement (see
-  -- src/lib/entitlements.ts) — the client currently writes this to its own
-  -- row directly, which is fine for a dev toggle but is NOT how this
-  -- should work once real subscriptions exist: a client can always assert
-  -- anything about itself. Once RevenueCat is wired up, this column
-  -- should only be written by a server-side webhook handler (a Supabase
-  -- Edge Function verifying the RevenueCat event), not the app.
-  is_premium boolean not null default false
+  -- A manual "I comped this person" flag — NOT a real RevenueCat
+  -- entitlement (the app checks that live via the SDK, see
+  -- src/lib/entitlements.ts). Set it directly in the SQL editor:
+  --   update profiles set comped_premium = true where id = '<user id>';
+  -- The app never writes this itself. If a RevenueCat webhook is ever
+  -- built to also flip this on real purchases, it should be a
+  -- server-side handler (a Supabase Edge Function verifying the
+  -- RevenueCat event) — never the client.
+  comped_premium boolean not null default false
 );
 
 -- One thumbs-up per user per venue — a community "this is a real venue"
@@ -98,7 +99,7 @@ create table user_venue_dances (
 -- private, only this aggregate is public.
 --
 -- Only premium users' tags count. This is what makes "enroll in premium"
--- meaningful: the moment profiles.is_premium flips true for someone, their
+-- meaningful: the moment profiles.comped_premium flips true for someone, their
 -- existing tags start counting here automatically (it's a live query, no
 -- backfill needed) — they've added their known venue dances to the bigger
 -- list, and Premium is what unlocks reading this view in the first place
@@ -112,7 +113,7 @@ select
   max(d.dance_difficulty) as dance_difficulty,
   count(distinct d.user_id)::int as reported_by
 from user_venue_dances d
-join profiles p on p.id = d.user_id and p.is_premium
+join profiles p on p.id = d.user_id and p.comped_premium
 group by d.venue_id, d.dance_id;
 
 create table shared_lists (

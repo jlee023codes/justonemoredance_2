@@ -29,10 +29,10 @@ import { supabase } from "./src/lib/supabase";
 import { confirmAction, showAlert } from "./src/lib/alerts";
 import { useOnlineStatus } from "./src/lib/useOnlineStatus";
 import {
-  loadIsPremium,
-  loadPremiumFromServer,
-  setDevPremiumOverride,
-  syncPremiumStatus,
+  configurePurchases,
+  loginPurchases,
+  logoutPurchases,
+  subscribeToPremiumStatus,
 } from "./src/lib/entitlements";
 import {
   clearOfflineList,
@@ -96,20 +96,11 @@ export default function App() {
     // Set when an offline import has been queued, so the Profile tab opens
     // straight into the matcher.
     [openImportOnProfile, setOpenImportOnProfile] = useState(false),
-    // Stand-in for a real RevenueCat entitlement (see
-    // src/lib/entitlements.ts) — gates the Friends tab. A dev-only toggle
-    // in Profile → Settings flips it until real purchases exist.
+    // Gates the Venues/Friends tabs — a real RevenueCat entitlement OR a
+    // manual server comp (profiles.is_premium). See src/lib/entitlements.ts.
     [isPremium, setIsPremium] = useState(false);
 
   const online = useOnlineStatus();
-
-  const handleSetPremiumPreview = async (on: boolean) => {
-    setIsPremium(on); // optimistic; it's just a local preference either way
-    await setDevPremiumOverride(on);
-    // Mirror onto profiles.is_premium so the shared "venue songs" aggregate
-    // (venue_dance_reports) picks up their history the moment they enroll.
-    if (userId) await syncPremiumStatus(userId, on);
-  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -133,6 +124,10 @@ export default function App() {
         setResetPassword(false);
         setProgress({});
         setPendingRequestCount(0);
+        setIsPremium(false);
+        // So a next sign-in (possibly a different account, shared device)
+        // doesn't briefly inherit this customer's entitlement.
+        void logoutPurchases();
       }
     });
 
@@ -179,18 +174,18 @@ export default function App() {
       );
   }, [userId, sessionEpoch]);
 
-  // Premium = the local dev-preview toggle OR a server-side grant on
-  // profiles.is_premium (e.g. someone manually flipped it in the Supabase
-  // dashboard for an early tester) — either one unlocks it. This is what
-  // lets you comp specific people by id ahead of RevenueCat: just
-  //   update profiles set is_premium = true where id = '<their uuid>';
-  // and it takes effect next time they open the app, no app change needed.
+  // Ties this device's RevenueCat customer to the signed-in Supabase user,
+  // then keeps `isPremium` live: a real entitlement OR a manual server
+  // comp (see subscribeToPremiumStatus). Comping someone ahead of a real
+  // subscription is just
+  //   update profiles set is_premium = true where id = '<their user id>';
+  // — takes effect next time they open the app, no app change needed.
   useEffect(() => {
     if (!userId) return;
-    Promise.all([loadIsPremium(), loadPremiumFromServer(userId)]).then(
-      ([local, server]) => setIsPremium(local || server),
-    );
-  }, [userId, sessionEpoch]);
+    configurePurchases(userId);
+    void loginPurchases(userId);
+    return subscribeToPremiumStatus(userId, setIsPremium);
+  }, [userId]);
 
   // Keep the offline-notepad badge in step: on load, when connectivity
   // flips, and after the notepad modal closes.
@@ -512,7 +507,6 @@ export default function App() {
             onSignOut={() => void supabase.auth.signOut()}
             onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
             isPremium={isPremium}
-            onSetPremiumPreview={handleSetPremiumPreview}
           />
         ) : tab === "My List" ? (
           <MyListScreen

@@ -1,79 +1,89 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
+import * as RC from "./revenuecat";
 
-// Placeholder for RevenueCat. The Friends tab (and its "add friends" /
-// friend-list-import features), plus the Venues tab, are meant to be a
-// premium subscription perk, but no subscription product exists yet —
-// RevenueCat needs an account, App Store / Play Store product setup, and
-// an entitlement id, none of which this environment can create or test.
-//
-// Every premium check in the app goes through `loadIsPremium` /
-// `setDevPremiumOverride` so wiring up the real SDK later is a one-file
-// change: swap the body of `loadIsPremium` for something like
-//   const info = await Purchases.getCustomerInfo();
-//   return Boolean(info.entitlements.active["premium"]);
-// and keep the same boolean contract. Until then, entitlement is just a
-// local dev override — flip it from Profile → Settings to preview the
-// premium UI. Remove that toggle once real purchases are wired up.
-const DEV_OVERRIDE_KEY = "jomd.dev-premium-override";
+// The app's single notion of "premium": a real RevenueCat entitlement OR a
+// manual server-side comp. Everything that needs to know "is this person
+// premium" or wants to trigger a purchase/restore/manage flow should go
+// through this file, not react-native-purchases directly — that keeps the
+// comp mechanism and the real SDK indistinguishable to the rest of the app.
 
-export async function loadIsPremium(): Promise<boolean> {
-  try {
-    return (await AsyncStorage.getItem(DEV_OVERRIDE_KEY)) === "1";
-  } catch {
-    return false;
-  }
-}
+export const PRO_ENTITLEMENT_ID = RC.PRO_ENTITLEMENT_ID;
+export const PACKAGE_IDS = RC.PACKAGE_IDS;
+export type PlanKey = RC.PlanKey;
+export type PremiumPlan = RC.PremiumPlan;
+export type PurchaseOutcome = RC.PurchaseOutcome;
+export type PaywallOutcome = RC.PaywallOutcome;
 
-export async function setDevPremiumOverride(on: boolean): Promise<void> {
-  try {
-    await AsyncStorage.setItem(DEV_OVERRIDE_KEY, on ? "1" : "0");
-  } catch {
-    // non-critical — worst case the toggle doesn't stick across reloads
-  }
-}
+// Session lifecycle — call from App.tsx once you know the signed-in
+// Supabase user id, and on sign-out.
+export const configurePurchases = RC.configurePurchases;
+export const loginPurchases = RC.loginPurchases;
+export const logoutPurchases = RC.logoutPurchases;
 
-// The other source of "premium": a server-side grant on profiles.is_premium
-// that isn't tied to this device's local toggle at all. This is how you
-// comp specific people (by user id) ahead of having RevenueCat — flip it
-// directly in the Supabase dashboard/SQL editor:
-//   update profiles set is_premium = true where id = '<their user id>';
-// and it takes effect for them automatically, no app change needed. Once
-// RevenueCat exists, this is also where its webhook should write.
+// Buying / managing.
+export const fetchOfferedPlans = RC.fetchOfferedPlans;
+export const purchasePlan = RC.purchasePlan;
+export const restorePurchases = RC.restorePurchases;
+export const presentPaywall = RC.presentPaywall;
+export const presentPaywallIfNeeded = RC.presentPaywallIfNeeded;
+export const presentCustomerCenter = RC.presentCustomerCenter;
+
+/** A manual comp (see migration_premium_venues.sql) — set this directly in
+ *  Supabase to give someone Premium for free, ahead of (or instead of) a
+ *  real subscription:
+ *    update profiles set comped_premium = true where id = '<their user id>';
+ *  IMPORTANT: this is a stand-in for what should eventually be a
+ *  RevenueCat webhook (Edge Function) flipping this same column on
+ *  purchase/renewal/expiration, so venue_dance_reports' "premium users'
+ *  tags count" logic also picks up *real* subscribers, not just comped
+ *  ones. Right now a real paying customer unlocks the app's screens fine
+ *  (that's driven by the live RevenueCat check below) but their own
+ *  venue-tagged dances won't count in the shared aggregate until they're
+ *  either comped here too or that webhook exists. */
 export async function loadPremiumFromServer(userId: string): Promise<boolean> {
   try {
     const { data, error } = await supabase
       .from("profiles")
-      .select("is_premium")
+      .select("comped_premium")
       .eq("id", userId)
       .maybeSingle();
     if (error) throw error;
-    return data?.is_premium === true;
+    return data?.comped_premium === true;
   } catch {
     return false;
   }
 }
 
-// Mirrors the local flag onto profiles.is_premium so DB-side logic (the
-// venue_dance_reports view only counts a premium user's tagged dances —
-// see migration_premium_venues.sql) has something to key off.
-//
-// IMPORTANT: this is the client asserting its own entitlement, which is
-// only acceptable because there's no real money or server-verified
-// subscription behind it yet. Once RevenueCat is wired up, this write
-// must move server-side (a webhook handler reacting to RevenueCat events)
-// — never let the app itself flip its own is_premium in production.
-export async function syncPremiumStatus(
+/** The single source of truth to gate the UI on: a real RevenueCat
+ *  entitlement OR the manual server comp, OR'd together. Calls `onChange`
+ *  once immediately with the current answer and again on every future
+ *  RevenueCat entitlement change (purchase, renewal, cancellation, refund,
+ *  restore — from any session, not just this one). Returns an unsubscribe
+ *  function; the server comp isn't re-polled after that (it only ever
+ *  changes from outside the app, e.g. you running a SQL update — call this
+ *  again, such as on next sign-in, to pick that up). */
+export function subscribeToPremiumStatus(
   userId: string,
-  isPremium: boolean,
-): Promise<void> {
-  try {
-    await supabase
-      .from("profiles")
-      .update({ is_premium: isPremium })
-      .eq("id", userId);
-  } catch {
-    // non-critical — the local flag still gates the UI either way; only
-    // the shared "venue songs" aggregate depends on this having landed.
-  }
+  onChange: (isPremium: boolean) => void,
+): () => void {
+  let serverFlag = false;
+  let rcFlag = false;
+  let cancelled = false;
+  const publish = () => {
+    if (!cancelled) onChange(rcFlag || serverFlag);
+  };
+
+  loadPremiumFromServer(userId).then((v) => {
+    serverFlag = v;
+    publish();
+  });
+  const unsubscribeRC = RC.addEntitlementListener((v) => {
+    rcFlag = v;
+    publish();
+  });
+
+  return () => {
+    cancelled = true;
+    unsubscribeRC();
+  };
 }

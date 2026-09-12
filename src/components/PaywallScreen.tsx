@@ -1,11 +1,19 @@
+import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
 import { showAlert } from "../lib/alerts";
+import { presentPaywall } from "../lib/entitlements";
 
-/** Shown in place of a premium screen's real content. There's no real
- *  RevenueCat integration yet (see src/lib/entitlements.ts), so "Upgrade"
- *  just explains that — this is the seam where a real purchase flow
- *  would hook in. */
+/** Shown in place of a premium screen's real content. "Upgrade" presents
+ *  RevenueCat's dashboard-configured Paywall (see REVENUECAT_SETUP.md for
+ *  setting one up); on iOS/Android it's the real purchase flow. On web
+ *  it's a no-op with a message, since react-native-purchases doesn't run
+ *  there — see src/lib/revenuecat.web.ts.
+ *
+ *  A successful purchase/restore doesn't need any handling here: it fires
+ *  RevenueCat's customer-info listener, which App.tsx is already
+ *  subscribed to (subscribeToPremiumStatus) — `isPremium` flips and this
+ *  screen gets swapped out for the real one automatically. */
 export function PaywallScreen({
   title,
   bullets,
@@ -13,6 +21,28 @@ export function PaywallScreen({
   title: string;
   bullets: string[];
 }) {
+  const [presenting, setPresenting] = useState(false);
+
+  const handleUpgrade = async () => {
+    setPresenting(true);
+    try {
+      const result = await presentPaywall();
+      if (result === "purchased" || result === "restored") {
+        showAlert("You're in! 🎉", `Premium is unlocked — enjoy ${title}.`);
+      } else if (result === "error") {
+        showAlert(
+          "Something went wrong",
+          "Could not load the paywall. Check your connection and try again.",
+        );
+      }
+      // "cancelled" / "not_presented": nothing to say, they backed out or
+      // already have the entitlement (the latter shouldn't happen here
+      // since this screen only shows when isPremium is false).
+    } finally {
+      setPresenting(false);
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={s.page}>
       <Text style={s.icon}>🔒</Text>
@@ -26,15 +56,13 @@ export function PaywallScreen({
         ))}
       </View>
       <Pressable
-        style={s.upgrade}
-        onPress={() =>
-          showAlert(
-            "Coming soon",
-            "Just One More Dance subscriptions aren't live yet — check back soon!",
-          )
-        }
+        style={[s.upgrade, presenting && s.upgradeDisabled]}
+        onPress={handleUpgrade}
+        disabled={presenting}
       >
-        <Text style={s.upgradeText}>✨ Upgrade to Premium</Text>
+        <Text style={s.upgradeText}>
+          {presenting ? "Loading…" : "✨ Upgrade to Premium"}
+        </Text>
       </Pressable>
     </ScrollView>
   );
@@ -67,5 +95,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 28,
     alignItems: "center",
   },
+  upgradeDisabled: { opacity: 0.6 },
   upgradeText: { color: "#fff", fontWeight: "900", fontSize: 15 },
 });
