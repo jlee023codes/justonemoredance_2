@@ -27,7 +27,10 @@
    tags count immediately, since it's a live view.
    `migration_comped_premium_rename.sql` renames that column to
    `comped_premium`, to make clear it's the manual comp flag, not a real
-   RevenueCat entitlement. All are idempotent — safe to re-run.
+   RevenueCat entitlement. `migration_drop_stale_status_check.sql` removes
+   a stray duplicate check constraint that could silently block setting a
+   dance's status to "learning" — see its header comment for how that
+   happened. All are idempotent — safe to re-run.
 3. In **Authentication → Providers → Email**, keep Email enabled. For fast local
    testing, you may turn off **Confirm email**; leave it on for production.
 4. Set up redirect URLs for password reset — see below.
