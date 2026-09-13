@@ -158,19 +158,6 @@ export function AuthScreen() {
     );
   };
 
-  const guest = async () => {
-    setError("");
-    setLoading(true);
-    const { error: guestError } = await supabase.auth.signInAnonymously();
-    setLoading(false);
-    if (guestError) {
-      showAlert(
-        "Guest mode is not enabled",
-        "In Supabase, enable Anonymous Sign-Ins under Authentication → Providers, then try again.",
-      );
-    }
-  };
-
   const creating = mode === "createAccount";
 
   return (
@@ -270,9 +257,6 @@ export function AuthScreen() {
           <Text style={s.forgotText}>Forgot my password</Text>
         </Pressable>
       )}
-      <Pressable disabled={loading} style={s.link} onPress={guest}>
-        <Text style={s.guestText}>Continue as guest</Text>
-      </Pressable>
       {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
     </View>
   );
@@ -320,7 +304,6 @@ const s = StyleSheet.create({
   disabled: { opacity: 0.6 },
   link: { padding: 13, alignItems: "center" },
   linkText: { color: colors.gold, fontWeight: "800" },
-  guestText: { color: colors.muted, fontWeight: "700" },
   forgotText: { color: colors.muted, fontWeight: "700" },
   notice: {
     color: colors.green,
