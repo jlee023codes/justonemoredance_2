@@ -18,6 +18,7 @@ supabase/.branches/
 # secrets
 .env
 .env*.local
+secrets/
 
 # misc build scratch
 work/

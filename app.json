@@ -4,6 +4,7 @@
     "slug": "just-one-more-dance",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "resizeMode": "contain",
@@ -11,11 +12,14 @@
     },
     "scheme": "justonemoredance",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.justonemoredance.app"
     },
     "android": {
       "package": "com.justonemoredance.app"
+    },
+    "web": {
+      "favicon": "./assets/icon.png"
     },
     "extra": {
       "eas": {

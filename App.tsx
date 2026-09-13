@@ -616,9 +616,6 @@ export default function App() {
                 No dances found — try a different search.
               </Text>
             )}
-            <Pressable style={s.share} onPress={() => setTab("Profile")}>
-              <Text style={s.shareText}>↗ SHARE MY LIST</Text>
-            </Pressable>
             {message ? <Text style={s.message}>{message}</Text> : null}
           </ScrollView>
         )}
@@ -712,15 +709,6 @@ const s = StyleSheet.create({
     marginTop: 24,
     marginBottom: 8,
   },
-  share: {
-    borderWidth: 1,
-    borderColor: colors.pink,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: "center",
-    marginTop: 18,
-  },
-  shareText: { color: colors.pink, fontWeight: "800", letterSpacing: 1 },
   empty: { color: colors.muted, fontSize: 15, marginTop: 10 },
   message: {
     color: colors.green,
