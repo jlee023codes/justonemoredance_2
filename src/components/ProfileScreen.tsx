@@ -453,6 +453,7 @@ export function ProfileScreen({
         progress={progress}
         onProgressChange={onProgressChange}
         onCacheDances={onCacheDances}
+        isPremium={isPremium}
         onClose={() => {
           setImportOpen(false);
           refreshPendingImport();

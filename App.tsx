@@ -29,6 +29,11 @@ import { ProfileScreen } from "./src/components/ProfileScreen";
 import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
 import { confirmAction, showAlert } from "./src/lib/alerts";
+import {
+  reachedDanceLimit,
+  DANCE_LIMIT_TITLE,
+  DANCE_LIMIT_MESSAGE,
+} from "./src/lib/planLimits";
 import { useOnlineStatus } from "./src/lib/useOnlineStatus";
 import {
   configurePurchases,
@@ -346,6 +351,11 @@ export default function App() {
     status: "want" | "learning" | "learned",
   ) => {
     if (!session) return;
+    const isNewAddition = !progress[dance.id];
+    if (isNewAddition && reachedDanceLimit(progress, isPremium)) {
+      showAlert(DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE);
+      return;
+    }
     mergeIntoCache([dance]);
     const current = progress[dance.id]?.status;
     try {
@@ -561,6 +571,7 @@ export default function App() {
               onProgressChange={handleProgressChange}
               onOpenDance={openDance}
               onPendingRequestCountChange={setPendingRequestCount}
+              isPremium={isPremium}
             />
           ) : (
             <PaywallScreen
@@ -631,6 +642,9 @@ export default function App() {
           onRemoved={handleRemoved}
           onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
           isPremium={isPremium}
+          atDanceLimit={
+            selected ? reachedDanceLimit(progress, isPremium) : false
+          }
         />
         <OfflineListModal
           visible={offlineOpen}

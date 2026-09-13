@@ -87,6 +87,7 @@ export function FriendsScreen({
   onProgressChange,
   onOpenDance,
   onPendingRequestCountChange,
+  isPremium,
 }: {
   userId: string;
   email?: string;
@@ -98,6 +99,9 @@ export function FriendsScreen({
   onOpenDance: (dance: Dance) => void;
   // Keeps the badge on the Friends tab in step with what's on screen.
   onPendingRequestCountChange?: (count: number) => void;
+  /** Passed through to FriendDancesModal — the free-tier My List cap only
+   *  applies without Premium. */
+  isPremium?: boolean;
 }) {
   // My username / display name
   const [username, setLocalUsername] = useState<string | null>(null);
@@ -748,6 +752,7 @@ export function FriendsScreen({
         progress={progress}
         onClose={() => setSelectedFriend(null)}
         onProgressChange={onProgressChange}
+        isPremium={isPremium}
       />
 
       <MakeEventModal

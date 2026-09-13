@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
+import { DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE } from "../lib/planLimits";
 import { VenuePicker } from "./VenuePicker";
 import {
   // The modal's status *buttons* are commented out (see handleStatus below),
@@ -54,6 +55,7 @@ export function DanceDetailsModal({
   onRemoved,
   onVenuesChanged,
   isPremium,
+  atDanceLimit,
 }: {
   dance: Dance | null;
   userId: string;
@@ -69,6 +71,10 @@ export function DanceDetailsModal({
   // Free tier only searches venues the user already added when tagging a
   // dance — browsing everyone else's venues is premium (see VenuePicker).
   isPremium?: boolean;
+  // Free tier caps My List at FREE_DANCE_LIMIT dances — precomputed by the
+  // parent (which holds the full progress map), since this modal only ever
+  // sees one dance's progress.
+  atDanceLimit?: boolean;
 }) {
   const [songSwap, setSongSwap] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -225,7 +231,8 @@ export function DanceDetailsModal({
       onVenuesChanged?.();
 
       let listed = false;
-      if (picked.length && !progress) {
+      const skippedForLimit = Boolean(picked.length && !progress && atDanceLimit);
+      if (picked.length && !progress && !atDanceLimit) {
         const now = new Date().toISOString();
         const next: DanceProgress = {
           danceId: dance.id,
@@ -246,6 +253,11 @@ export function DanceDetailsModal({
           `${dance.name} was tagged to ${picked.length} venue${
             picked.length === 1 ? "" : "s"
           } and saved to your list.`,
+        );
+      } else if (skippedForLimit) {
+        Alert.alert(
+          `Tagged, but not added to your list — ${DANCE_LIMIT_TITLE.toLowerCase()}`,
+          DANCE_LIMIT_MESSAGE,
         );
       }
     } catch (err: any) {

@@ -11,6 +11,11 @@ import {
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { showAlert, showError } from "../lib/alerts";
+import {
+  FREE_DANCE_LIMIT,
+  DANCE_LIMIT_TITLE,
+  DANCE_LIMIT_MESSAGE,
+} from "../lib/planLimits";
 import { DanceCard } from "./DanceCard";
 import { Friend, FriendDance, loadFriendDances } from "../services/friends";
 import { saveProgress } from "../services/progress";
@@ -39,6 +44,7 @@ export function FriendDancesModal({
   progress,
   onClose,
   onProgressChange,
+  isPremium,
 }: {
   userId: string;
   friend: Friend | null;
@@ -47,6 +53,9 @@ export function FriendDancesModal({
   progress: Record<string, DanceProgress>;
   onClose: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
+  /** Free tier caps My List at FREE_DANCE_LIMIT dances — import stops
+   *  filling once it's hit rather than silently going over. */
+  isPremium?: boolean;
 }) {
   const [dances, setDances] = useState<FriendDance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,11 +102,24 @@ export function FriendDancesModal({
       );
     }
 
+    // Free tier caps My List at FREE_DANCE_LIMIT — only fill up to it,
+    // rather than letting a bulk import quietly blow past the limit.
+    const remainingSlots = isPremium
+      ? fresh.length
+      : Math.max(0, FREE_DANCE_LIMIT - Object.keys(progress).length);
+    const overLimit = fresh.length - remainingSlots;
+    const toImport = fresh.slice(0, remainingSlots);
+
+    if (!toImport.length) {
+      showAlert(DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE);
+      return;
+    }
+
     setImporting(true);
     try {
       let skipped = 0;
       await Promise.all(
-        fresh.map(async (friendDance) => {
+        toImport.map(async (friendDance) => {
           const dance = toDance(friendDance);
           const now = new Date().toISOString();
           const next: DanceProgress = {
@@ -122,14 +144,17 @@ export function FriendDancesModal({
         }),
       );
 
-      const added = fresh.length - skipped;
+      const added = toImport.length - skipped;
       showAlert(
         added ? "Added to your list" : "Nothing new to import",
         added
           ? `${added} dance${added === 1 ? "" : "s"} from ${friend.displayName} ${
               added === 1 ? "is" : "are"
             } now under ♡ Want to Learn.` +
-              (skipped ? ` ${skipped} you already had.` : "")
+              (skipped ? ` ${skipped} you already had.` : "") +
+              (overLimit
+                ? ` ${overLimit} more didn't fit — ${DANCE_LIMIT_MESSAGE.toLowerCase()}`
+                : "")
           : "You already had every one of those.",
       );
       onClose();

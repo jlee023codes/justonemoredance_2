@@ -11,7 +11,12 @@ import {
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
-import { confirmAction, showError } from "../lib/alerts";
+import { confirmAction, showAlert, showError } from "../lib/alerts";
+import {
+  reachedDanceLimit,
+  DANCE_LIMIT_TITLE,
+  DANCE_LIMIT_MESSAGE,
+} from "../lib/planLimits";
 import { DanceCard } from "./DanceCard";
 import { searchDances } from "../lib/bootstepper";
 import { saveProgress, setDanceLink } from "../services/progress";
@@ -55,6 +60,7 @@ export function NotesImportModal({
   onClose,
   onProgressChange,
   onCacheDances,
+  isPremium,
 }: {
   visible: boolean;
   userId: string;
@@ -64,6 +70,8 @@ export function NotesImportModal({
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
   /** Lets a matched BootStepper dance render with full details right away. */
   onCacheDances: (dances: Dance[]) => void;
+  /** Free tier caps My List at FREE_DANCE_LIMIT dances. */
+  isPremium?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [pasteText, setPasteText] = useState("");
@@ -192,6 +200,12 @@ export function NotesImportModal({
         finishImportItem(item.id, "skipped").catch(() => {});
       }
       return; // otherwise: stay put so they can pick a different match
+    }
+
+    if (reachedDanceLimit(progress, Boolean(isPremium))) {
+      busy.current = false;
+      showAlert(DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE);
+      return; // stay put — this item is still in the queue to retry later
     }
 
     const now = new Date().toISOString();
