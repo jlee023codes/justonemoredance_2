@@ -12,10 +12,10 @@
     "scheme": "justonemoredance",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yourname.justonemoredance"
+      "bundleIdentifier": "com.justonemoredance.app"
     },
     "android": {
-      "package": "com.yourname.justonemoredance"
+      "package": "com.justonemoredance.app"
     },
     "extra": {
       "eas": {

@@ -28,7 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>justonemoredance</string>
-          <string>com.yourname.justonemoredance</string>
+          <string>com.justonemoredance.app</string>
         </array>
       </dict>
     </array>
