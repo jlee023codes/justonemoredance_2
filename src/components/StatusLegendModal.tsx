@@ -6,8 +6,8 @@ import { colors } from "../styles";
 const STATUS_ROWS: { icon: string; label: string; note: string }[] = [
   {
     icon: "👢",
-    label: "Not on your lists",
-    note: "You haven't saved this dance yet",
+    label: "No status set",
+    note: "Not tagged as Want, Learning, or Learned",
   },
   { icon: "💗", label: "Want to learn", note: "On your Want to Learn list" },
   {

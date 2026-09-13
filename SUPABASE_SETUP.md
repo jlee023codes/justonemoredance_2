@@ -30,7 +30,9 @@
    RevenueCat entitlement. `migration_drop_stale_status_check.sql` removes
    a stray duplicate check constraint that could silently block setting a
    dance's status to "learning" — see its header comment for how that
-   happened. All are idempotent — safe to re-run.
+   happened. `migration_no_status.sql` lets a dance sit on My List with no
+   status set (deselecting a status no longer deletes the dance from the
+   list). All are idempotent — safe to re-run.
 3. In **Authentication → Providers → Email**, keep Email enabled. For fast local
    testing, you may turn off **Confirm email**; leave it on for production.
 4. Set up redirect URLs for password reset — see below.

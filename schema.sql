@@ -55,7 +55,7 @@ create table venue_votes (
 create table user_dance_progress (
   user_id uuid references profiles(id) on delete cascade,
   dance_id text not null,
-  status text not null check (status in ('want','learned')),
+  status text not null check (status in ('none','want','learning','learned')),
   source text not null default 'self' check (source in ('self','friend')),
   dance_name text,
   dance_song text,

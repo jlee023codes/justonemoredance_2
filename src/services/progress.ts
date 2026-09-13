@@ -3,7 +3,7 @@ import { supabase } from "../lib/supabase";
 
 type ProgressRow = {
   dance_id: string;
-  status: "want" | "learning" | "learned";
+  status: "none" | "want" | "learning" | "learned";
   source: string | null;
   dance_name: string | null;
   dance_song: string | null;
@@ -98,17 +98,6 @@ export async function setDanceLink(
   const { error } = await supabase
     .from("user_dance_progress")
     .update({ link })
-    .eq("user_id", userId)
-    .eq("dance_id", danceId);
-  if (error) throw error;
-}
-
-// Used by "Remove" — deletes the progress row entirely (no row = no
-// status at all, distinct from any of want/learning/learned).
-export async function deleteProgress(userId: string, danceId: string) {
-  const { error } = await supabase
-    .from("user_dance_progress")
-    .delete()
     .eq("user_id", userId)
     .eq("dance_id", danceId);
   if (error) throw error;

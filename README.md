@@ -39,8 +39,9 @@ You need a Supabase project connected first — see below.
    `migration_venue_dedup.sql`, `migration_venues_page.sql`,
    `migration_learning_status.sql`, `migration_friends_page.sql`,
    `migration_premium_venues.sql`,
-   `migration_comped_premium_rename.sql`, and
-   `migration_drop_stale_status_check.sql`.
+   `migration_comped_premium_rename.sql`,
+   `migration_drop_stale_status_check.sql`, and
+   `migration_no_status.sql`.
 4. Deploy the BootStepper proxy and set its key:
    ```sh
    supabase functions deploy bootstepper-proxy

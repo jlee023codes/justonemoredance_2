@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "just-one-more-dance",
+  "compatibility_date": "2026-09-11",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist"
+  },
+  "routes": [
+    { "pattern": "justonemoredance.com", "custom_domain": true },
+    { "pattern": "www.justonemoredance.com", "custom_domain": true }
+  ]
+}

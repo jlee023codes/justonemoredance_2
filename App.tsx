@@ -50,7 +50,6 @@ import {
 import {
   loadProgress,
   saveProgress,
-  deleteProgress,
   removeDancesEverywhere,
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
@@ -350,33 +349,33 @@ export default function App() {
     mergeIntoCache([dance]);
     const current = progress[dance.id]?.status;
     try {
-      if (current === status) {
-        await deleteProgress(session.user.id, dance.id);
-        handleProgressChange(dance.id, null);
-      } else {
-        // Keep whoever shared this dance attached across every status
-        // change (want → learning → learned), so the "Shared from" badge
-        // survives. Undefined here means it's the user's own.
-        const sharedFrom = progress[dance.id]?.fromFriend;
-        const next: DanceProgress = {
-          danceId: dance.id,
-          status,
-          fromFriend: sharedFrom,
-          danceName: dance.name,
-          danceSong: dance.defaultSong,
-          danceDifficulty: dance.difficulty,
-          // saveProgress leaves the link column alone — keep it in local
-          // state so the card's video chip survives a quick status change.
-          link: progress[dance.id]?.link,
-          // Keep the original "date added" put; only bump "last updated".
-          createdAt: progress[dance.id]?.createdAt ?? new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        await saveProgress(session.user.id, next, dance, sharedFrom, {
-          overwrite: true,
-        });
-        handleProgressChange(dance.id, next);
-      }
+      // Tapping the already-active status again deselects it — the dance
+      // stays on My List with no status, it doesn't get removed. Removing
+      // it entirely is a separate, explicit action (the trash/remove flow).
+      const nextStatus: DanceProgress["status"] =
+        current === status ? "none" : status;
+      // Keep whoever shared this dance attached across every status
+      // change (want → learning → learned), so the "Shared from" badge
+      // survives. Undefined here means it's the user's own.
+      const sharedFrom = progress[dance.id]?.fromFriend;
+      const next: DanceProgress = {
+        danceId: dance.id,
+        status: nextStatus,
+        fromFriend: sharedFrom,
+        danceName: dance.name,
+        danceSong: dance.defaultSong,
+        danceDifficulty: dance.difficulty,
+        // saveProgress leaves the link column alone — keep it in local
+        // state so the card's video chip survives a quick status change.
+        link: progress[dance.id]?.link,
+        // Keep the original "date added" put; only bump "last updated".
+        createdAt: progress[dance.id]?.createdAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveProgress(session.user.id, next, dance, sharedFrom, {
+        overwrite: true,
+      });
+      handleProgressChange(dance.id, next);
     } catch (err: any) {
       setMessage(`Could not update ${dance.name}: ${err.message}`);
     }
