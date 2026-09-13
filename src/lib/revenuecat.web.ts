@@ -199,6 +199,10 @@ export async function presentPaywall(): Promise<PaywallOutcome> {
     };
     purchases!
       .presentPaywall({
+        // Lets a customer type a discount code (e.g. an ambassador's) at
+        // checkout — see the "Web discounts" section of the RevenueCat
+        // dashboard for creating/managing codes themselves.
+        showDiscountCodeField: true,
         listener: {
           onPurchaseCancelled: () => finish("cancelled"),
           onPurchaseError: () => finish("error"),
