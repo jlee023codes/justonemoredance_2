@@ -15,6 +15,7 @@ import {
   findVenueByName,
   searchGlobalVenues,
   searchMyVenues,
+  setVenueAddress,
   unvoteVenue,
   VenueOption,
   voteVenue,
@@ -36,6 +37,7 @@ export function VenuePicker({
   // attaches to it (findOrCreateGlobalVenue dedupes either way); this just
   // removes the ability to *discover* venues by browsing/searching.
   restrictToMine,
+  showAddress,
   selectedVenueId,
   alreadyAddedVenueIds,
   onSelect,
@@ -51,6 +53,11 @@ export function VenuePicker({
   // The user's home bar — pinned above the vote/name sort.
   homeVenueId?: string | null;
   restrictToMine?: boolean;
+  // Shows each venue's city/state (if set) and, for a blank one, a "+ Add
+  // city, state" link anyone can fill in once. Premium-only in practice —
+  // only pass this from a screen already gated to premium users (e.g.
+  // VenuesScreen), so free users never see the feature at all.
+  showAddress?: boolean;
   // --- single-select ---
   selectedVenueId?: string;
   alreadyAddedVenueIds?: string[];
@@ -72,6 +79,9 @@ export function VenuePicker({
   // shared catalog (added by someone else)? Informational, not a block —
   // adding still works, they just won't see anyone else's dances there.
   const [globalMatch, setGlobalMatch] = useState<VenueOption | null>(null);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [addressDraft, setAddressDraft] = useState("");
+  const [savingAddress, setSavingAddress] = useState(false);
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -81,6 +91,8 @@ export function VenuePicker({
       setError("");
       setGlobalMatch(null);
       setPicked(new Map(initialSelected.map((v) => [v.id, v])));
+      setEditingAddressId(null);
+      setAddressDraft("");
     }
     // initialSelected identity churns; only re-seed when the sheet opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,6 +178,39 @@ export function VenuePicker({
       else await voteVenue(userId, venue.id);
     } catch {
       applyVoteLocally(venue.id, wasMine ? 1 : -1, wasMine); // roll back
+    }
+  };
+
+  const applyAddressLocally = (id: string, address: string) => {
+    setResults((cur) => cur.map((v) => (v.id === id ? { ...v, address } : v)));
+    setPicked((cur) => {
+      const hit = cur.get(id);
+      if (!hit) return cur;
+      return new Map(cur).set(id, { ...hit, address });
+    });
+  };
+
+  const handleSaveAddress = async (venue: VenueOption) => {
+    const trimmed = addressDraft.trim();
+    if (!trimmed) return;
+    setSavingAddress(true);
+    try {
+      const applied = await setVenueAddress(venue.id, trimmed);
+      if (applied) {
+        applyAddressLocally(venue.id, trimmed);
+      } else {
+        // Someone else filled it in first — pull the real value instead of
+        // showing what we tried to save (which never actually landed).
+        const real = await findVenueByName(venue.name).catch(() => null);
+        applyAddressLocally(venue.id, real?.address ?? "");
+        setError("Someone already added an address for this venue.");
+      }
+      setEditingAddressId(null);
+      setAddressDraft("");
+    } catch (err: any) {
+      setError(err.message ?? "Could not save that address.");
+    } finally {
+      setSavingAddress(false);
     }
   };
 
@@ -276,7 +321,45 @@ export function VenuePicker({
                           ? "📍 "
                           : ""}
                       {venue.name}
+                      {showAddress && venue.address ? ` - ${venue.address}` : ""}
+                      {showAddress && venue.address && venue.addressVerified && (
+                        <Text style={s.verifiedMark}> ✓</Text>
+                      )}
                     </Text>
+                    {showAddress && !venue.address && (
+                      editingAddressId === venue.id ? (
+                        <View style={s.addressEditRow}>
+                          <TextInput
+                            value={addressDraft}
+                            onChangeText={setAddressDraft}
+                            placeholder="City, State"
+                            placeholderTextColor={colors.muted}
+                            autoFocus
+                            style={s.addressInput}
+                            onSubmitEditing={() => handleSaveAddress(venue)}
+                          />
+                          <Pressable
+                            onPress={() => handleSaveAddress(venue)}
+                            disabled={savingAddress || !addressDraft.trim()}
+                            hitSlop={8}
+                          >
+                            <Text style={s.addressSave}>
+                              {savingAddress ? "…" : "Save"}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      ) : (
+                        <Pressable
+                          onPress={() => {
+                            setEditingAddressId(venue.id);
+                            setAddressDraft("");
+                          }}
+                          hitSlop={8}
+                        >
+                          <Text style={s.addressAdd}>+ Add city, state</Text>
+                        </Pressable>
+                      )
+                    )}
                   </View>
 
                   <Pressable
@@ -292,9 +375,6 @@ export function VenuePicker({
                     </Text>
                   </Pressable>
 
-                  {!multi && !alreadyAdded && checked && (
-                    <Text style={s.singleCheck}>✓</Text>
-                  )}
                   {alreadyAdded && <Text style={s.addedTag}>Added</Text>}
                 </Pressable>
               );
@@ -415,11 +495,43 @@ const s = StyleSheet.create({
     marginHorizontal: -8,
     paddingHorizontal: 8,
     borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: colors.gold,
+    // s.option already sets a bottom-only border for row separators —
+    // override it explicitly here too, or the selected row ends up with a
+    // gold border on 3 sides and the old gray line still showing on the 4th.
+    borderBottomWidth: 1.5,
+    borderBottomColor: colors.gold,
   },
   optionDisabled: { opacity: 0.5 },
   optionCopy: { flex: 1 },
   optionText: { color: colors.ink, fontSize: 16 },
   optionTextDisabled: { color: colors.muted },
+  addressAdd: {
+    color: colors.pink,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  addressEditRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    gap: 8,
+  },
+  addressInput: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 8,
+    color: colors.ink,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    fontSize: 13,
+  },
+  addressSave: { color: colors.pink, fontSize: 13, fontWeight: "800" },
+  verifiedMark: { color: colors.gold, fontWeight: "900" },
   check: {
     width: 22,
     height: 22,
@@ -439,12 +551,6 @@ const s = StyleSheet.create({
   },
   voteText: { color: colors.muted, fontSize: 13, fontWeight: "800" },
   voteTextOn: { color: colors.gold },
-  singleCheck: {
-    color: colors.gold,
-    fontSize: 13,
-    fontWeight: "900",
-    marginLeft: 6,
-  },
   addedTag: {
     color: colors.gold,
     fontSize: 12,

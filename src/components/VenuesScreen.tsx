@@ -189,6 +189,7 @@ export function VenuesScreen({
               </Text>
               {venue && (
                 <Text style={s.venueCardMeta}>
+                  {venue.address ? `${venue.address} · ` : ""}
                   ★ {venue.votes ?? 0} endorsement
                   {(venue.votes ?? 0) === 1 ? "" : "s"}
                   {isHome ? " · your home bar" : ""}
@@ -263,6 +264,7 @@ export function VenuesScreen({
         title="Browse a venue"
         userId={userId}
         homeVenueId={homeVenueId}
+        showAddress
         selectedVenueId={venue?.id}
         onSelect={(picked) => {
           setVenue(picked);

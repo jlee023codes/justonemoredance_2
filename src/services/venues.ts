@@ -9,6 +9,13 @@ export type VenueOption = {
   // loaded (e.g. a bare snapshot).
   votes?: number;
   votedByMe?: boolean;
+  // Crowdsourced "city, state" — null until someone fills it in. See
+  // migration_venue_address.sql.
+  address?: string | null;
+  // Manually stamped by the product owner via the SQL editor — never
+  // settable from the app itself (enforced by a column-level grant, not
+  // just by omission in the UI). See migration_venue_address.sql.
+  addressVerified?: boolean;
 };
 
 // ---------------------------------------------------------------------
@@ -54,7 +61,7 @@ export async function searchGlobalVenues(
 ): Promise<VenueOption[]> {
   let request = supabase
     .from("venues")
-    .select("id,name")
+    .select("id,name,address,addressVerified:address_verified")
     .order("name")
     .limit(limit);
   if (query.trim()) request = request.ilike("name", `%${query.trim()}%`);
@@ -88,7 +95,7 @@ export async function loadVenueById(
 ): Promise<VenueOption | null> {
   const { data, error } = await supabase
     .from("venues")
-    .select("id,name")
+    .select("id,name,address,addressVerified:address_verified")
     .eq("id", venueId)
     .maybeSingle();
   if (error) throw error;
@@ -119,7 +126,7 @@ export async function findOrCreateGlobalVenue(
   if (!key) throw new Error("A venue name needs at least one letter or number.");
 
   const findByKey = () =>
-    supabase.from("venues").select("id,name").eq("name_key", key).maybeSingle();
+    supabase.from("venues").select("id,name,address,addressVerified:address_verified").eq("name_key", key).maybeSingle();
 
   const { data: existing, error: findError } = await findByKey();
   if (findError) throw findError;
@@ -128,7 +135,7 @@ export async function findOrCreateGlobalVenue(
   const { data: created, error: insertError } = await supabase
     .from("venues")
     .insert({ id: slugify(trimmed) || key, name: trimmed, name_key: key })
-    .select("id,name")
+    .select("id,name,address,addressVerified:address_verified")
     .single();
   if (!insertError) return created;
 
@@ -146,7 +153,7 @@ export async function findOrCreateGlobalVenue(
         name: trimmed,
         name_key: key,
       })
-      .select("id,name")
+      .select("id,name,address,addressVerified:address_verified")
       .single();
     if (retryError) throw retryError;
     return retry;
@@ -165,11 +172,31 @@ export async function findVenueByName(name: string): Promise<VenueOption | null>
   if (!key) return null;
   const { data, error } = await supabase
     .from("venues")
-    .select("id,name")
+    .select("id,name,address,addressVerified:address_verified")
     .eq("name_key", key)
     .maybeSingle();
   if (error) throw error;
   return data ?? null;
+}
+
+/** Fills in a venue's address — only works while it's still blank (see
+ *  migration_venue_address.sql's RLS policy: `using (address is null)`).
+ *  Returns false if someone else already set it first (0 rows matched,
+ *  not an error) so the caller can say so instead of silently no-oping. */
+export async function setVenueAddress(
+  venueId: string,
+  address: string,
+): Promise<boolean> {
+  const trimmed = address.trim();
+  if (!trimmed) throw new Error("Enter a city and state.");
+  const { data, error } = await supabase
+    .from("venues")
+    .update({ address: trimmed })
+    .eq("id", venueId)
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
 }
 
 /** Toggle the current user's thumbs-up for a venue. */
@@ -234,7 +261,7 @@ export function homeFirst<T extends { id: string }>(
 export async function loadUserVenues(userId: string): Promise<VenueOption[]> {
   const { data, error } = await supabase
     .from("user_venues")
-    .select("venue_id, venues ( id, name )")
+    .select("venue_id, venues ( id, name, address, addressVerified:address_verified )")
     .eq("user_id", userId);
   if (error) throw error;
   const venues = (data ?? [])
@@ -351,7 +378,7 @@ export async function loadDanceVenues(
 ): Promise<VenueOption[]> {
   const { data, error } = await supabase
     .from("user_venue_dances")
-    .select("venue_id, venues ( id, name )")
+    .select("venue_id, venues ( id, name, address, addressVerified:address_verified )")
     .eq("user_id", userId)
     .eq("dance_id", danceId);
   if (error) throw error;
