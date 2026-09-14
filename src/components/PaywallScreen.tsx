@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
 import { showAlert } from "../lib/alerts";
-import { presentPaywall } from "../lib/entitlements";
+import { presentPaywall, redeemOfferCode } from "../lib/entitlements";
 
 /** Shown in place of a premium screen's real content. "Upgrade" presents
  *  RevenueCat's dashboard-configured Paywall (see REVENUECAT_SETUP.md for
@@ -64,6 +64,11 @@ export function PaywallScreen({
           {presenting ? "Loading…" : "✨ Upgrade to Premium"}
         </Text>
       </Pressable>
+      {Platform.OS === "ios" && (
+        <Pressable style={s.codeLink} onPress={() => redeemOfferCode()}>
+          <Text style={s.codeLinkText}>Have a code?</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
@@ -97,4 +102,6 @@ const s = StyleSheet.create({
   },
   upgradeDisabled: { opacity: 0.6 },
   upgradeText: { color: "#fff", fontWeight: "900", fontSize: 15 },
+  codeLink: { marginTop: 16, padding: 8 },
+  codeLinkText: { color: colors.ink, fontSize: 13, opacity: 0.7, textDecorationLine: "underline" },
 });

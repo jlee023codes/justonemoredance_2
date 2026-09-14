@@ -27,6 +27,7 @@ export const restorePurchases = RC.restorePurchases;
 export const presentPaywall = RC.presentPaywall;
 export const presentPaywallIfNeeded = RC.presentPaywallIfNeeded;
 export const presentCustomerCenter = RC.presentCustomerCenter;
+export const redeemOfferCode = RC.redeemOfferCode;
 
 /** A manual comp (see migration_premium_venues.sql) — set this directly in
  *  Supabase to give someone Premium for free, ahead of (or instead of) a

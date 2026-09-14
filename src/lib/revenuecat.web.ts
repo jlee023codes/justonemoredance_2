@@ -229,6 +229,12 @@ export async function presentPaywallIfNeeded(): Promise<PaywallOutcome> {
   return presentPaywall();
 }
 
+/** No web equivalent — Offer Codes are an iOS/StoreKit-only mechanism. See
+ *  revenuecat.ts. */
+export async function redeemOfferCode(): Promise<void> {
+  showAlert("iOS only", "Redeem codes from the Just One More Dance iOS app.");
+}
+
 /** Opens RevenueCat's hosted subscription management page (backed by
  *  Stripe's billing portal) in a new tab, where the customer can cancel,
  *  change plan, or update payment info themselves — the web equivalent of

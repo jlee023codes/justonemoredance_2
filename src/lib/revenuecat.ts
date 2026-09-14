@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import Purchases, {
   CustomerInfo,
   LOG_LEVEL,
@@ -201,6 +202,22 @@ export async function presentPaywallIfNeeded(): Promise<PaywallOutcome> {
   } catch (err) {
     console.warn("[revenuecat] presentPaywallIfNeeded failed", err);
     return "error";
+  }
+}
+
+/** Apple's native "redeem code" sheet, for Offer Codes generated in App
+ *  Store Connect (Subscriptions → your plan → Offer Codes) — the iOS
+ *  equivalent of a promo/discount code, since StoreKit has no text-field
+ *  mechanism like Web Billing's `showDiscountCodeField`. iOS-only; a no-op
+ *  on Android. A successful redemption grants the entitlement directly
+ *  through StoreKit and surfaces via the existing customer-info listener,
+ *  same as any other purchase — nothing further to handle here. */
+export async function redeemOfferCode(): Promise<void> {
+  if (Platform.OS !== "ios") return;
+  try {
+    await Purchases.presentCodeRedemptionSheet();
+  } catch (err) {
+    console.warn("[revenuecat] presentCodeRedemptionSheet failed", err);
   }
 }
 
