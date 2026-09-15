@@ -36,6 +36,9 @@ const awards = [
     note: "Learn 10 dances",
   },
   { count: 25, icon: "👑", title: "Headliner", note: "Learn 25 dances" },
+  { count: 50, icon: "🔥", title: "Dance Machine", note: "Learn 50 dances" },
+  { count: 100, icon: "💯", title: "Century Club", note: "Learn 100 dances" },
+  { count: 200, icon: "😈", title: "Menace", note: "Learn 200 dances" },
 ];
 
 export function ProfileScreen({
