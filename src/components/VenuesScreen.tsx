@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Ref, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,6 +10,7 @@ import {
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { DanceCard, QuickStatus } from "./DanceCard";
+import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { VenuePicker } from "./VenuePicker";
 import { getDancesByIds } from "../lib/bootstepper";
 import {
@@ -33,6 +33,7 @@ export function VenuesScreen({
   onQuickStatusAtVenue,
   onCacheDances,
   refreshKey,
+  scrollRef,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
@@ -49,6 +50,7 @@ export function VenuesScreen({
   // Bumped by the parent whenever a venue tie changes elsewhere, so the
   // "reported by" counts here stay current.
   refreshKey: number;
+  scrollRef?: Ref<BackToTopHandle>;
 }) {
   const [venue, setVenue] = useState<VenueOption | null>(null);
   const [homeVenueId, setHomeVenueId] = useState<string | null>(null);
@@ -169,7 +171,8 @@ export function VenuesScreen({
 
   return (
     <>
-      <ScrollView
+      <BackToTopScrollView
+        ref={scrollRef}
         contentContainerStyle={s.page}
         keyboardShouldPersistTaps="handled"
       >
@@ -257,7 +260,7 @@ export function VenuesScreen({
             )}
           </>
         )}
-      </ScrollView>
+      </BackToTopScrollView>
 
       <VenuePicker
         visible={pickerOpen}

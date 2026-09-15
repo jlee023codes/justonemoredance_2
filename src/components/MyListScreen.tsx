@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { Ref, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -10,8 +9,11 @@ import {
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
-import { confirmAction } from "../lib/alerts";
+import { confirmAction, showAlert } from "../lib/alerts";
+import { presentPaywall } from "../lib/entitlements";
+import { FREE_DANCE_LIMIT } from "../lib/planLimits";
 import { DanceCard, QuickStatus } from "./DanceCard";
+import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { BulkRemoveBar, SelectToRemoveButton } from "./BulkRemoveBar";
 import { MyListToolsModal } from "./MyListToolsModal";
 import { loadUserVenues, loadVenueLinks, VenueOption } from "../services/venues";
@@ -54,6 +56,8 @@ export function MyListScreen({
   onQuickStatus,
   onRemoveDances,
   refreshKey,
+  scrollRef,
+  isPremium,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
@@ -65,6 +69,11 @@ export function MyListScreen({
   onRemoveDances: (danceIds: string[]) => Promise<void>;
   // Bumped by the parent whenever a venue tie changes elsewhere.
   refreshKey: number;
+  // Lets the header logo's "back to top" tap reach whichever screen is
+  // currently mounted.
+  scrollRef?: Ref<BackToTopHandle>;
+  // Shows the free-tier "X of 30 dances" note + upgrade prompt when false.
+  isPremium: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<MyListFilters>(EMPTY_FILTERS);
@@ -160,9 +169,29 @@ export function MyListScreen({
   const nothingSaved = rows.length === 0;
   const canManage = !nothingSaved;
 
+  const [presentingUpgrade, setPresentingUpgrade] = useState(false);
+  const handleUpgrade = async () => {
+    setPresentingUpgrade(true);
+    try {
+      const result = await presentPaywall();
+      if (result === "purchased" || result === "restored") {
+        showAlert("You're in! 🎉", "Premium is unlocked — no more list limit.");
+      } else if (result === "error") {
+        showAlert(
+          "Something went wrong",
+          "Could not load the paywall. Check your connection and try again.",
+        );
+      }
+    } finally {
+      setPresentingUpgrade(false);
+    }
+  };
+
   return (
     <>
-      <ScrollView
+      <BackToTopScrollView
+        ref={scrollRef}
+        hideFab={selectMode}
         contentContainerStyle={[s.page, selectMode && s.pageSelecting]}
         keyboardShouldPersistTaps="handled"
       >
@@ -241,6 +270,23 @@ export function MyListScreen({
             ))}
         </View>
 
+        {!isPremium && (
+          <View style={s.limitRow}>
+            <Text style={s.limitText}>
+              {rows.length} of {FREE_DANCE_LIMIT} free dances
+            </Text>
+            <Pressable
+              onPress={handleUpgrade}
+              disabled={presentingUpgrade}
+              hitSlop={6}
+            >
+              <Text style={s.limitUpgrade}>
+                {presentingUpgrade ? "Loading…" : "Upgrade ✨"}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
         {visible.map(({ dance, progress: p }) => (
           <DanceCard
             key={dance.id}
@@ -280,7 +326,7 @@ export function MyListScreen({
             </Pressable>
           </View>
         )}
-      </ScrollView>
+      </BackToTopScrollView>
 
       {selectMode && (
         <BulkRemoveBar
@@ -414,6 +460,14 @@ const s = StyleSheet.create({
     flexShrink: 0,
   },
   selectCount: { color: colors.muted, fontWeight: "800", fontSize: 12 },
+  limitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  limitText: { color: colors.muted, fontSize: 12 },
+  limitUpgrade: { color: colors.pink, fontSize: 12, fontWeight: "800" },
   empty: { color: colors.muted, fontSize: 14, marginTop: 14, lineHeight: 20 },
   clearButton: {
     alignSelf: "flex-start",

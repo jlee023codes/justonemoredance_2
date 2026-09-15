@@ -3,7 +3,6 @@ import {
   Image,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +12,10 @@ import * as Linking from "expo-linking";
 import { StatusBar } from "expo-status-bar";
 import { Dance, DanceProgress } from "./src/types";
 import { AppTab, BottomTabs } from "./src/components/BottomTabs";
+import {
+  BackToTopHandle,
+  BackToTopScrollView,
+} from "./src/components/BackToTopScrollView";
 import { DanceCard } from "./src/components/DanceCard";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyListScreen } from "./src/components/MyListScreen";
@@ -108,6 +111,11 @@ export default function App() {
     [isPremium, setIsPremium] = useState(false);
 
   const online = useOnlineStatus();
+  // Only one of Home / My List / Venues / Friends is ever mounted at a
+  // time, so one ref is enough — it naturally points at whichever screen's
+  // BackToTopScrollView is currently on screen (and goes null on Profile,
+  // where tapping the logo is then just a no-op).
+  const activeScrollRef = useRef<BackToTopHandle>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -494,12 +502,17 @@ export default function App() {
           >
             <Text style={s.infoIcon}>ⓘ</Text>
           </Pressable>
-          <Image
-            source={require("./assets/no_circle_logo-dark.png")}
-            style={s.logo}
-            resizeMode="contain"
-            accessibilityLabel="Just One More Dance"
-          />
+          <Pressable
+            onPress={() => activeScrollRef.current?.scrollToTop()}
+            hitSlop={6}
+            accessibilityLabel="Back to top"
+          >
+            <Image
+              source={require("./assets/no_circle_logo-dark.png")}
+              style={s.logo}
+              resizeMode="contain"
+            />
+          </Pressable>
           <Pressable
             style={s.infoButton}
             onPress={() => setHelpOpen(true)}
@@ -539,6 +552,8 @@ export default function App() {
             onQuickStatus={handleQuickStatus}
             onRemoveDances={(ids) => removeDances(ids, "")}
             refreshKey={venuesRefreshKey}
+            scrollRef={activeScrollRef}
+            isPremium={isPremium}
           />
         ) : tab === "Venues" ? (
           isPremium ? (
@@ -550,6 +565,7 @@ export default function App() {
               onQuickStatusAtVenue={handleQuickStatusAtVenue}
               onCacheDances={mergeIntoCache}
               refreshKey={venuesRefreshKey}
+              scrollRef={activeScrollRef}
             />
           ) : (
             <PaywallScreen
@@ -572,6 +588,7 @@ export default function App() {
               onOpenDance={openDance}
               onPendingRequestCountChange={setPendingRequestCount}
               isPremium={isPremium}
+              scrollRef={activeScrollRef}
             />
           ) : (
             <PaywallScreen
@@ -585,7 +602,8 @@ export default function App() {
             />
           )
         ) : (
-          <ScrollView
+          <BackToTopScrollView
+            ref={activeScrollRef}
             contentContainerStyle={s.content}
             keyboardShouldPersistTaps="handled"
           >
@@ -617,7 +635,7 @@ export default function App() {
               </Text>
             )}
             {message ? <Text style={s.message}>{message}</Text> : null}
-          </ScrollView>
+          </BackToTopScrollView>
         )}
         <BottomTabs
           activeTab={tab}

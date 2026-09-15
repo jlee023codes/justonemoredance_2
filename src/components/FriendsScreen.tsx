@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
+import { Ref, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { colors } from "../styles";
+import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { confirmAction, showAlert } from "../lib/alerts";
 import {
   Friend,
@@ -88,6 +88,7 @@ export function FriendsScreen({
   onOpenDance,
   onPendingRequestCountChange,
   isPremium,
+  scrollRef,
 }: {
   userId: string;
   email?: string;
@@ -102,6 +103,7 @@ export function FriendsScreen({
   /** Passed through to FriendDancesModal — the free-tier My List cap only
    *  applies without Premium. */
   isPremium?: boolean;
+  scrollRef?: Ref<BackToTopHandle>;
 }) {
   // My username / display name
   const [username, setLocalUsername] = useState<string | null>(null);
@@ -383,7 +385,7 @@ export function FriendsScreen({
   const outgoing = requests.filter((r) => r.direction === "outgoing");
 
   return (
-    <ScrollView contentContainerStyle={s.page}>
+    <BackToTopScrollView ref={scrollRef} contentContainerStyle={s.page}>
       <Text style={s.heading}>Friends</Text>
 
       {email ? (
@@ -762,7 +764,7 @@ export function FriendsScreen({
         onClose={() => setMakeEventOpen(false)}
         onCreated={refreshEvents}
       />
-    </ScrollView>
+    </BackToTopScrollView>
   );
 }
 
