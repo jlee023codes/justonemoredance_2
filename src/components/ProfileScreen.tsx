@@ -12,6 +12,7 @@ import { colors } from "../styles";
 import { confirmAction, showAlert } from "../lib/alerts";
 import { supabase } from "../lib/supabase";
 import { presentCustomerCenter, restorePurchases } from "../lib/entitlements";
+import { deleteAccount } from "../lib/account";
 import { NotesImportModal } from "./NotesImportModal";
 import { VenuePicker } from "./VenuePicker";
 import { countPendingImport } from "../services/notesImport";
@@ -225,6 +226,33 @@ export function ProfileScreen({
       }
     } finally {
       setRestoring(false);
+    }
+  };
+
+  // Apple/Google review requirement: account creation must come with an
+  // in-app way to delete it, not just sign out. See
+  // supabase/functions/delete-account/index.ts for what actually runs —
+  // deleting auth.users cascades to every table tied to this user.
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const handleDeleteAccount = async () => {
+    const ok = await confirmAction(
+      "Delete your account?",
+      "This permanently deletes your account and everything tied to it — your dance list, venues, friends, and events. This can't be undone.",
+      "Delete account",
+      true,
+    );
+    if (!ok) return;
+    setDeletingAccount(true);
+    try {
+      await deleteAccount();
+      onSignOut();
+    } catch (err: any) {
+      showAlert(
+        "Could not delete your account",
+        err?.message ?? "Please try again.",
+      );
+    } finally {
+      setDeletingAccount(false);
     }
   };
 
@@ -448,6 +476,15 @@ export function ProfileScreen({
         <Pressable style={s.signOut} onPress={onSignOut}>
           <Text style={s.signOutText}>Sign out</Text>
         </Pressable>
+        <Pressable
+          style={[s.deleteAccount, deletingAccount && s.disabled]}
+          onPress={handleDeleteAccount}
+          disabled={deletingAccount}
+        >
+          <Text style={s.deleteAccountText}>
+            {deletingAccount ? "Deleting…" : "Delete account"}
+          </Text>
+        </Pressable>
       </View>
 
       <NotesImportModal
@@ -664,4 +701,6 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   signOutText: { color: colors.pink, fontWeight: "800" },
+  deleteAccount: { marginTop: 14, alignItems: "center" },
+  deleteAccountText: { color: "#ff8080", fontSize: 12, fontWeight: "700" },
 });

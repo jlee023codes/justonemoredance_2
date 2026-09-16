@@ -31,7 +31,19 @@ const ALLOWED_PATHS = new Set([
   "/dances/getByIds",
 ]);
 
+// See delete-account/index.ts for why this is needed: without CORS headers
+// on OPTIONS (and every other response), a browser blocks the request
+// before it leaves, surfacing as a generic invoke() failure client-side.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
   }
@@ -85,13 +97,13 @@ Deno.serve(async (req: Request) => {
   const text = await upstream.text();
   return new Response(text, {
     status: upstream.status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...corsHeaders },
   });
 });
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...corsHeaders },
   });
 }
