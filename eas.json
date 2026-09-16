@@ -19,6 +19,14 @@
       "ios": {
         "simulator": true
       }
+    },
+    "simulator-dev": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "production",
+      "ios": {
+        "simulator": true
+      }
     }
   },
   "submit": {

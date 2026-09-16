@@ -1,4 +1,4 @@
-import { Ref, useEffect, useState } from "react";
+import { Ref, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -147,6 +147,24 @@ export function FriendsScreen({
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  // Friend ids with a "learned" activity item (last 7 days — see
+  // services/activity.ts) that includes at least one dance not already in
+  // this viewer's own list — the little badge in the roster below. Reuses
+  // the activity feed already fetched for the feed itself, no extra call.
+  const friendsWithNewLearned = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of activity) {
+      if (
+        item.kind === "dances" &&
+        item.action === "learned" &&
+        item.dances.some((d) => !progress[d.id])
+      ) {
+        ids.add(item.friend.id);
+      }
+    }
+    return ids;
+  }, [activity, progress]);
 
   const publishRequests = (next: FriendRequest[]) => {
     setRequests(next);
@@ -578,9 +596,21 @@ export function FriendsScreen({
           )}
 
           {!friendsLoading && friends.length > 0 && (
-            <Text style={[s.settingLabel, s.addFriendLabel]}>
-              MY FRIENDS ({friends.length})
-            </Text>
+            <View style={[s.friendsHeaderRow, s.addFriendLabel]}>
+              <Text style={s.settingLabel}>MY FRIENDS ({friends.length})</Text>
+              <Pressable
+                onPress={() =>
+                  showAlert(
+                    "✨ next to a name",
+                    "They've marked a dance \"Learned\" recently that isn't in your own list yet — a nudge to check out their list and import it.",
+                  )
+                }
+                hitSlop={8}
+                accessibilityLabel="What the ✨ icon means"
+              >
+                <Text style={s.friendsInfoIcon}>ⓘ</Text>
+              </Pressable>
+            </View>
           )}
           {!friendsLoading &&
             friends.length === 0 &&
@@ -599,7 +629,18 @@ export function FriendsScreen({
                 style={s.friendRow}
                 onPress={() => setSelectedFriend(friend)}
               >
-                <Text style={s.friendName}>{friend.displayName}</Text>
+                <Text style={s.friendName}>
+                  {friend.displayName}
+                  {friendsWithNewLearned.has(friend.id) && (
+                    <Text
+                      style={s.newLearnedBadge}
+                      accessibilityLabel="Learned new dances recently"
+                    >
+                      {" "}
+                      ✨
+                    </Text>
+                  )}
+                </Text>
                 <Text style={s.friendOpen}>View list ›</Text>
                 <Pressable onPress={() => handleRemoveFriend(friend)} hitSlop={8}>
                   <Text style={s.friendRemove}>✕</Text>
@@ -865,6 +906,12 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
+  friendsHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  friendsInfoIcon: { color: colors.gold, fontSize: 13, fontWeight: "700" },
   addFriendRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
   addFriendInput: {
     flex: 1,
@@ -897,6 +944,7 @@ const s = StyleSheet.create({
     marginTop: 6,
   },
   friendName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
+  newLearnedBadge: { fontSize: 12 },
   friendOpen: { color: colors.gold, fontSize: 12, fontWeight: "800" },
   friendRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6, marginLeft: 6 },
   requestRow: {

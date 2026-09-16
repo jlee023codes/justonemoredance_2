@@ -351,6 +351,9 @@ export default function App() {
   const openDance = (dance: Dance) => {
     mergeIntoCache([dance]);
     setSelected(dance);
+    // Whichever search field (Home, My List, Venues) was focused when the
+    // card was tapped shouldn't stay focused with the modal now on top of it.
+    Keyboard.dismiss();
   };
 
   // Home-card quick actions: set a status without opening the modal, or

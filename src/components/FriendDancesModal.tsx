@@ -174,7 +174,7 @@ export function FriendDancesModal({
           <Pressable style={s.closeButton} onPress={onClose} hitSlop={10}>
             <Text style={s.closeButtonText}>✕</Text>
           </Pressable>
-          <ScrollView contentContainerStyle={s.sheet}>
+          <View style={s.header}>
             <Text style={s.title}>{friend.displayName}'s list</Text>
             <Text style={s.subtitle}>
               {picked
@@ -250,7 +250,8 @@ export function FriendDancesModal({
                 )}
               </View>
             )}
-
+          </View>
+          <ScrollView contentContainerStyle={s.sheet}>
             {loading && (
               <ActivityIndicator color={colors.gold} style={s.loader} />
             )}
@@ -374,8 +375,15 @@ const s = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
+  header: {
+    paddingHorizontal: 25,
+    paddingTop: 25,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
   sheet: {
-    padding: 25,
+    paddingHorizontal: 25,
+    paddingTop: 14,
     paddingBottom: 32,
   },
   title: {

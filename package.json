@@ -16,6 +16,7 @@
     "@revenuecat/purchases-js": "^1.60.1",
     "@supabase/supabase-js": "^2.112.4",
     "expo": "~54.0.0",
+    "expo-dev-client": "~6.0.21",
     "expo-linking": "~8.0.12",
     "expo-status-bar": "~3.0.8",
     "react": "19.1.0",
