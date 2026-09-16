@@ -2,11 +2,12 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
-  View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { showAlert } from "../lib/alerts";
@@ -161,7 +162,10 @@ export function AuthScreen() {
   const creating = mode === "createAccount";
 
   return (
-    <View style={s.page}>
+    <KeyboardAvoidingView
+      style={s.page}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <Image
         source={require("../../assets/logo-dark.png")}
         style={s.logo}
@@ -258,7 +262,7 @@ export function AuthScreen() {
         </Pressable>
       )}
       {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

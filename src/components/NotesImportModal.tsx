@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -248,7 +250,10 @@ export function NotesImportModal({
       animationType="slide"
       onRequestClose={close}
     >
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.card}>
           <Pressable style={s.closeButton} onPress={close} hitSlop={10}>
             <Text style={s.closeButtonText}>✕</Text>
@@ -420,7 +425,7 @@ export function NotesImportModal({
             </View>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

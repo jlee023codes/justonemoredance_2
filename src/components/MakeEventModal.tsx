@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -90,7 +92,10 @@ export function MakeEventModal({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.sheet}>
           <Text style={s.title}>Make an event</Text>
           <Text style={s.subtitle}>
@@ -154,7 +159,7 @@ export function MakeEventModal({
             <Text style={s.cancel}>Cancel</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
 
       <VenuePicker
         visible={venuePickerOpen}

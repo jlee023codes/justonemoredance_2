@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -259,7 +261,10 @@ export function VenuePicker({
       animationType="slide"
       onRequestClose={onClose}
     >
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.sheet}>
           <Text style={s.title}>{title}</Text>
 
@@ -433,7 +438,7 @@ export function VenuePicker({
             <Text style={s.cancel}>{multi ? "Cancel" : "Cancel"}</Text>
           </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

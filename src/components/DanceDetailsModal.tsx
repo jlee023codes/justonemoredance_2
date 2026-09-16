@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -369,7 +370,10 @@ export function DanceDetailsModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.card}>
           <Pressable
             style={s.closeButton}
@@ -630,7 +634,7 @@ export function DanceDetailsModal({
               )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
 
       <VenuePicker
         visible={pickerOpen}

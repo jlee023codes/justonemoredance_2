@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { supabase } from "../lib/supabase";
 import { colors } from "../styles";
 
@@ -69,7 +77,10 @@ export function ResetPasswordScreen({
   }
 
   return (
-    <View style={s.page}>
+    <KeyboardAvoidingView
+      style={s.page}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <Text style={s.logo}>JUST ONE MORE</Text>
       <Text style={s.title}>RESET PASSWORD</Text>
       <Text style={s.subtitle}>
@@ -121,7 +132,7 @@ export function ResetPasswordScreen({
       <Pressable disabled={loading} style={s.link} onPress={cancel}>
         <Text style={s.linkText}>Cancel and sign out</Text>
       </Pressable>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

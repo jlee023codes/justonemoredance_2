@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -527,6 +529,10 @@ export default function App() {
           pendingCount={offlineCount}
           onPress={() => setOfflineOpen(true)}
         />
+        <KeyboardAvoidingView
+          style={s.tabContent}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
         {tab === "Profile" ? (
           <ProfileScreen
             userId={session.user.id}
@@ -637,6 +643,7 @@ export default function App() {
             {message ? <Text style={s.message}>{message}</Text> : null}
           </BackToTopScrollView>
         )}
+        </KeyboardAvoidingView>
         <BottomTabs
           activeTab={tab}
           onChange={setTab}
@@ -652,7 +659,12 @@ export default function App() {
           userId={session.user.id}
           activeTab={tab}
           progress={selected ? progress[selected.id] : undefined}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelected(null);
+            // Closing the modal shouldn't leave whichever search field (Home,
+            // My List, Venues) opened it still focused with the keyboard up.
+            Keyboard.dismiss();
+          }}
           onProgressChange={handleProgressChange}
           onRemoved={handleRemoved}
           onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
@@ -683,6 +695,7 @@ const s = StyleSheet.create({
     marginTop: 100,
     fontSize: 16,
   },
+  tabContent: { flex: 1 },
   header: {
     paddingHorizontal: 24,
     paddingTop: 16,
