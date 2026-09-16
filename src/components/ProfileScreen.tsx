@@ -25,6 +25,12 @@ import {
   setHomeVenue,
   VenueOption,
 } from "../services/venues";
+import {
+  loadProfileMeta,
+  setDancerSince,
+  setFavoriteDance,
+  setFirstDance,
+} from "../services/friends";
 import { Dance, DanceProgress } from "../types";
 
 const awards = [
@@ -132,6 +138,96 @@ export function ProfileScreen({
     refreshVenues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  // "Fun facts" — favorite dance right now, line dancer since, first dance
+  // learned. All free text, self-reported (see
+  // migration_profile_fun_facts.sql) — first dance is deliberately *not*
+  // derived from `progress`: an imported or out-of-order list makes
+  // "oldest row currently marked learned" a bad guess, and this is the
+  // kind of thing people actually remember themselves. Home bar reuses the
+  // venue state just above, no fetch needed.
+  type FactKey = "favorite" | "since" | "first";
+  const [facts, setFacts] = useState<Record<FactKey, string | null>>({
+    favorite: null,
+    since: null,
+    first: null,
+  });
+  const [editingFact, setEditingFact] = useState<FactKey | null>(null);
+  const [factDraft, setFactDraft] = useState("");
+  const [savingFact, setSavingFact] = useState(false);
+
+  useEffect(() => {
+    loadProfileMeta(userId)
+      .then((meta) => {
+        setFacts({
+          favorite: meta.favoriteDance,
+          since: meta.dancerSince,
+          first: meta.firstDance,
+        });
+      })
+      .catch(() => {});
+  }, [userId]);
+
+  const factSetters: Record<FactKey, (userId: string, value: string) => Promise<void>> = {
+    favorite: setFavoriteDance,
+    since: setDancerSince,
+    first: setFirstDance,
+  };
+
+  const startEditingFact = (which: FactKey) => {
+    setEditingFact(which);
+    setFactDraft(facts[which] ?? "");
+  };
+
+  const saveFact = async () => {
+    if (!editingFact) return;
+    setSavingFact(true);
+    try {
+      await factSetters[editingFact](userId, factDraft);
+      setFacts((cur) => ({ ...cur, [editingFact]: factDraft.trim() || null }));
+      setEditingFact(null);
+    } catch (err: any) {
+      showAlert("Could not save that", err?.message ?? "Please try again.");
+    } finally {
+      setSavingFact(false);
+    }
+  };
+
+  const homeBarName = myVenues.find((v) => v.id === homeVenueId)?.name ?? null;
+
+  const renderFact = (
+    which: FactKey,
+    label: string,
+    value: string | null,
+    placeholder: string,
+    spaced?: boolean,
+  ) => (
+    <View style={spaced ? s.factSection : undefined}>
+      <Text style={s.settingLabel}>{label}</Text>
+      {editingFact === which ? (
+        <View style={s.factEditRow}>
+          <TextInput
+            value={factDraft}
+            onChangeText={setFactDraft}
+            placeholder={placeholder}
+            placeholderTextColor={colors.muted}
+            style={s.factInput}
+            autoFocus
+            editable={!savingFact}
+            onSubmitEditing={saveFact}
+          />
+          <Pressable onPress={saveFact} disabled={savingFact} hitSlop={6}>
+            <Text style={s.factSave}>{savingFact ? "…" : "Save"}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable style={s.factRow} onPress={() => startEditingFact(which)}>
+          <Text style={s.factValue}>{value || placeholder}</Text>
+          <Text style={s.factEdit}>✎</Text>
+        </Pressable>
+      )}
+    </View>
+  );
 
   const handleSetHome = async (venueId: string | null) => {
     setHomeVenueId(venueId); // optimistic
@@ -302,6 +398,36 @@ export function ProfileScreen({
             ? `${next.count - learnedCount} more to unlock ${next.title}`
             : "Every award unlocked — amazing!"}
         </Text>
+      </View>
+
+      <Text style={s.section}>FUN FACTS</Text>
+      <View style={s.settings}>
+        {renderFact(
+          "favorite",
+          "FAVORITE DANCE RIGHT NOW",
+          facts.favorite,
+          "e.g. Tush Push",
+        )}
+        {renderFact(
+          "since",
+          "LINE DANCER SINCE",
+          facts.since,
+          "e.g. 2019",
+          true,
+        )}
+        {renderFact(
+          "first",
+          "FIRST DANCE LEARNED",
+          facts.first,
+          "e.g. Electric Slide",
+          true,
+        )}
+        <View style={s.factSection}>
+          <Text style={s.settingLabel}>HOME BAR</Text>
+          <Text style={s.factValue}>
+            {homeBarName ?? "Set one in My Venues below"}
+          </Text>
+        </View>
       </View>
 
       <Text style={s.section}>AWARDS</Text>
@@ -647,6 +773,38 @@ const s = StyleSheet.create({
   },
   addVenueText: { color: colors.pink, fontWeight: "800", fontSize: 13 },
   email: { color: colors.ink, fontSize: 15, marginTop: 5 },
+  factSection: {
+    marginTop: 17,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  factRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 5,
+  },
+  factValue: { color: colors.ink, fontSize: 15, marginTop: 5, flex: 1 },
+  factEdit: { color: colors.pink, fontSize: 13, fontWeight: "800", marginLeft: 8 },
+  factEditRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+  },
+  factInput: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 8,
+    color: colors.ink,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    fontSize: 14,
+  },
+  factSave: { color: colors.pink, fontWeight: "800", fontSize: 13 },
   changePassword: {
     marginTop: 17,
     borderWidth: 1,

@@ -17,7 +17,14 @@ import {
   DANCE_LIMIT_MESSAGE,
 } from "../lib/planLimits";
 import { DanceCard } from "./DanceCard";
-import { Friend, FriendDance, loadFriendDances } from "../services/friends";
+import {
+  Friend,
+  FriendDance,
+  loadFriendDances,
+  loadProfileMeta,
+  ProfileMeta,
+} from "../services/friends";
+import { loadHomeVenueId, loadVenueById } from "../services/venues";
 import { saveProgress } from "../services/progress";
 
 function toDance(fd: FriendDance): Dance {
@@ -63,6 +70,23 @@ export function FriendDancesModal({
   const [importing, setImporting] = useState(false);
   // null = browsing; a Set = picking which ones to import.
   const [picked, setPicked] = useState<Set<string> | null>(null);
+
+  // Their "fun facts" — favorite dance / dancer since (free text) and home
+  // bar (a venue name lookup). Read-only here; only editable on your own
+  // Profile. Best-effort: a hiccup just leaves these blank, not an error.
+  const [meta, setMeta] = useState<ProfileMeta | null>(null);
+  const [homeBarName, setHomeBarName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!friend) return;
+    setMeta(null);
+    setHomeBarName(null);
+    loadProfileMeta(friend.id).then(setMeta).catch(() => {});
+    loadHomeVenueId(friend.id)
+      .then((venueId) => (venueId ? loadVenueById(venueId) : null))
+      .then((venue) => setHomeBarName(venue?.name ?? null))
+      .catch(() => {});
+  }, [friend]);
 
   useEffect(() => {
     if (!friend) return;
@@ -166,6 +190,29 @@ export function FriendDancesModal({
   };
 
   const pickedCount = picked?.size ?? 0;
+  const known = dances.filter((fd) => alreadyMine(fd.danceId));
+  const hasFunFacts = Boolean(
+    meta?.favoriteDance || meta?.dancerSince || homeBarName || meta?.firstDance,
+  );
+
+  const renderCard = (fd: FriendDance) => {
+    const mine = alreadyMine(fd.danceId);
+    return (
+      <DanceCard
+        key={fd.danceId}
+        dance={toDance(fd)}
+        song={fd.song}
+        progress={toProgress(fd)}
+        fromFriend={friend.displayName}
+        note={mine ? "Already in your list" : undefined}
+        dimmed={mine}
+        selected={picked && !mine ? picked.has(fd.danceId) : undefined}
+        onPress={() => {
+          if (picked && !mine) togglePick(fd.danceId);
+        }}
+      />
+    );
+  };
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -181,6 +228,35 @@ export function FriendDancesModal({
                 ? "Tap dances to pick the ones you want."
                 : "Read-only — this is their My List"}
             </Text>
+
+            {hasFunFacts && (
+              <View style={s.factsRow}>
+                {meta?.favoriteDance && (
+                  <View style={s.factPill}>
+                    <Text style={s.factPillLabel}>Favorite dance</Text>
+                    <Text style={s.factPillValue}>{meta.favoriteDance}</Text>
+                  </View>
+                )}
+                {meta?.dancerSince && (
+                  <View style={s.factPill}>
+                    <Text style={s.factPillLabel}>Dancing since</Text>
+                    <Text style={s.factPillValue}>{meta.dancerSince}</Text>
+                  </View>
+                )}
+                {homeBarName && (
+                  <View style={s.factPill}>
+                    <Text style={s.factPillLabel}>Home bar</Text>
+                    <Text style={s.factPillValue}>{homeBarName}</Text>
+                  </View>
+                )}
+                {meta?.firstDance && (
+                  <View style={s.factPill}>
+                    <Text style={s.factPillLabel}>First learned</Text>
+                    <Text style={s.factPillValue}>{meta.firstDance}</Text>
+                  </View>
+                )}
+              </View>
+            )}
 
             {!loading && importable.length > 0 && (
               <View style={s.actions}>
@@ -257,27 +333,23 @@ export function FriendDancesModal({
             )}
             {error ? <Text style={s.error}>{error}</Text> : null}
 
-            {!loading &&
-              dances.map((fd) => {
-                const mine = alreadyMine(fd.danceId);
-                return (
-                  <DanceCard
-                    key={fd.danceId}
-                    dance={toDance(fd)}
-                    song={fd.song}
-                    progress={toProgress(fd)}
-                    fromFriend={friend.displayName}
-                    note={mine ? "Already in your list" : undefined}
-                    dimmed={mine}
-                    selected={
-                      picked && !mine ? picked.has(fd.danceId) : undefined
-                    }
-                    onPress={() => {
-                      if (picked && !mine) togglePick(fd.danceId);
-                    }}
-                  />
-                );
-              })}
+            {!loading && importable.length > 0 && (
+              <>
+                <Text style={s.groupLabel}>
+                  NEW TO YOU · {importable.length}
+                </Text>
+                {importable.map(renderCard)}
+              </>
+            )}
+
+            {!loading && known.length > 0 && (
+              <>
+                <Text style={[s.groupLabel, s.groupLabelSecond]}>
+                  ALREADY IN YOUR LIST · {known.length}
+                </Text>
+                {known.map(renderCard)}
+              </>
+            )}
 
             {!loading && !dances.length && !error && (
               <Text style={s.empty}>
@@ -401,6 +473,37 @@ const s = StyleSheet.create({
   loader: {
     marginTop: 20,
   },
+  factsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 8,
+    marginBottom: 16,
+  },
+  factPill: {
+    flexBasis: "48%",
+    flexGrow: 1,
+    backgroundColor: "#00000030",
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  factPillLabel: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  factPillValue: { color: colors.ink, fontSize: 12, fontWeight: "700", marginTop: 1 },
+  groupLabel: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
+  groupLabelSecond: { marginTop: 18 },
   error: {
     color: "#ff8080",
     fontSize: 13,

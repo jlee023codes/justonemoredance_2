@@ -12,6 +12,15 @@ export type FriendDance = {
   song: string;
   difficulty: "Beginner" | "Improver" | "Intermediate" | "Advanced";
   status: "want" | "learning" | "learned";
+  createdAt: string;
+};
+
+/** Self-reported "fun facts" — free text, not tied to the BootStepper
+ *  catalog. See migration_profile_fun_facts.sql. */
+export type ProfileMeta = {
+  favoriteDance: string | null;
+  dancerSince: string | null;
+  firstDance: string | null;
 };
 
 function labelFor(profile: { display_name: string | null; username: string }): string {
@@ -191,7 +200,7 @@ export async function loadFriends(userId: string): Promise<Friend[]> {
 export async function loadFriendDances(friendUserId: string): Promise<FriendDance[]> {
   const { data, error } = await supabase
     .from("user_dance_progress")
-    .select("dance_id, status, dance_name, dance_song, dance_difficulty")
+    .select("dance_id, status, dance_name, dance_song, dance_difficulty, created_at")
     .eq("user_id", friendUserId);
   if (error) throw error;
   return (data ?? []).map((row: any) => ({
@@ -200,5 +209,47 @@ export async function loadFriendDances(friendUserId: string): Promise<FriendDanc
     song: row.dance_song ?? "",
     difficulty: row.dance_difficulty ?? "Beginner",
     status: row.status,
+    createdAt: row.created_at,
   }));
+}
+
+/** "Fun facts" for a profile — your own (editable) or a friend's
+ *  (read-only). Works for both: the "read connected profiles" RLS policy
+ *  already covers any column on `profiles`, friends included. */
+export async function loadProfileMeta(userId: string): Promise<ProfileMeta> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("favorite_dance, dancer_since, first_dance")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    favoriteDance: data?.favorite_dance ?? null,
+    dancerSince: data?.dancer_since ?? null,
+    firstDance: data?.first_dance ?? null,
+  };
+}
+
+export async function setFavoriteDance(userId: string, value: string): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ favorite_dance: value.trim() || null })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+export async function setDancerSince(userId: string, value: string): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ dancer_since: value.trim() || null })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+export async function setFirstDance(userId: string, value: string): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ first_dance: value.trim() || null })
+    .eq("id", userId);
+  if (error) throw error;
 }
