@@ -248,6 +248,22 @@ export async function searchDances(
   return unwrapList(data).map(adaptDance);
 }
 
+/** BootStepper's teach videos only come back on /dances/search, not
+ *  /dances/getById(s) (confirmed live — see migration_link_source.sql's
+ *  backfill). So a dance resolved via the by-id path (My List's own
+ *  background resolver, or Venues' — anything showing a dance the viewer
+ *  hasn't necessarily searched for) never gets a video that way. This
+ *  fills that gap: search by name, only accept a result whose id matches
+ *  the one we're after, so a similarly-named dance can't attach the wrong
+ *  video. */
+export async function searchTeachVideoUrl(
+  danceId: string,
+  danceName: string,
+): Promise<string | undefined> {
+  const results = await searchDances(danceName, { limit: 5 });
+  return results.find((d) => d.id === danceId)?.teachVideoUrl;
+}
+
 export async function getDanceById(id: string): Promise<Dance | null> {
   const data = await callProxy<RawDance | null>("/dances/getById", { id });
   return data ? adaptDance(data) : null;

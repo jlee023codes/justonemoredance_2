@@ -12,7 +12,7 @@ import { colors } from "../styles";
 import { DanceCard, QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { VenuePicker } from "./VenuePicker";
-import { getDancesByIds } from "../lib/bootstepper";
+import { getDancesByIds, searchTeachVideoUrl } from "../lib/bootstepper";
 import {
   loadHomeVenueId,
   loadVenueById,
@@ -138,6 +138,26 @@ export function VenuesScreen({
         needIds.forEach((id) => resolvedRef.current.add(id));
         retryRef.current = 0;
         onCacheDances(dances);
+        // getDancesByIds never carries a teach video (see
+        // searchTeachVideoUrl's own comment) — best-effort, separate
+        // lookup so a dance you haven't added yet still gets to show
+        // BootStepper's video here, not just once you've searched for it
+        // on Home.
+        Promise.all(
+          dances
+            .filter((d) => !d.teachVideoUrl)
+            .map((d): Promise<Dance | null> =>
+              searchTeachVideoUrl(d.id, d.name)
+                .then((teachVideoUrl): Dance | null =>
+                  teachVideoUrl ? { ...d, teachVideoUrl } : null,
+                )
+                .catch(() => null),
+            ),
+        ).then((withVideos) => {
+          if (cancelled) return;
+          const found = withVideos.filter((d): d is Dance => d !== null);
+          if (found.length) onCacheDances(found);
+        });
       })
       .catch(() => {
         if (cancelled || retryRef.current >= 4) return;
