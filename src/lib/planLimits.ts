@@ -1,7 +1,7 @@
 // Free-tier cap on how many dances can sit on My List at once. Premium
 // lifts it entirely. A dance already on the list (any status, including
 // "none") always counts — this only blocks genuinely *new* additions.
-export const FREE_DANCE_LIMIT = 30;
+export const FREE_DANCE_LIMIT = 50;
 
 export function reachedDanceLimit(
   progress: Record<string, unknown>,

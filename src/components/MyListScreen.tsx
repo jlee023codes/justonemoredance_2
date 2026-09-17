@@ -72,7 +72,7 @@ export function MyListScreen({
   // Lets the header logo's "back to top" tap reach whichever screen is
   // currently mounted.
   scrollRef?: Ref<BackToTopHandle>;
-  // Shows the free-tier "X of 30 dances" note + upgrade prompt when false.
+  // Shows the free-tier "X of FREE_DANCE_LIMIT dances" note + upgrade prompt when false.
   isPremium: boolean;
 }) {
   const [search, setSearch] = useState("");
