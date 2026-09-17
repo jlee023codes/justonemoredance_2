@@ -231,7 +231,9 @@ export function NotesImportModal({
     try {
       await saveProgress(userId, next, dance);
       if (item.rawLink) {
-        await setDanceLink(userId, dance.id, item.rawLink).catch(() => {});
+        await setDanceLink(userId, dance.id, item.rawLink, "user").catch(
+          () => {},
+        );
       }
       await finishImportItem(item.id, "done");
     } catch (err: any) {

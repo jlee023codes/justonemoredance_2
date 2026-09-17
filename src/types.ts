@@ -64,19 +64,24 @@ export type DanceProgress = {
   danceName?: string;
   danceSong?: string;
   danceDifficulty?: Dance['difficulty'];
-  // Same idea, snapshotted for BootStepper's music/video links — kept in
-  // sync on every save and re-synced whenever App.tsx resolves this dance
-  // live again (see migration_dance_music_links.sql for why these are
+  // Same idea, snapshotted for BootStepper's music links — kept in sync on
+  // every save and re-synced whenever App.tsx resolves this dance live
+  // again (see migration_dance_music_links.sql for why these are
   // persisted instead of only ever resolved fresh).
   danceSpotifyTrackId?: string;
   danceSpotifyUrl?: string;
   danceAppleMusicUrl?: string;
   danceYoutubeMusicUrl?: string;
   danceAmazonMusicUrl?: string;
-  danceTeachVideoUrl?: string;
-  // A reference link (YouTube / TikTok / …) kept alongside the dance —
-  // currently only set by the Apple Notes import.
+  // A reference video link (YouTube / TikTok / …) kept alongside the
+  // dance — set by the Apple Notes import, seeded from BootStepper's own
+  // teach video when a dance is first added (if it has one and this is
+  // still unset — see handleQuickStatus in App.tsx), and editable by the
+  // user from here on regardless of source.
   link?: string;
+  // Who last set `link` — lets the UI show "via BootStepper" vs "your
+  // video". Undefined for rows saved before this was tracked (legacy).
+  linkSource?: 'bootstepper' | 'user';
   // When this dance first entered the list (any source: BootStepper add,
   // Notes/friend import, venue tag). Stable — drives My List's "Date added".
   createdAt?: string;

@@ -25,6 +25,17 @@ type RawSong = {
   // isAiGenerated deliberately not read — not useful to the app.
 };
 
+// A dance's own video, embedded directly on the dance payload — present
+// when /dances/search returns it; /dances/getById seems to omit teachVideos
+// for at least some dances even when videoCount says otherwise, so this
+// isn't guaranteed on every endpoint (unconfirmed why).
+type RawDanceVideo = {
+  url?: string;
+  sourceViewCount?: number;
+  isPinned?: boolean;
+  platform?: string;
+};
+
 type RawDance = {
   id: string;
   title: string;
@@ -35,9 +46,10 @@ type RawDance = {
   restarts?: number;
   danceSongs?: { position?: number; song?: RawSong }[];
   danceChoreographers?: { choreographer?: { name?: string } }[];
-  // BootStepper's docs show this as an array of { url }; being defensive
-  // about a bare array of strings too, since the docs may lag the real API.
-  teachVideos?: ({ url?: string } | string)[];
+  teachVideos?: RawDanceVideo[];
+  // demoVideos also exists on the payload but isn't read — teachVideos is
+  // the one meant for "how do I do this dance", which is what a "Watch
+  // video" chip should point at.
 };
 
 // /dances/search wraps results in `{ items: [...] }`; /dances/getByIds
@@ -165,15 +177,18 @@ function musicLinksFor(song?: RawSong): MusicLinks {
   };
 }
 
-// The first non-empty teach video BootStepper has for this dance — there's
-// no "primary" flag on the array, so first-with-a-url is the best available
-// pick.
+// The pinned teach video if BootStepper has flagged one, else the
+// most-viewed. Undefined when the dance has none on this payload (which
+// isn't necessarily "has no video" — see the RawDanceVideo note above).
 function teachVideoUrlFor(raw: RawDance): string | undefined {
-  for (const entry of raw.teachVideos ?? []) {
-    const url = typeof entry === "string" ? entry : entry?.url;
-    if (url) return url;
-  }
-  return undefined;
+  const videos = raw.teachVideos ?? [];
+  if (!videos.length) return undefined;
+  const pinned = videos.find((v) => v.isPinned && v.url);
+  if (pinned) return pinned.url;
+  const mostViewed = [...videos].sort(
+    (a, b) => (b.sourceViewCount ?? 0) - (a.sourceViewCount ?? 0),
+  )[0];
+  return mostViewed?.url;
 }
 
 function detailsFor(raw: RawDance): string {

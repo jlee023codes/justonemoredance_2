@@ -13,8 +13,8 @@ type ProgressRow = {
   dance_apple_music_url: string | null;
   dance_youtube_music_url: string | null;
   dance_amazon_music_url: string | null;
-  dance_teach_video_url: string | null;
   link: string | null;
+  link_source: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -25,7 +25,7 @@ export async function loadProgress(
   const { data, error } = await supabase
     .from("user_dance_progress")
     .select(
-      "dance_id,status,source,dance_name,dance_song,dance_difficulty,dance_spotify_track_id,dance_spotify_url,dance_apple_music_url,dance_youtube_music_url,dance_amazon_music_url,dance_teach_video_url,link,created_at,updated_at",
+      "dance_id,status,source,dance_name,dance_song,dance_difficulty,dance_spotify_track_id,dance_spotify_url,dance_apple_music_url,dance_youtube_music_url,dance_amazon_music_url,link,link_source,created_at,updated_at",
     )
     .eq("user_id", userId);
   if (error) throw error;
@@ -46,8 +46,9 @@ export async function loadProgress(
         danceAppleMusicUrl: row.dance_apple_music_url ?? undefined,
         danceYoutubeMusicUrl: row.dance_youtube_music_url ?? undefined,
         danceAmazonMusicUrl: row.dance_amazon_music_url ?? undefined,
-        danceTeachVideoUrl: row.dance_teach_video_url ?? undefined,
         link: row.link ?? undefined,
+        linkSource:
+          (row.link_source as DanceProgress["linkSource"]) ?? undefined,
         createdAt: row.created_at ?? undefined,
         updatedAt: row.updated_at ?? undefined,
       },
@@ -98,14 +99,13 @@ export async function saveProgress(
     dance_apple_music_url: dance.appleMusicUrl ?? null,
     dance_youtube_music_url: dance.youtubeMusicUrl ?? null,
     dance_amazon_music_url: dance.amazonMusicUrl ?? null,
-    dance_teach_video_url: dance.teachVideoUrl ?? null,
     updated_at: new Date().toISOString(),
   });
   if (error) throw error;
   return true;
 }
 
-// Re-syncs just the music/video snapshot on an *existing* row from a
+// Re-syncs just the music snapshot on an *existing* row from a
 // freshly-resolved BootStepper dance — status/created_at/updated_at are
 // left untouched, so this can run silently in the background (App.tsx's
 // dance-resolver effect) without disturbing My List's sort order or
@@ -124,7 +124,6 @@ export async function backfillDanceLinks(
       dance_apple_music_url: dance.appleMusicUrl ?? null,
       dance_youtube_music_url: dance.youtubeMusicUrl ?? null,
       dance_amazon_music_url: dance.amazonMusicUrl ?? null,
-      dance_teach_video_url: dance.teachVideoUrl ?? null,
     })
     .eq("user_id", userId)
     .eq("dance_id", dance.id);
@@ -138,10 +137,13 @@ export async function setDanceLink(
   userId: string,
   danceId: string,
   link: string | null,
+  // Required, not defaulted — every call site should say explicitly
+  // whether this is BootStepper's own video or something the user typed.
+  source: DanceProgress["linkSource"],
 ) {
   const { error } = await supabase
     .from("user_dance_progress")
-    .update({ link })
+    .update({ link, link_source: link ? source : null })
     .eq("user_id", userId)
     .eq("dance_id", danceId);
   if (error) throw error;

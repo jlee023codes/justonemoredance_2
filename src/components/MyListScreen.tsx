@@ -44,7 +44,9 @@ function danceFromProgress(progress: DanceProgress): Dance {
     appleMusicUrl: progress.danceAppleMusicUrl,
     youtubeMusicUrl: progress.danceYoutubeMusicUrl,
     amazonMusicUrl: progress.danceAmazonMusicUrl,
-    teachVideoUrl: progress.danceTeachVideoUrl,
+    // No teachVideoUrl here — the effective video is progress.link, which
+    // DanceCard already reads directly (seeded from BootStepper's teach
+    // video the first time a dance is added; see handleQuickStatus).
   };
 }
 

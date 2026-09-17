@@ -62,6 +62,7 @@ import {
   saveProgress,
   removeDancesEverywhere,
   backfillDanceLinks,
+  setDanceLink,
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { saveVenueDance } from "./src/services/venues";
@@ -294,8 +295,8 @@ export default function App() {
         needIds.forEach((id) => resolveAttemptedRef.current.add(id));
         resolveRetryRef.current = 0;
         mergeIntoCache(dances);
-        // Best-effort: sync each freshly-resolved dance's music/video links
-        // onto its progress row — backfills rows saved before these columns
+        // Best-effort: sync each freshly-resolved dance's music links onto
+        // its progress row — backfills rows saved before these columns
         // existed, and keeps them current from here on. A failure here
         // shouldn't be user-visible; the live catalogCache copy already has
         // what's needed for this session either way.
@@ -392,6 +393,14 @@ export default function App() {
       // change (want → learning → learned), so the "Shared from" badge
       // survives. Undefined here means it's the user's own.
       const sharedFrom = progress[dance.id]?.fromFriend;
+      // The first time a dance is added (no link yet), seed it from
+      // BootStepper's own teach video if it has one — still freely
+      // editable from the dance modal afterward. A later status change on
+      // an already-added dance just carries the existing link through
+      // unchanged, same as before.
+      const existingLink = progress[dance.id]?.link;
+      const seededLink = existingLink ?? dance.teachVideoUrl;
+      const isNewlySeeded = !existingLink && !!seededLink;
       const next: DanceProgress = {
         danceId: dance.id,
         status: nextStatus,
@@ -401,7 +410,10 @@ export default function App() {
         danceDifficulty: dance.difficulty,
         // saveProgress leaves the link column alone — keep it in local
         // state so the card's video chip survives a quick status change.
-        link: progress[dance.id]?.link,
+        link: seededLink,
+        linkSource: isNewlySeeded
+          ? "bootstepper"
+          : progress[dance.id]?.linkSource,
         // Keep the original "date added" put; only bump "last updated".
         createdAt: progress[dance.id]?.createdAt ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -409,6 +421,17 @@ export default function App() {
       await saveProgress(session.user.id, next, dance, sharedFrom, {
         overwrite: true,
       });
+      // saveProgress never touches `link` (see setDanceLink's own comment
+      // on why it's kept separate) — persist the seeded value explicitly,
+      // best-effort, only when we actually just seeded something new.
+      if (isNewlySeeded) {
+        void setDanceLink(
+          session.user.id,
+          dance.id,
+          seededLink!,
+          "bootstepper",
+        ).catch(() => {});
+      }
       handleProgressChange(dance.id, next);
     } catch (err: any) {
       setMessage(`Could not update ${dance.name}: ${err.message}`);

@@ -312,7 +312,9 @@ export function DanceDetailsModal({
       : null;
     setSavingLink(true);
     try {
-      await setDanceLink(userId, dance.id, url);
+      // Explicitly saving here — even if the value happens to be untouched
+      // from BootStepper's default — counts as a user action from here on.
+      await setDanceLink(userId, dance.id, url, "user");
       onProgressChange(dance.id, {
         danceId: dance.id,
         status: danceState,
@@ -321,6 +323,7 @@ export function DanceDetailsModal({
         danceSong: progress?.danceSong ?? dance.defaultSong,
         danceDifficulty: progress?.danceDifficulty ?? dance.difficulty,
         link: url ?? undefined,
+        linkSource: url ? "user" : undefined,
         // A link edit isn't a status change — keep both timestamps as-is so
         // My List ordering doesn't move (setDanceLink touches neither).
         createdAt: progress?.createdAt,
@@ -480,9 +483,13 @@ export function DanceDetailsModal({
                   >
                     <Text style={s.openLink} numberOfLines={1}>
                       🎬{" "}
-                      {progress.link
-                        ? "Open saved video"
-                        : "Open BootStepper's video"}
+                      {!progress.link
+                        ? "Open BootStepper's video"
+                        : progress.linkSource === "user"
+                          ? "Open your video"
+                          : progress.linkSource === "bootstepper"
+                            ? "Open BootStepper's video"
+                            : "Open saved video"}
                     </Text>
                   </Pressable>
                 ) : null}
