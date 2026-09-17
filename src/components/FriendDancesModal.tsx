@@ -11,6 +11,7 @@ import {
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { showAlert, showError } from "../lib/alerts";
+import { currentAward } from "../lib/awards";
 import {
   FREE_DANCE_LIMIT,
   DANCE_LIMIT_TITLE,
@@ -194,6 +195,9 @@ export function FriendDancesModal({
   const hasFunFacts = Boolean(
     meta?.favoriteDance || meta?.dancerSince || homeBarName || meta?.firstDance,
   );
+  const friendAward = currentAward(
+    dances.filter((fd) => fd.status === "learned").length,
+  );
 
   const renderCard = (fd: FriendDance) => {
     const mine = alreadyMine(fd.danceId);
@@ -222,7 +226,18 @@ export function FriendDancesModal({
             <Text style={s.closeButtonText}>✕</Text>
           </Pressable>
           <View style={s.header}>
-            <Text style={s.title}>{friend.displayName}'s list</Text>
+            <Text style={s.title}>
+              {friend.displayName}'s list
+              {friendAward && (
+                <Text
+                  style={s.titleAward}
+                  accessibilityLabel={`${friendAward.title} award`}
+                >
+                  {" "}
+                  {friendAward.icon}
+                </Text>
+              )}
+            </Text>
             <Text style={s.subtitle}>
               {picked
                 ? "Tap dances to pick the ones you want."
@@ -464,6 +479,7 @@ const s = StyleSheet.create({
     fontWeight: "900",
     paddingRight: 36,
   },
+  titleAward: { fontSize: 20 },
   subtitle: {
     color: colors.muted,
     fontSize: 12,

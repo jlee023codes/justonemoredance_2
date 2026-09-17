@@ -195,6 +195,27 @@ export async function loadFriends(userId: string): Promise<Friend[]> {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
+/** How many dances each friend has marked Learned — just the count, not
+ *  the dances themselves, so the roster can show an award badge next to
+ *  every name without pulling each friend's full list. Same "read friends
+ *  progress" RLS policy as loadFriendDances. */
+export async function loadLearnedCounts(
+  friendIds: string[],
+): Promise<Record<string, number>> {
+  if (!friendIds.length) return {};
+  const { data, error } = await supabase
+    .from("user_dance_progress")
+    .select("user_id")
+    .in("user_id", friendIds)
+    .eq("status", "learned");
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  for (const row of (data ?? []) as { user_id: string }[]) {
+    counts[row.user_id] = (counts[row.user_id] ?? 0) + 1;
+  }
+  return counts;
+}
+
 /** A friend's overall dance list ("My List" equivalent) — relies on the
  *  RLS policy that lets friends read each other's user_dance_progress. */
 export async function loadFriendDances(friendUserId: string): Promise<FriendDance[]> {

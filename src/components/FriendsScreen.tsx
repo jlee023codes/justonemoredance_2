@@ -17,12 +17,14 @@ import {
   getMyProfile,
   loadFriendRequests,
   loadFriends,
+  loadLearnedCounts,
   removeFriend,
   respondToFriendRequest,
   sendFriendRequest,
   setDisplayName,
   setUsername,
 } from "../services/friends";
+import { currentAward } from "../lib/awards";
 import { ActivityItem, loadFriendActivity } from "../services/activity";
 import {
   clearRsvp,
@@ -128,6 +130,11 @@ export function FriendsScreen({
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [friendsError, setFriendsError] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
+  // Each friend's current award badge, keyed by id — just their learned
+  // count, not their full list (see loadLearnedCounts).
+  const [learnedCounts, setLearnedCounts] = useState<Record<string, number>>(
+    {},
+  );
 
   // Pending friend requests, both directions
   const [requests, setRequests] = useState<FriendRequest[]>([]);
@@ -180,6 +187,11 @@ export function FriendsScreen({
       .then(([nextFriends, nextRequests]) => {
         setFriends(nextFriends);
         publishRequests(nextRequests);
+        loadLearnedCounts(nextFriends.map((f) => f.id))
+          .then(setLearnedCounts)
+          .catch(() => {
+            // Non-critical — worst case nobody's award badge shows yet.
+          });
       })
       .catch((err: any) =>
         setFriendsError(err.message ?? "Could not load friends."),
@@ -623,13 +635,23 @@ export function FriendsScreen({
             )}
 
           {!friendsLoading &&
-            friends.map((friend) => (
+            friends.map((friend) => {
+              const award = currentAward(learnedCounts[friend.id] ?? 0);
+              return (
               <Pressable
                 key={friend.id}
                 style={s.friendRow}
                 onPress={() => setSelectedFriend(friend)}
               >
                 <Text style={s.friendName}>
+                  {award && (
+                    <Text
+                      style={s.friendAward}
+                      accessibilityLabel={`${award.title} award`}
+                    >
+                      {award.icon}{" "}
+                    </Text>
+                  )}
                   {friend.displayName}
                   {friendsWithNewLearned.has(friend.id) && (
                     <Text
@@ -646,7 +668,8 @@ export function FriendsScreen({
                   <Text style={s.friendRemove}>✕</Text>
                 </Pressable>
               </Pressable>
-            ))}
+              );
+            })}
         </View>
       ) : (
         <View style={s.statRow}>
@@ -945,6 +968,7 @@ const s = StyleSheet.create({
   },
   friendName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
   newLearnedBadge: { fontSize: 12 },
+  friendAward: { fontSize: 14 },
   friendOpen: { color: colors.gold, fontSize: 12, fontWeight: "800" },
   friendRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6, marginLeft: 6 },
   requestRow: {

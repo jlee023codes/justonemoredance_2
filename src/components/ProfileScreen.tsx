@@ -31,22 +31,8 @@ import {
   setFavoriteDance,
   setFirstDance,
 } from "../services/friends";
+import { AWARDS as awards } from "../lib/awards";
 import { Dance, DanceProgress } from "../types";
-
-const awards = [
-  { count: 1, icon: "🌟", title: "First Steps", note: "Learn 1 dance" },
-  { count: 5, icon: "✨", title: "Dance Regular", note: "Learn 5 dances" },
-  {
-    count: 10,
-    icon: "🏆",
-    title: "Dance Floor Legend",
-    note: "Learn 10 dances",
-  },
-  { count: 25, icon: "👑", title: "Headliner", note: "Learn 25 dances" },
-  { count: 50, icon: "🔥", title: "Dance Machine", note: "Learn 50 dances" },
-  { count: 100, icon: "💯", title: "Century Club", note: "Learn 100 dances" },
-  { count: 200, icon: "😈", title: "Menace", note: "Learn 200 dances" },
-];
 
 export function ProfileScreen({
   userId,
