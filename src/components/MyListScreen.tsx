@@ -39,6 +39,12 @@ function danceFromProgress(progress: DanceProgress): Dance {
     details: "",
     songSwaps: [],
     snapshot: true,
+    spotifyTrackId: progress.danceSpotifyTrackId,
+    spotifyUrl: progress.danceSpotifyUrl,
+    appleMusicUrl: progress.danceAppleMusicUrl,
+    youtubeMusicUrl: progress.danceYoutubeMusicUrl,
+    amazonMusicUrl: progress.danceAmazonMusicUrl,
+    teachVideoUrl: progress.danceTeachVideoUrl,
   };
 }
 

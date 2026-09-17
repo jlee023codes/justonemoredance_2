@@ -1,14 +1,26 @@
 export type LearningStatus = 'none' | 'want' | 'learning' | 'learned';
 
+// Streaming links for one song, from BootStepper's `song` object — present
+// on both the primary song (flattened onto Dance itself, see below) and
+// each swap. All optional: BootStepper doesn't guarantee every platform has
+// a link for every song.
+export type MusicLinks = {
+  spotifyTrackId?: string;
+  spotifyUrl?: string;
+  appleMusicUrl?: string;
+  youtubeMusicUrl?: string;
+  amazonMusicUrl?: string;
+};
+
 // BootStepper's "commonly swapped songs" for a dance — every song beyond
 // the primary one.
-export type SongSwap = {
+export type SongSwap = MusicLinks & {
   id: string;
   songName: string;
 };
 
 /** A dance is unique by id; its display name can contain spaces. */
-export type Dance = {
+export type Dance = MusicLinks & {
   id: string;
   name: string;
   defaultSong: string;
@@ -25,11 +37,15 @@ export type Dance = {
   // Choreographer name(s), from BootStepper. Empty for locally-made Dance
   // objects (e.g. offline fallbacks).
   choreographers?: string[];
+  // BootStepper's own teach video for this dance, if it has one. This is
+  // only ever the *default* — DanceProgress.link (a user's own saved video)
+  // always wins once set; see DanceCard/DanceDetailsModal for the fallback.
+  teachVideoUrl?: string;
   // True for a Dance reconstructed from a saved snapshot (a friend's
   // imported list, or a progress-row fallback) rather than fetched live
-  // from BootStepper — so `details`, `choreographers` and `songSwaps` are
-  // missing. App.tsx treats these as still-unresolved and upgrades them
-  // from BootStepper when it can.
+  // from BootStepper — so `details`, `choreographers`, `songSwaps` and the
+  // music/video links are missing. App.tsx treats these as still-unresolved
+  // and upgrades them from BootStepper when it can.
   snapshot?: boolean;
 };
 
@@ -48,6 +64,16 @@ export type DanceProgress = {
   danceName?: string;
   danceSong?: string;
   danceDifficulty?: Dance['difficulty'];
+  // Same idea, snapshotted for BootStepper's music/video links — kept in
+  // sync on every save and re-synced whenever App.tsx resolves this dance
+  // live again (see migration_dance_music_links.sql for why these are
+  // persisted instead of only ever resolved fresh).
+  danceSpotifyTrackId?: string;
+  danceSpotifyUrl?: string;
+  danceAppleMusicUrl?: string;
+  danceYoutubeMusicUrl?: string;
+  danceAmazonMusicUrl?: string;
+  danceTeachVideoUrl?: string;
   // A reference link (YouTube / TikTok / …) kept alongside the dance —
   // currently only set by the Apple Notes import.
   link?: string;

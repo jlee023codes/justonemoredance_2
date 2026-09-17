@@ -61,6 +61,7 @@ import {
   loadProgress,
   saveProgress,
   removeDancesEverywhere,
+  backfillDanceLinks,
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { saveVenueDance } from "./src/services/venues";
@@ -293,6 +294,16 @@ export default function App() {
         needIds.forEach((id) => resolveAttemptedRef.current.add(id));
         resolveRetryRef.current = 0;
         mergeIntoCache(dances);
+        // Best-effort: sync each freshly-resolved dance's music/video links
+        // onto its progress row — backfills rows saved before these columns
+        // existed, and keeps them current from here on. A failure here
+        // shouldn't be user-visible; the live catalogCache copy already has
+        // what's needed for this session either way.
+        if (userId) {
+          dances.forEach((d) => {
+            void backfillDanceLinks(userId, d).catch(() => {});
+          });
+        }
       })
       .catch(() => {
         // Retry a few times, spaced out, then stop hammering.

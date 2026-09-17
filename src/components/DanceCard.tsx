@@ -69,6 +69,9 @@ export function DanceCard({
 
   const choreographer = dance.choreographers?.join(", ");
   const otherSongs = dance.songSwaps.map((swap) => swap.songName);
+  // A user's own saved video always wins once set; BootStepper's teach
+  // video is just the default until/unless they save their own.
+  const videoUrl = progress?.link || dance.teachVideoUrl;
 
   return (
     <View style={[s.card, dimmed && s.dimmed]}>
@@ -116,10 +119,10 @@ export function DanceCard({
             {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
             {note ? <Text style={s.note}>{note}</Text> : null}
 
-            {progress?.link ? (
+            {videoUrl ? (
               <Pressable
                 style={s.videoLink}
-                onPress={() => Linking.openURL(progress.link!).catch(() => {})}
+                onPress={() => Linking.openURL(videoUrl).catch(() => {})}
                 hitSlop={6}
               >
                 <Text style={s.videoLinkText} numberOfLines={1}>

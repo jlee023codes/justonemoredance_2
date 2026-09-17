@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { Dance } from "../types";
+import { Dance, MusicLinks } from "../types";
 
 /**
  * Client for the BootStepper public API (https://api.bootstepper.com),
@@ -11,8 +11,20 @@ import { Dance } from "../types";
  * isolated in `adaptDance` below.
  */
 
-// Shape of a raw BootStepper dance (from a real response, Aug 2026 —
+// Shape of a raw BootStepper dance (from a real response, Sep 2026 —
 // BootStepper reserves the right to change this).
+type RawSong = {
+  id?: string;
+  title?: string;
+  artist?: string;
+  spotifyTrackId?: string;
+  spotifyUrl?: string;
+  appleMusicUrl?: string;
+  youtubeMusicUrl?: string;
+  amazonMusicUrl?: string;
+  // isAiGenerated deliberately not read — not useful to the app.
+};
+
 type RawDance = {
   id: string;
   title: string;
@@ -21,8 +33,11 @@ type RawDance = {
   walls?: number;
   tags?: number;
   restarts?: number;
-  danceSongs?: { song?: { id?: string; title?: string; artist?: string } }[];
+  danceSongs?: { position?: number; song?: RawSong }[];
   danceChoreographers?: { choreographer?: { name?: string } }[];
+  // BootStepper's docs show this as an array of { url }; being defensive
+  // about a bare array of strings too, since the docs may lag the real API.
+  teachVideos?: ({ url?: string } | string)[];
 };
 
 // /dances/search wraps results in `{ items: [...] }`; /dances/getByIds
@@ -129,6 +144,7 @@ function songSwapsFor(raw: RawDance): Dance["songSwaps"] {
       songName: [entry.song!.title, entry.song!.artist]
         .filter(Boolean)
         .join(" — "),
+      ...musicLinksFor(entry.song),
     }));
 }
 
@@ -136,6 +152,28 @@ function choreographersFor(raw: RawDance): string[] {
   return (raw.danceChoreographers ?? [])
     .map((entry) => entry.choreographer?.name)
     .filter((name): name is string => Boolean(name));
+}
+
+function musicLinksFor(song?: RawSong): MusicLinks {
+  if (!song) return {};
+  return {
+    spotifyTrackId: song.spotifyTrackId || undefined,
+    spotifyUrl: song.spotifyUrl || undefined,
+    appleMusicUrl: song.appleMusicUrl || undefined,
+    youtubeMusicUrl: song.youtubeMusicUrl || undefined,
+    amazonMusicUrl: song.amazonMusicUrl || undefined,
+  };
+}
+
+// The first non-empty teach video BootStepper has for this dance — there's
+// no "primary" flag on the array, so first-with-a-url is the best available
+// pick.
+function teachVideoUrlFor(raw: RawDance): string | undefined {
+  for (const entry of raw.teachVideos ?? []) {
+    const url = typeof entry === "string" ? entry : entry?.url;
+    if (url) return url;
+  }
+  return undefined;
 }
 
 function detailsFor(raw: RawDance): string {
@@ -162,6 +200,10 @@ function adaptDance(raw: RawDance): Dance {
     restarts: raw.restarts,
     songSwaps: songSwapsFor(raw),
     choreographers: choreographersFor(raw),
+    // Primary song's streaming links (danceSongs[0] — same song defaultSong
+    // is built from).
+    ...musicLinksFor(raw.danceSongs?.[0]?.song),
+    teachVideoUrl: teachVideoUrlFor(raw),
   };
 }
 

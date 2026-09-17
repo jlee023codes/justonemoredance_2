@@ -103,7 +103,9 @@ export function DanceDetailsModal({
       setDanceVenues([]);
       setMySwaps([]);
       setMySwapsOpen(false);
-      setLinkInput(progress?.link ?? "");
+      // A user's own saved video always wins; BootStepper's teach video is
+      // just the starting point to edit from until they save their own.
+      setLinkInput(progress?.link ?? dance.teachVideoUrl ?? "");
       loadDanceVenues(userId, dance.id)
         .then(setDanceVenues)
         .catch(() => {
@@ -468,14 +470,19 @@ export function DanceDetailsModal({
                     </Text>
                   </Pressable>
                 </View>
-                {progress.link ? (
+                {progress.link ?? dance.teachVideoUrl ? (
                   <Pressable
                     onPress={() =>
-                      Linking.openURL(progress.link!).catch(() => {})
+                      Linking.openURL(
+                        (progress.link ?? dance.teachVideoUrl)!,
+                      ).catch(() => {})
                     }
                   >
                     <Text style={s.openLink} numberOfLines={1}>
-                      🎬 Open saved video
+                      🎬{" "}
+                      {progress.link
+                        ? "Open saved video"
+                        : "Open BootStepper's video"}
                     </Text>
                   </Pressable>
                 ) : null}
