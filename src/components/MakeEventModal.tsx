@@ -15,24 +15,20 @@ import { showError } from "../lib/alerts";
 import { createEvent } from "../services/events";
 import { VenueOption } from "../services/venues";
 import { VenuePicker } from "./VenuePicker";
+import { DateTimeField } from "./DateTimeField";
 
-// Plain date/time text fields rather than a native date-picker library —
-// works identically on web and native with no extra dependency or rebuild.
-// A real picker component would be a nice follow-up.
-function parseWhen(dateText: string, timeText: string): Date | null {
-  const dateMatch = dateText.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const timeMatch = timeText.trim().match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
-  if (!dateMatch || !timeMatch) return null;
-  const [, y, mo, d] = dateMatch;
-  const [, h, mi] = timeMatch;
-  const date = new Date(
-    Number(y),
-    Number(mo) - 1,
-    Number(d),
-    Number(h),
-    Number(mi),
-  );
-  return Number.isNaN(date.getTime()) ? null : date;
+// Defaults an event to the next half-hour, at least an hour out.
+function defaultWhen(): Date {
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  d.setSeconds(0, 0);
+  d.setMinutes(d.getMinutes() < 30 ? 30 : 60);
+  return d;
+}
+
+function startOfToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 export function MakeEventModal({
@@ -50,8 +46,7 @@ export function MakeEventModal({
 }) {
   const [venue, setVenue] = useState<VenueOption | null>(null);
   const [venuePickerOpen, setVenuePickerOpen] = useState(false);
-  const [dateText, setDateText] = useState("");
-  const [timeText, setTimeText] = useState("");
+  const [when, setWhen] = useState<Date>(defaultWhen);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -59,16 +54,29 @@ export function MakeEventModal({
   useEffect(() => {
     if (!visible) return;
     setVenue(null);
-    setDateText("");
-    setTimeText("");
+    setWhen(defaultWhen());
     setNote("");
     setError("");
   }, [visible]);
 
+  const handleDateChange = (picked: Date) => {
+    setWhen((prev) => {
+      const next = new Date(prev);
+      next.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+      return next;
+    });
+  };
+
+  const handleTimeChange = (picked: Date) => {
+    setWhen((prev) => {
+      const next = new Date(prev);
+      next.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
+      return next;
+    });
+  };
+
   const handleCreate = async () => {
     if (!venue) return setError("Pick a venue first.");
-    const when = parseWhen(dateText, timeText);
-    if (!when) return setError("Use YYYY-MM-DD for the date and HH:MM for the time.");
     if (when.getTime() < Date.now() - 60 * 1000) {
       return setError("Pick a time that hasn't already passed.");
     }
@@ -112,24 +120,19 @@ export function MakeEventModal({
               <Text style={s.caret}>▾</Text>
             </Pressable>
 
-            <Text style={s.fieldLabel}>DATE</Text>
-            <TextInput
-              value={dateText}
-              onChangeText={setDateText}
-              placeholder="2026-09-20"
-              placeholderTextColor={colors.muted}
-              keyboardType="numbers-and-punctuation"
-              style={s.input}
+            <DateTimeField
+              label="DATE"
+              mode="date"
+              value={when}
+              onChange={handleDateChange}
+              minimumDate={startOfToday()}
             />
 
-            <Text style={s.fieldLabel}>TIME</Text>
-            <TextInput
-              value={timeText}
-              onChangeText={setTimeText}
-              placeholder="19:30 (24h)"
-              placeholderTextColor={colors.muted}
-              keyboardType="numbers-and-punctuation"
-              style={s.input}
+            <DateTimeField
+              label="TIME"
+              mode="time"
+              value={when}
+              onChange={handleTimeChange}
             />
 
             <Text style={s.fieldLabel}>
