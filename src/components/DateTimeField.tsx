@@ -124,6 +124,7 @@ export function DateTimeField({
 }
 
 const webInputStyle: any = {
+  boxSizing: "border-box",
   backgroundColor: colors.card,
   border: `1px solid ${colors.line}`,
   borderRadius: 12,
