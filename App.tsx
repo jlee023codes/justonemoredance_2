@@ -57,6 +57,10 @@ import {
   clearRecoveryLinkFromUrl,
   parseRecoveryLink,
 } from "./src/lib/authLinks";
+import { consumeWebSpotifyCallback, SpotifyAuthResult } from "./src/lib/spotifyAuth";
+import { exchangeSpotifyCode } from "./src/lib/spotifySync";
+import { fetchAppleMusicDeveloperToken } from "./src/lib/appleMusicSync";
+import { AppleMusicProviderGate } from "./src/components/AppleMusicProviderGate";
 import {
   loadProgress,
   saveProgress,
@@ -92,6 +96,9 @@ export default function App() {
     // even when it's not in the current Home search results.
     [catalogCache, setCatalogCache] = useState<Record<string, Dance>>({}),
     [venuesRefreshKey, setVenuesRefreshKey] = useState(0),
+    // Bumped after a Spotify connect/disconnect completes, so Profile's
+    // and My List's connection-status reads refresh.
+    [musicRefreshKey, setMusicRefreshKey] = useState(0),
     // True once a password-reset link has been turned into a session and
     // we owe the user a "pick a new password" screen.
     [resetPassword, setResetPassword] = useState(false),
@@ -175,6 +182,53 @@ export default function App() {
         ),
       );
   }, [deepLink]);
+
+  // Web side of Spotify's OAuth round trip. Unlike the recovery-link
+  // effect above, native needs nothing here — expo-auth-session's
+  // promptAsync() (see src/lib/spotifyAuth.ts) resolves its own promise
+  // directly from within the ASWebAuthenticationSession it opens, without
+  // going through this app-wide deep-link listener. Web instead does a
+  // full-page redirect to Spotify and back to this same origin (there's no
+  // dedicated /spotify-callback route — see spotifyAuth.ts for why), so
+  // this only has a query string to read on the next page load, once,
+  // here.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const result = consumeWebSpotifyCallback();
+    if (!result) return;
+    handleSpotifyAuthResult(result);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSpotifyAuthResult = (result: SpotifyAuthResult) => {
+    if (result.kind === "cancelled") return;
+    if (result.kind === "error") {
+      showAlert("Spotify connection failed", result.message);
+      return;
+    }
+    exchangeSpotifyCode(result.code, result.codeVerifier, result.redirectUri)
+      .then(() => setMusicRefreshKey((k) => k + 1))
+      .catch((err: any) =>
+        showAlert(
+          "Spotify connection failed",
+          err?.message ?? "Could not finish connecting to Spotify.",
+        ),
+      );
+  };
+
+  // Apple Music's native provider (ProfileScreen's Connect button needs it
+  // mounted as an ancestor — see AppleMusicProviderGate) needs a Developer
+  // Token up front. Web doesn't use this at all — MusicKit JS fetches its
+  // own directly (see appleMusicAuth.tsx). Fetched once per session; the
+  // provider works fine mounted with an undefined token until this lands.
+  const [appleDeveloperToken, setAppleDeveloperToken] = useState<string | undefined>();
+  useEffect(() => {
+    if (Platform.OS === "web" || !session) return;
+    fetchAppleMusicDeveloperToken()
+      .then(setAppleDeveloperToken)
+      .catch(() => {}); // Connect button just fails with a clear error later if this never lands
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id]);
 
   // Pull the saved want/learning/learned list down whenever we have a user —
   // and again on each post-restore auth event (see `sessionEpoch`), since
@@ -593,6 +647,7 @@ export default function App() {
           pendingCount={offlineCount}
           onPress={() => setOfflineOpen(true)}
         />
+        <AppleMusicProviderGate developerToken={appleDeveloperToken}>
         <KeyboardAvoidingView
           style={s.tabContent}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -612,6 +667,8 @@ export default function App() {
             onSignOut={() => void supabase.auth.signOut()}
             onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
             isPremium={isPremium}
+            musicRefreshKey={musicRefreshKey}
+            onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
           />
         ) : tab === "My List" ? (
           <MyListScreen
@@ -625,6 +682,8 @@ export default function App() {
             scrollRef={activeScrollRef}
             isPremium={isPremium}
             onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
+            musicRefreshKey={musicRefreshKey}
+            onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
           />
         ) : tab === "Venues" ? (
           isPremium ? (
@@ -708,6 +767,7 @@ export default function App() {
           </BackToTopScrollView>
         )}
         </KeyboardAvoidingView>
+        </AppleMusicProviderGate>
         <BottomTabs
           activeTab={tab}
           onChange={setTab}

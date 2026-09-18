@@ -11,7 +11,11 @@ import {
 import { colors } from "../styles";
 import { confirmAction, showAlert } from "../lib/alerts";
 import { supabase } from "../lib/supabase";
-import { presentCustomerCenter, restorePurchases } from "../lib/entitlements";
+import {
+  presentCustomerCenter,
+  presentPaywall,
+  restorePurchases,
+} from "../lib/entitlements";
 import { deleteAccount } from "../lib/account";
 import { NotesImportModal } from "./NotesImportModal";
 import { VenuePicker } from "./VenuePicker";
@@ -33,6 +37,19 @@ import {
 } from "../services/friends";
 import { AWARDS as awards } from "../lib/awards";
 import { Dance, DanceProgress } from "../types";
+import {
+  loadAppleMusicStatus,
+  loadPlaylistSyncScope,
+  loadSpotifyBetaEnabled,
+  loadSpotifyStatus,
+  MusicAccountStatus,
+  PlaylistSyncScope,
+  setPlaylistSyncScope,
+} from "../services/musicSync";
+import { connectSpotify } from "../lib/spotifyAuth";
+import { disconnectSpotify, exchangeSpotifyCode } from "../lib/spotifySync";
+import { useAppleMusicConnect } from "../lib/appleMusicAuth";
+import { connectAppleMusic, disconnectAppleMusic } from "../lib/appleMusicSync";
 
 export function ProfileScreen({
   userId,
@@ -48,6 +65,8 @@ export function ProfileScreen({
   onImportHandled,
   onOpenOfflineList,
   isPremium,
+  musicRefreshKey,
+  onMusicChanged,
 }: {
   userId: string;
   email?: string;
@@ -71,6 +90,12 @@ export function ProfileScreen({
   // src/lib/entitlements.ts. Used here to scope the venue picker's search
   // (Premium unlocks browsing the whole shared catalog, not just your own).
   isPremium: boolean;
+  // Bumped in App.tsx after Spotify's web OAuth round trip completes, so
+  // this screen's connection-status reads refresh.
+  musicRefreshKey: number;
+  // Bumped after any connect/disconnect here, so My List's playlist-sync
+  // row (which also depends on connection status) refreshes.
+  onMusicChanged?: () => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -106,6 +131,7 @@ export function ProfileScreen({
   const [venuesLoading, setVenuesLoading] = useState(true);
   const [venuesError, setVenuesError] = useState("");
   const [venuePickerOpen, setVenuePickerOpen] = useState(false);
+  const [venuesExpanded, setVenuesExpanded] = useState(false);
   const refreshVenues = () => {
     setVenuesLoading(true);
     Promise.all([loadUserVenues(userId), loadHomeVenueId(userId)])
@@ -124,6 +150,104 @@ export function ProfileScreen({
     refreshVenues();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  // Music accounts — Spotify (beta, allowlisted per-user) and Apple Music
+  // (open to everyone). See src/services/musicSync.ts.
+  const [spotifyBetaEnabled, setSpotifyBetaEnabled] = useState(false);
+  const [spotifyStatus, setSpotifyStatus] = useState<MusicAccountStatus | null>(null);
+  const [appleMusicStatus, setAppleMusicStatus] = useState<MusicAccountStatus | null>(null);
+  const [syncScope, setSyncScope] = useState<PlaylistSyncScope>("learning_learned");
+  const [connectingProvider, setConnectingProvider] = useState<"spotify" | "apple" | null>(null);
+  const { connect: connectApple } = useAppleMusicConnect();
+
+  const refreshMusicAccounts = () => {
+    loadSpotifyBetaEnabled(userId).then(setSpotifyBetaEnabled).catch(() => {});
+    loadSpotifyStatus(userId).then(setSpotifyStatus).catch(() => {});
+    loadAppleMusicStatus(userId).then(setAppleMusicStatus).catch(() => {});
+    loadPlaylistSyncScope(userId).then(setSyncScope).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshMusicAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, musicRefreshKey]);
+
+  const handleConnectSpotify = async () => {
+    if (!isPremium) return void presentPaywall();
+    setConnectingProvider("spotify");
+    try {
+      // Web navigates away and never resolves this promise — the round
+      // trip back is picked up by App.tsx's own effect instead. Native
+      // resolves directly, here.
+      const result = await connectSpotify();
+      if (result.kind === "cancelled") return;
+      if (result.kind === "error") {
+        showAlert("Spotify connection failed", result.message);
+        return;
+      }
+      await exchangeSpotifyCode(result.code, result.codeVerifier, result.redirectUri);
+      refreshMusicAccounts();
+      onMusicChanged?.();
+    } catch (err: any) {
+      showAlert("Spotify connection failed", err?.message ?? "Please try again.");
+    } finally {
+      setConnectingProvider(null);
+    }
+  };
+
+  const handleDisconnectSpotify = async () => {
+    const ok = await confirmAction(
+      "Disconnect Spotify?",
+      "Just One More Dance will stop syncing to your Spotify playlist. The playlist itself stays on Spotify, untouched.",
+    );
+    if (!ok) return;
+    try {
+      await disconnectSpotify();
+      refreshMusicAccounts();
+      onMusicChanged?.();
+    } catch (err: any) {
+      showAlert("Couldn't disconnect", err?.message ?? "Please try again.");
+    }
+  };
+
+  const handleConnectAppleMusic = async () => {
+    if (!isPremium) return void presentPaywall();
+    setConnectingProvider("apple");
+    try {
+      const musicUserToken = await connectApple();
+      await connectAppleMusic(musicUserToken);
+      refreshMusicAccounts();
+      onMusicChanged?.();
+    } catch (err: any) {
+      showAlert("Apple Music connection failed", err?.message ?? "Please try again.");
+    } finally {
+      setConnectingProvider(null);
+    }
+  };
+
+  const handleDisconnectAppleMusic = async () => {
+    const ok = await confirmAction(
+      "Disconnect Apple Music?",
+      "Just One More Dance will stop syncing to your Apple Music playlist. The playlist itself stays in your library, untouched.",
+    );
+    if (!ok) return;
+    try {
+      await disconnectAppleMusic();
+      refreshMusicAccounts();
+      onMusicChanged?.();
+    } catch (err: any) {
+      showAlert("Couldn't disconnect", err?.message ?? "Please try again.");
+    }
+  };
+
+  const handleChangeSyncScope = async (scope: PlaylistSyncScope) => {
+    setSyncScope(scope);
+    try {
+      await setPlaylistSyncScope(userId, scope);
+    } catch (err: any) {
+      showAlert("Couldn't save that", err?.message ?? "Please try again.");
+    }
+  };
 
   // "Fun facts" — favorite dance right now, line dancer since, first dance
   // learned. All free text, self-reported (see
@@ -452,35 +576,142 @@ export function ProfileScreen({
         {!venuesLoading && !myVenues.length ? (
           <Text style={[s.hint, s.venuesEmpty]}>No venues added yet.</Text>
         ) : null}
-        {homeFirst(myVenues, homeVenueId).map((venue) => {
-          const isHome = venue.id === homeVenueId;
+        {(() => {
+          const ordered = homeFirst(myVenues, homeVenueId);
+          const visible = venuesExpanded ? ordered : ordered.slice(0, 1);
+          const hiddenCount = ordered.length - visible.length;
           return (
-            <View key={venue.id} style={s.venueRow}>
-              <Pressable
-                onPress={() => handleSetHome(isHome ? null : venue.id)}
-                hitSlop={8}
-              >
-                <Text style={[s.venueHome, isHome && s.venueHomeOn]}>
-                  {isHome ? "🏠" : "⌂"}
-                </Text>
-              </Pressable>
-              <Text style={s.venueName} numberOfLines={1}>
-                {venue.name}
-                {isHome ? <Text style={s.venueHomeTag}>  home bar</Text> : null}
-              </Text>
-              <Text style={s.venueVotes}>★ {venue.votes ?? 1}</Text>
-              <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
-                <Text style={s.venueRemove}>✕</Text>
-              </Pressable>
-            </View>
+            <>
+              {visible.map((venue) => {
+                const isHome = venue.id === homeVenueId;
+                return (
+                  <View key={venue.id} style={s.venueRow}>
+                    <Pressable
+                      onPress={() => handleSetHome(isHome ? null : venue.id)}
+                      hitSlop={8}
+                    >
+                      <Text style={[s.venueHome, isHome && s.venueHomeOn]}>
+                        {isHome ? "🏠" : "⌂"}
+                      </Text>
+                    </Pressable>
+                    <Text style={s.venueName} numberOfLines={1}>
+                      {venue.name}
+                      {isHome ? <Text style={s.venueHomeTag}>  home bar</Text> : null}
+                    </Text>
+                    <Text style={s.venueVotes}>★ {venue.votes ?? 1}</Text>
+                    <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
+                      <Text style={s.venueRemove}>✕</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+              {ordered.length > 1 ? (
+                <Pressable
+                  onPress={() => setVenuesExpanded((v) => !v)}
+                  hitSlop={8}
+                  style={s.venuesToggle}
+                >
+                  <Text style={s.venuesToggleText}>
+                    {venuesExpanded
+                      ? "Show less ▴"
+                      : `Show ${hiddenCount} more venue${hiddenCount === 1 ? "" : "s"} ▾`}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </>
           );
-        })}
+        })()}
         <Pressable
           style={s.addVenueButton}
           onPress={() => setVenuePickerOpen(true)}
         >
           <Text style={s.addVenueText}>＋ Add a venue</Text>
         </Pressable>
+      </View>
+
+      <Text style={s.section}>MUSIC</Text>
+      <View style={s.settings}>
+        <Text style={s.hint}>
+          Connect a music account to turn My List into a real playlist —
+          sync it any time from My List. {isPremium ? "" : "Premium unlocks this."}
+        </Text>
+
+        <View style={s.musicRow}>
+          <View style={s.musicRowCopy}>
+            <Text style={s.musicRowName}>🍎 Apple Music</Text>
+            <Text style={s.musicRowStatus}>
+              {appleMusicStatus?.connected ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+          {appleMusicStatus?.connected ? (
+            <Pressable onPress={handleDisconnectAppleMusic} hitSlop={8}>
+              <Text style={s.musicDisconnect}>Disconnect</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[s.musicConnect, connectingProvider === "apple" && s.disabled]}
+              onPress={handleConnectAppleMusic}
+              disabled={connectingProvider === "apple"}
+            >
+              {connectingProvider === "apple" ? (
+                <ActivityIndicator color={colors.bg} size="small" />
+              ) : (
+                <Text style={s.musicConnectText}>Connect</Text>
+              )}
+            </Pressable>
+          )}
+        </View>
+
+        {spotifyBetaEnabled ? (
+          <View style={s.musicRow}>
+            <View style={s.musicRowCopy}>
+              <Text style={s.musicRowName}>🎧 Spotify</Text>
+              <Text style={s.musicRowStatus}>
+                {spotifyStatus?.connected ? "Connected" : "Not connected"}
+                {" · "}
+                <Text style={s.musicBeta}>beta</Text>
+              </Text>
+            </View>
+            {spotifyStatus?.connected ? (
+              <Pressable onPress={handleDisconnectSpotify} hitSlop={8}>
+                <Text style={s.musicDisconnect}>Disconnect</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={[s.musicConnect, connectingProvider === "spotify" && s.disabled]}
+                onPress={handleConnectSpotify}
+                disabled={connectingProvider === "spotify"}
+              >
+                {connectingProvider === "spotify" ? (
+                  <ActivityIndicator color={colors.bg} size="small" />
+                ) : (
+                  <Text style={s.musicConnectText}>Connect</Text>
+                )}
+              </Pressable>
+            )}
+          </View>
+        ) : null}
+
+        <Text style={[s.settingLabel, s.syncScopeLabel]}>SYNC MY LIST&apos;S…</Text>
+        <View style={s.syncScopeRow}>
+          {(
+            [
+              { key: "all", label: "Everything" },
+              { key: "learning_learned", label: "Learning + Learned" },
+              { key: "learned", label: "Learned only" },
+            ] as { key: PlaylistSyncScope; label: string }[]
+          ).map((opt) => (
+            <Pressable
+              key={opt.key}
+              onPress={() => handleChangeSyncScope(opt.key)}
+              style={[s.scopeChip, syncScope === opt.key && s.scopeChipOn]}
+            >
+              <Text style={[s.scopeChipText, syncScope === opt.key && s.scopeChipTextOn]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       <Text style={s.section}>SETTINGS</Text>
@@ -749,6 +980,42 @@ const s = StyleSheet.create({
     marginRight: 4,
   },
   venueRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6 },
+  venuesToggle: { paddingVertical: 10 },
+  venuesToggleText: { color: colors.pink, fontSize: 13, fontWeight: "800" },
+  musicRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    marginTop: 12,
+  },
+  musicRowCopy: { flex: 1 },
+  musicRowName: { color: colors.ink, fontSize: 15, fontWeight: "700" },
+  musicRowStatus: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  musicBeta: { color: colors.gold, fontWeight: "800" },
+  musicConnect: {
+    backgroundColor: colors.gold,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    minWidth: 84,
+    alignItems: "center",
+  },
+  musicConnectText: { color: colors.bg, fontWeight: "800", fontSize: 13 },
+  musicDisconnect: { color: colors.muted, fontSize: 13, fontWeight: "700" },
+  syncScopeLabel: { marginTop: 16 },
+  syncScopeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  scopeChip: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 9,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  scopeChipOn: { backgroundColor: colors.gold, borderColor: colors.gold },
+  scopeChipText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
+  scopeChipTextOn: { color: colors.bg },
   addVenueButton: {
     marginTop: 14,
     borderWidth: 1,
