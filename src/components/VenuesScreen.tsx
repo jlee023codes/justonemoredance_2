@@ -4,7 +4,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
@@ -12,6 +11,7 @@ import { colors } from "../styles";
 import { DanceCard, QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { VenuePicker } from "./VenuePicker";
+import { SearchInput } from "./SearchInput";
 import { getDancesByIds, searchTeachVideoUrl } from "../lib/bootstepper";
 import {
   loadHomeVenueId,
@@ -239,11 +239,10 @@ export function VenuesScreen({
             </View>
 
             {reports.length > 0 && (
-              <TextInput
+              <SearchInput
                 value={danceQuery}
                 onChangeText={setDanceQuery}
                 placeholder="Search dances"
-                placeholderTextColor={colors.muted}
                 style={s.danceSearch}
               />
             )}

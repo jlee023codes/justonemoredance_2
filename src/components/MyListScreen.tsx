@@ -4,7 +4,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { Dance, DanceProgress } from "../types";
@@ -14,9 +13,16 @@ import { presentPaywall } from "../lib/entitlements";
 import { FREE_DANCE_LIMIT } from "../lib/planLimits";
 import { DanceCard, QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
-import { BulkRemoveBar, SelectToRemoveButton } from "./BulkRemoveBar";
+import { BulkActionBar, SelectModeButton } from "./BulkRemoveBar";
 import { MyListToolsModal } from "./MyListToolsModal";
-import { loadUserVenues, loadVenueLinks, VenueOption } from "../services/venues";
+import { SearchInput } from "./SearchInput";
+import { VenuePicker } from "./VenuePicker";
+import {
+  loadUserVenues,
+  loadVenueLinks,
+  saveVenueDance,
+  VenueOption,
+} from "../services/venues";
 import {
   buildMyList,
   DEFAULT_SORT,
@@ -66,6 +72,7 @@ export function MyListScreen({
   refreshKey,
   scrollRef,
   isPremium,
+  onVenuesChanged,
 }: {
   userId: string;
   progress: Record<string, DanceProgress>;
@@ -82,6 +89,9 @@ export function MyListScreen({
   scrollRef?: Ref<BackToTopHandle>;
   // Shows the free-tier "X of FREE_DANCE_LIMIT dances" note + upgrade prompt when false.
   isPremium: boolean;
+  // Lets the parent bump its venuesRefreshKey after a bulk add-to-venue,
+  // same as everywhere else a venue tie changes.
+  onVenuesChanged?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<MyListFilters>(EMPTY_FILTERS);
@@ -174,6 +184,39 @@ export function MyListScreen({
     }
   };
 
+  const [venuePickerOpen, setVenuePickerOpen] = useState(false);
+  const [addingToVenue, setAddingToVenue] = useState(false);
+  const danceById = useMemo(
+    () => new Map(rows.map((r) => [r.dance.id, r.dance])),
+    [rows],
+  );
+
+  const handleAddSelectedToVenue = async (venue: VenueOption) => {
+    setVenuePickerOpen(false);
+    const danceIds = [...selectedIds];
+    if (!danceIds.length) return;
+    setAddingToVenue(true);
+    try {
+      let added = 0;
+      for (const danceId of danceIds) {
+        const dance = danceById.get(danceId);
+        if (!dance) continue;
+        await saveVenueDance(userId, venue.id, dance, "");
+        added++;
+      }
+      onVenuesChanged?.();
+      exitSelect();
+      showAlert(
+        "Added to venue",
+        `${added} dance${added === 1 ? "" : "s"} tagged to ${venue.name}.`,
+      );
+    } catch (err: any) {
+      setError(err?.message ?? "Could not add to that venue.");
+    } finally {
+      setAddingToVenue(false);
+    }
+  };
+
   const nothingSaved = rows.length === 0;
   const canManage = !nothingSaved;
 
@@ -205,11 +248,10 @@ export function MyListScreen({
       >
         <Text style={s.heading}>My List</Text>
 
-        <TextInput
+        <SearchInput
           value={search}
           onChangeText={setSearch}
           placeholder="Search dances, songs, choreographers"
-          placeholderTextColor={colors.muted}
           style={s.search}
         />
 
@@ -274,7 +316,7 @@ export function MyListScreen({
             (selectMode ? (
               <Text style={s.selectCount}>{selectedIds.size} selected</Text>
             ) : (
-              <SelectToRemoveButton onPress={() => setSelectMode(true)} />
+              <SelectModeButton onPress={() => setSelectMode(true)} />
             ))}
         </View>
 
@@ -337,9 +379,10 @@ export function MyListScreen({
       </BackToTopScrollView>
 
       {selectMode && (
-        <BulkRemoveBar
+        <BulkActionBar
           count={selectedIds.size}
           onCancel={exitSelect}
+          onAddToVenue={() => setVenuePickerOpen(true)}
           onRemove={() =>
             removeWithConfirm(
               [...selectedIds],
@@ -350,6 +393,19 @@ export function MyListScreen({
           }
         />
       )}
+
+      <VenuePicker
+        visible={venuePickerOpen}
+        title={
+          addingToVenue
+            ? "Adding…"
+            : `Add ${selectedIds.size} dance${selectedIds.size === 1 ? "" : "s"} to a venue`
+        }
+        userId={userId}
+        restrictToMine={!isPremium}
+        onSelect={handleAddSelectedToVenue}
+        onClose={() => setVenuePickerOpen(false)}
+      />
 
       <MyListToolsModal
         visible={toolsOpen}

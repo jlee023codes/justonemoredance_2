@@ -7,7 +7,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import * as Linking from "expo-linking";
@@ -19,6 +18,7 @@ import {
   BackToTopScrollView,
 } from "./src/components/BackToTopScrollView";
 import { DanceCard } from "./src/components/DanceCard";
+import { SearchInput } from "./src/components/SearchInput";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyListScreen } from "./src/components/MyListScreen";
 import { VenuesScreen } from "./src/components/VenuesScreen";
@@ -66,6 +66,10 @@ import {
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { saveVenueDance } from "./src/services/venues";
+import {
+  loadCachedCatalog,
+  saveCachedCatalog,
+} from "./src/services/catalogCache";
 import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -193,6 +197,27 @@ export default function App() {
       );
   }, [userId, sessionEpoch]);
 
+  // Hydrate catalogCache from last session's persisted copy, in parallel
+  // with loadProgress above rather than waiting on it — so My List can
+  // show fully-detailed cards (choreographer, counts, video) immediately
+  // for any dance it's already seen recently, instead of every app open
+  // showing bare cards for a few seconds while the normal resolver effect
+  // re-fetches everything from BootStepper. That resolver still runs
+  // exactly as before and overwrites this with fresh data; a dance that
+  // isn't cached (or whose cache went stale) just falls back to today's
+  // behavior.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    loadCachedCatalog(userId).then((cached) => {
+      if (cancelled || !Object.keys(cached).length) return;
+      setCatalogCache((current) => ({ ...cached, ...current }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   // Ties this device's RevenueCat customer to the signed-in Supabase user,
   // then keeps `isPremium` live: a real entitlement OR a manual server
   // comp (see subscribeToPremiumStatus). Comping someone ahead of a real
@@ -240,6 +265,8 @@ export default function App() {
         if (existing && !existing.snapshot && dance.snapshot) continue;
         next[dance.id] = dance;
       }
+      // Best-effort — persists for next app open's hydration above.
+      if (userId) void saveCachedCatalog(userId, next).catch(() => {});
       return next;
     });
   };
@@ -597,6 +624,7 @@ export default function App() {
             refreshKey={venuesRefreshKey}
             scrollRef={activeScrollRef}
             isPremium={isPremium}
+            onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
           />
         ) : tab === "Venues" ? (
           isPremium ? (
@@ -651,11 +679,10 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
           >
             <Text style={s.greeting}>Find your next favorite step ✨</Text>
-            <TextInput
+            <SearchInput
               value={query}
               onChangeText={setQuery}
               placeholder="Search dances or songs"
-              placeholderTextColor={colors.muted}
               style={s.search}
             />
             <Text style={s.section}>DANCES</Text>

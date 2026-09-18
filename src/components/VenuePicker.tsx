@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { colors } from "../styles";
+import { SearchInput } from "./SearchInput";
 import {
   findOrCreateGlobalVenue,
   findVenueByName,
@@ -268,11 +269,10 @@ export function VenuePicker({
         <View style={s.sheet}>
           <Text style={s.title}>{title}</Text>
 
-          <TextInput
+          <SearchInput
             value={query}
             onChangeText={setQuery}
             placeholder="Search venues"
-            placeholderTextColor={colors.muted}
             autoCorrect={false}
             style={s.search}
           />
