@@ -8,8 +8,8 @@
     "android": "expo run:android",
     "web": "expo start --web",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
-    "deploy": "npx expo export -p web && wrangler deploy",
-    "preview": "npx expo export -p web && wrangler dev"
+    "deploy": "npx expo export -p web --clear && wrangler deploy",
+    "preview": "npx expo export -p web --clear && wrangler dev"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
