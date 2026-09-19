@@ -437,7 +437,7 @@ export function MyListScreen({
                     <ActivityIndicator color={colors.gold} size="small" />
                   ) : (
                     <Text style={s.syncButtonText} numberOfLines={1}>
-                      🍎 {appleMusicStatus.playlistId ? "Sync" : "Create"}
+                      🎧  {appleMusicStatus.playlistId ? "Sync" : "Create"}
                     </Text>
                   )}
                 </Pressable>
@@ -452,7 +452,7 @@ export function MyListScreen({
                     <ActivityIndicator color={colors.gold} size="small" />
                   ) : (
                     <Text style={s.syncButtonText} numberOfLines={1}>
-                      🎧 {spotifyStatus.playlistId ? "Sync" : "Create"}
+                      🎧  {spotifyStatus.playlistId ? "Sync" : "Create"}
                     </Text>
                   )}
                 </Pressable>

@@ -639,7 +639,7 @@ export function ProfileScreen({
 
         <View style={s.musicRow}>
           <View style={s.musicRowCopy}>
-            <Text style={s.musicRowName}>🍎 Apple Music</Text>
+            <Text style={s.musicRowName}>🎧 Apple Music</Text>
             <Text style={s.musicRowStatus}>
               {appleMusicStatus?.connected ? "Connected" : "Not connected"}
             </Text>
