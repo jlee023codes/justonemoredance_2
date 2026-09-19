@@ -3,11 +3,15 @@ import { LearningStatus } from "../types";
 
 export type PlaylistSyncScope = "all" | "learning_learned" | "learned";
 
-/** Which My List statuses count toward a synced playlist, per scope. */
+/** Which My List statuses count toward a synced playlist, per scope.
+ *  "all" means every dance actually on My List — that includes "none"
+ *  (added but not yet tagged Want/Learning/Learned; still counts toward
+ *  your list per src/lib/planLimits.ts), not just the three named
+ *  statuses. */
 export function statusesForScope(scope: PlaylistSyncScope): LearningStatus[] {
   switch (scope) {
     case "all":
-      return ["want", "learning", "learned"];
+      return ["none", "want", "learning", "learned"];
     case "learning_learned":
       return ["learning", "learned"];
     case "learned":

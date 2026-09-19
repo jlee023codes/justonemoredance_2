@@ -260,6 +260,19 @@ export function MyListScreen({
       )],
     [scopedRows],
   );
+  // Dances in scope with no resolvable track for this provider — BootStepper
+  // just doesn't have a Spotify/Apple Music link for them. Silently
+  // dropping these from the playlist with no explanation would be
+  // confusing (fewer tracks than dances, no obvious reason why), so the
+  // count surfaces in the create/sync result alert below.
+  const spotifyUnmatchedCount = useMemo(
+    () => scopedRows.filter((r) => !r.dance.spotifyTrackId).length,
+    [scopedRows],
+  );
+  const appleMusicUnmatchedCount = useMemo(
+    () => scopedRows.filter((r) => !appleMusicTrackIdFromUrl(r.dance.appleMusicUrl)).length,
+    [scopedRows],
+  );
 
   // For the "keep or remove?" confirmation copy — a track id can map to
   // more than one dance (two choreographies, same song), so every
@@ -277,6 +290,12 @@ export function MyListScreen({
   const handlePlaylistSync = async (provider: PlaylistSyncProvider) => {
     const status = provider === "spotify" ? spotifyStatus : appleMusicStatus;
     const trackIds = provider === "spotify" ? spotifyTrackIds : appleMusicTrackIds;
+    const unmatchedCount =
+      provider === "spotify" ? spotifyUnmatchedCount : appleMusicUnmatchedCount;
+    const providerName = provider === "spotify" ? "Spotify" : "Apple Music";
+    const unmatchedNote = unmatchedCount
+      ? `\n\n${unmatchedCount} dance${unmatchedCount === 1 ? "" : "s"} skipped — no ${providerName} link on file for ${unmatchedCount === 1 ? "it" : "them"}.`
+      : "";
     if (!isPremium) return void presentPaywall();
     if (!trackIds.length) {
       showAlert(
@@ -296,7 +315,7 @@ export function MyListScreen({
         const result = await create(trackIds);
         showAlert(
           "Playlist created 🎉",
-          `${result.trackCount} song${result.trackCount === 1 ? "" : "s"} added.`,
+          `${result.trackCount} song${result.trackCount === 1 ? "" : "s"} added.${unmatchedNote}`,
         );
         onMusicChanged?.();
         return;
@@ -332,9 +351,9 @@ export function MyListScreen({
       });
       showAlert(
         "Synced",
-        result.added
+        (result.added
           ? `${result.added} song${result.added === 1 ? "" : "s"} added.`
-          : "Your playlist is already up to date.",
+          : "Your playlist is already up to date.") + unmatchedNote,
       );
       onMusicChanged?.();
     } catch (err: any) {
@@ -348,6 +367,12 @@ export function MyListScreen({
     if (!pendingRemoval) return;
     const { provider, trackIds, addTrackIds } = pendingRemoval;
     const apply = provider === "spotify" ? applySpotifySync : applyAppleMusicSync;
+    const unmatchedCount =
+      provider === "spotify" ? spotifyUnmatchedCount : appleMusicUnmatchedCount;
+    const providerName = provider === "spotify" ? "Spotify" : "Apple Music";
+    const unmatchedNote = unmatchedCount
+      ? `\n\n${unmatchedCount} dance${unmatchedCount === 1 ? "" : "s"} skipped — no ${providerName} link on file for ${unmatchedCount === 1 ? "it" : "them"}.`
+      : "";
     setPendingRemoval(null);
     setSyncingProvider(provider);
     try {
@@ -358,7 +383,7 @@ export function MyListScreen({
       });
       showAlert(
         "Synced",
-        `${result.added} added, ${result.removed} removed.`,
+        `${result.added} added, ${result.removed} removed.${unmatchedNote}`,
       );
       onMusicChanged?.();
     } catch (err: any) {
