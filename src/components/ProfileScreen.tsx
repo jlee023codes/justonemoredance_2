@@ -215,6 +215,7 @@ export function ProfileScreen({
     setConnectingProvider("apple");
     try {
       const musicUserToken = await connectApple();
+      if (!musicUserToken) return; // user closed the prompt — nothing to alert on
       await connectAppleMusic(musicUserToken);
       refreshMusicAccounts();
       onMusicChanged?.();

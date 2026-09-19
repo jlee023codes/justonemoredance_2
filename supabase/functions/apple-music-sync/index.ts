@@ -25,6 +25,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { computeSyncPlan, computeNewSynced } from "../_shared/playlistDiff.ts";
+import { playlistNameFor } from "../_shared/playlistName.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -302,13 +303,14 @@ async function createPlaylist(
   trackIds: string[],
 ) {
   const userToken = await getUserToken(db, userId);
+  const name = await playlistNameFor(db, userId);
 
   const res = await fetch(`${API_BASE}/me/library/playlists`, {
     method: "POST",
     headers: authHeaders(developerToken, userToken),
     body: JSON.stringify({
       attributes: {
-        name: "Just One More Dance",
+        name,
         description: "Synced from your My List on Just One More Dance.",
       },
       relationships: {
