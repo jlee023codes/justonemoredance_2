@@ -223,6 +223,12 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 const trackUri = (id: string) => `spotify:track:${id}`;
 
+/** Thrown specifically for a 404 reading the playlist — distinct from
+ *  every other failure so syncPlan can recover (the user deleted the
+ *  playlist directly in Spotify, so JOMD's stored playlist_id is stale)
+ *  instead of just surfacing a generic sync error. */
+class PlaylistNotFoundError extends Error {}
+
 async function fetchLiveTrackIds(accessToken: string, playlistId: string): Promise<string[]> {
   const ids: string[] = [];
   // Spotify's February 2026 migration renamed this endpoint from
@@ -236,6 +242,9 @@ async function fetchLiveTrackIds(accessToken: string, playlistId: string): Promi
     const res: Response = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (res.status === 404) {
+      throw new PlaylistNotFoundError("Your Spotify playlist no longer exists.");
+    }
     if (!res.ok) {
       throw new Error(`Could not read your Spotify playlist: ${await res.text()}`);
     }
@@ -359,9 +368,25 @@ async function syncPlan(
 ) {
   const { accessToken } = await getAccessToken(db, clientId, userId);
   const row = await loadPlaylistRow(db, userId);
-  const live = await fetchLiveTrackIds(accessToken, row.playlist_id);
+  let live: string[];
+  try {
+    live = await fetchLiveTrackIds(accessToken, row.playlist_id);
+  } catch (err) {
+    if (err instanceof PlaylistNotFoundError) {
+      // Stale row — the user deleted the playlist directly in Spotify.
+      // Drop it so the client sees "not connected to a playlist" and
+      // offers Create instead of a broken Sync.
+      await db.from("user_spotify_playlists").delete().eq("user_id", userId);
+      return { playlistMissing: true, toAddTrackIds: [], toRemoveCandidateTrackIds: [] };
+    }
+    throw err;
+  }
   const plan = computeSyncPlan(myList, live, row.last_synced_track_ids ?? []);
-  return { toAddTrackIds: plan.toAdd, toRemoveCandidateTrackIds: plan.toRemoveCandidates };
+  return {
+    playlistMissing: false,
+    toAddTrackIds: plan.toAdd,
+    toRemoveCandidateTrackIds: plan.toRemoveCandidates,
+  };
 }
 
 async function syncApply(

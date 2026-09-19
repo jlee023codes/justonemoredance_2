@@ -303,6 +303,14 @@ export function MyListScreen({
       }
 
       const syncPlan = await plan(trackIds);
+      if (syncPlan.playlistMissing) {
+        onMusicChanged?.(); // refreshes status — button flips back to "Create"
+        showAlert(
+          "Playlist no longer exists",
+          `Looks like your ${provider === "spotify" ? "Spotify" : "Apple Music"} playlist was deleted. Tap Create to make a new one.`,
+        );
+        return;
+      }
       if (syncPlan.toRemoveCandidateTrackIds.length) {
         const byTrackId =
           provider === "spotify"
@@ -415,7 +423,43 @@ export function MyListScreen({
         contentContainerStyle={[s.page, selectMode && s.pageSelecting]}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={s.heading}>My List</Text>
+        <View style={s.headerRow}>
+          <Text style={s.heading}>My List</Text>
+          {(spotifyStatus?.connected || appleMusicStatus?.connected) && (
+            <View style={s.headerSyncButtons}>
+              {appleMusicStatus?.connected && (
+                <Pressable
+                  style={[s.syncButton, syncingProvider === "apple" && s.disabled]}
+                  onPress={() => handlePlaylistSync("apple")}
+                  disabled={syncingProvider !== null}
+                >
+                  {syncingProvider === "apple" ? (
+                    <ActivityIndicator color={colors.gold} size="small" />
+                  ) : (
+                    <Text style={s.syncButtonText} numberOfLines={1}>
+                      🍎 {appleMusicStatus.playlistId ? "Sync" : "Create"}
+                    </Text>
+                  )}
+                </Pressable>
+              )}
+              {spotifyStatus?.connected && (
+                <Pressable
+                  style={[s.syncButton, syncingProvider === "spotify" && s.disabled]}
+                  onPress={() => handlePlaylistSync("spotify")}
+                  disabled={syncingProvider !== null}
+                >
+                  {syncingProvider === "spotify" ? (
+                    <ActivityIndicator color={colors.gold} size="small" />
+                  ) : (
+                    <Text style={s.syncButtonText} numberOfLines={1}>
+                      🎧 {spotifyStatus.playlistId ? "Sync" : "Create"}
+                    </Text>
+                  )}
+                </Pressable>
+              )}
+            </View>
+          )}
+        </View>
 
         <SearchInput
           value={search}
@@ -468,41 +512,6 @@ export function MyListScreen({
             </Pressable>
           )}
         </View>
-
-        {(spotifyStatus?.connected || appleMusicStatus?.connected) && (
-          <View style={s.syncRow}>
-            {appleMusicStatus?.connected && (
-              <Pressable
-                style={[s.syncButton, syncingProvider === "apple" && s.disabled]}
-                onPress={() => handlePlaylistSync("apple")}
-                disabled={syncingProvider !== null}
-              >
-                {syncingProvider === "apple" ? (
-                  <ActivityIndicator color={colors.bg} size="small" />
-                ) : (
-                  <Text style={s.syncButtonText} numberOfLines={1}>
-                    🍎 {appleMusicStatus.playlistId ? "Sync" : "Create"} Playlist
-                  </Text>
-                )}
-              </Pressable>
-            )}
-            {spotifyStatus?.connected && (
-              <Pressable
-                style={[s.syncButton, syncingProvider === "spotify" && s.disabled]}
-                onPress={() => handlePlaylistSync("spotify")}
-                disabled={syncingProvider !== null}
-              >
-                {syncingProvider === "spotify" ? (
-                  <ActivityIndicator color={colors.bg} size="small" />
-                ) : (
-                  <Text style={s.syncButtonText} numberOfLines={1}>
-                    🎧 {spotifyStatus.playlistId ? "Sync" : "Create"} Playlist
-                  </Text>
-                )}
-              </Pressable>
-            )}
-          </View>
-        )}
 
         {error ? <Text style={s.error}>{error}</Text> : null}
         {loading && !rows.length && (
@@ -636,12 +645,19 @@ export function MyListScreen({
 const s = StyleSheet.create({
   page: { padding: 20, paddingBottom: 115 },
   pageSelecting: { paddingBottom: 190 },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    gap: 10,
+  },
   heading: {
     color: colors.ink,
     fontSize: 25,
     fontWeight: "900",
-    marginBottom: 14,
   },
+  headerSyncButtons: { flexDirection: "row", gap: 6, flexShrink: 0 },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -700,16 +716,17 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
   },
   clearInlineText: { color: colors.pink, fontSize: 13, fontWeight: "800" },
-  syncRow: { flexDirection: "row", gap: 8, marginTop: 12 },
   syncButton: {
-    flex: 1,
-    backgroundColor: colors.gold,
-    borderRadius: 10,
-    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: colors.gold,
+    borderRadius: 9,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     alignItems: "center",
     justifyContent: "center",
+    minWidth: 34,
   },
-  syncButtonText: { color: colors.bg, fontWeight: "800", fontSize: 12.5 },
+  syncButtonText: { color: colors.gold, fontWeight: "800", fontSize: 12 },
   disabled: { opacity: 0.5 },
   toolsBadge: {
     minWidth: 18,

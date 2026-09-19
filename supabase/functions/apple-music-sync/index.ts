@@ -232,6 +232,12 @@ function authHeaders(developerToken: string, userToken: string) {
 
 const songRef = (catalogId: string) => ({ id: catalogId, type: "songs" });
 
+/** Thrown specifically for a 404 reading the playlist — distinct from
+ *  every other failure so syncPlan can recover (the user deleted the
+ *  playlist directly in Apple Music, so JOMD's stored playlist_id is
+ *  stale) instead of just surfacing a generic sync error. */
+class PlaylistNotFoundError extends Error {}
+
 async function fetchLiveCatalogTrackIds(
   developerToken: string,
   userToken: string,
@@ -244,6 +250,9 @@ async function fetchLiveCatalogTrackIds(
     const res: Response = await fetch(url, {
       headers: authHeaders(developerToken, userToken),
     });
+    if (res.status === 404) {
+      throw new PlaylistNotFoundError("Your Apple Music playlist no longer exists.");
+    }
     if (!res.ok) throw new Error("Could not read your Apple Music playlist.");
     const page: any = await res.json();
     for (const item of page.data ?? []) {
@@ -360,9 +369,25 @@ async function syncPlan(
 ) {
   const userToken = await getUserToken(db, userId);
   const row = await loadPlaylistRow(db, userId);
-  const live = await fetchLiveCatalogTrackIds(developerToken, userToken, row.playlist_id);
+  let live: string[];
+  try {
+    live = await fetchLiveCatalogTrackIds(developerToken, userToken, row.playlist_id);
+  } catch (err) {
+    if (err instanceof PlaylistNotFoundError) {
+      // Stale row — the user deleted the playlist directly in Apple
+      // Music. Drop it so the client sees "not connected to a playlist"
+      // and offers Create instead of a broken Sync.
+      await db.from("user_apple_music_playlists").delete().eq("user_id", userId);
+      return { playlistMissing: true, toAddTrackIds: [], toRemoveCandidateTrackIds: [] };
+    }
+    throw err;
+  }
   const plan = computeSyncPlan(myList, live, row.last_synced_track_ids ?? []);
-  return { toAddTrackIds: plan.toAdd, toRemoveCandidateTrackIds: plan.toRemoveCandidates };
+  return {
+    playlistMissing: false,
+    toAddTrackIds: plan.toAdd,
+    toRemoveCandidateTrackIds: plan.toRemoveCandidates,
+  };
 }
 
 async function syncApply(

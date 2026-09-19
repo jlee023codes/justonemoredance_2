@@ -44,6 +44,10 @@ export async function createAppleMusicPlaylist(
 }
 
 export type SyncPlanResult = {
+  // True when the stored playlist no longer exists (deleted directly in
+  // Apple Music) — the server already cleared the stale row; the client
+  // just needs to refresh status so the button flips back to "Create".
+  playlistMissing: boolean;
   toAddTrackIds: string[];
   toRemoveCandidateTrackIds: string[];
 };

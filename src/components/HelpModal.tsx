@@ -10,7 +10,7 @@ const FEATURE_ROWS: { icon: string; label: string; note: string }[] = [
   {
     icon: "≣",
     label: "My List",
-    note: "Everything you've saved — Want to Learn, Learning Now, and Learned. Search, filter, and sort it here.",
+    note: "Everything you've saved — Want to Learn, Learning Now, and Learned. Search, filter, and sort it here. Connect Apple Music or Spotify in Profile to sync it into a real playlist — the Create/Sync Playlist button shows up here once you're connected.",
   },
   {
     icon: "📍",
