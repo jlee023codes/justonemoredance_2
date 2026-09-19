@@ -264,13 +264,18 @@ export function MyListScreen({
   // just doesn't have a Spotify/Apple Music link for them. Silently
   // dropping these from the playlist with no explanation would be
   // confusing (fewer tracks than dances, no obvious reason why), so the
-  // count surfaces in the create/sync result alert below.
-  const spotifyUnmatchedCount = useMemo(
-    () => scopedRows.filter((r) => !r.dance.spotifyTrackId).length,
+  // list surfaces in the create/sync result alert below.
+  const unmatchedLabel = (r: (typeof scopedRows)[number]) =>
+    r.dance.defaultSong ? `${r.dance.name} — ${r.dance.defaultSong}` : r.dance.name;
+  const spotifyUnmatched = useMemo(
+    () => scopedRows.filter((r) => !r.dance.spotifyTrackId).map(unmatchedLabel),
     [scopedRows],
   );
-  const appleMusicUnmatchedCount = useMemo(
-    () => scopedRows.filter((r) => !appleMusicTrackIdFromUrl(r.dance.appleMusicUrl)).length,
+  const appleMusicUnmatched = useMemo(
+    () =>
+      scopedRows
+        .filter((r) => !appleMusicTrackIdFromUrl(r.dance.appleMusicUrl))
+        .map(unmatchedLabel),
     [scopedRows],
   );
 
@@ -290,11 +295,10 @@ export function MyListScreen({
   const handlePlaylistSync = async (provider: PlaylistSyncProvider) => {
     const status = provider === "spotify" ? spotifyStatus : appleMusicStatus;
     const trackIds = provider === "spotify" ? spotifyTrackIds : appleMusicTrackIds;
-    const unmatchedCount =
-      provider === "spotify" ? spotifyUnmatchedCount : appleMusicUnmatchedCount;
+    const unmatched = provider === "spotify" ? spotifyUnmatched : appleMusicUnmatched;
     const providerName = provider === "spotify" ? "Spotify" : "Apple Music";
-    const unmatchedNote = unmatchedCount
-      ? `\n\n${unmatchedCount} dance${unmatchedCount === 1 ? "" : "s"} skipped — no ${providerName} link on file for ${unmatchedCount === 1 ? "it" : "them"}.`
+    const unmatchedNote = unmatched.length
+      ? `\n\nSkipped (no ${providerName} link on file):\n${unmatched.map((l) => `• ${l}`).join("\n")}`
       : "";
     if (!isPremium) return void presentPaywall();
     if (!trackIds.length) {
@@ -367,11 +371,10 @@ export function MyListScreen({
     if (!pendingRemoval) return;
     const { provider, trackIds, addTrackIds } = pendingRemoval;
     const apply = provider === "spotify" ? applySpotifySync : applyAppleMusicSync;
-    const unmatchedCount =
-      provider === "spotify" ? spotifyUnmatchedCount : appleMusicUnmatchedCount;
+    const unmatched = provider === "spotify" ? spotifyUnmatched : appleMusicUnmatched;
     const providerName = provider === "spotify" ? "Spotify" : "Apple Music";
-    const unmatchedNote = unmatchedCount
-      ? `\n\n${unmatchedCount} dance${unmatchedCount === 1 ? "" : "s"} skipped — no ${providerName} link on file for ${unmatchedCount === 1 ? "it" : "them"}.`
+    const unmatchedNote = unmatched.length
+      ? `\n\nSkipped (no ${providerName} link on file):\n${unmatched.map((l) => `• ${l}`).join("\n")}`
       : "";
     setPendingRemoval(null);
     setSyncingProvider(provider);
