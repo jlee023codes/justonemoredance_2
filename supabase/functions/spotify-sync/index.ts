@@ -126,7 +126,9 @@ async function exchangeCode(
   const meRes = await fetch(`${API_BASE}/me`, {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
   });
-  if (!meRes.ok) throw new Error("Could not read your Spotify profile.");
+  if (!meRes.ok) {
+    throw new Error(`Could not read your Spotify profile: ${await meRes.text()}`);
+  }
   const me = await meRes.json();
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
@@ -185,7 +187,9 @@ async function getAccessToken(
     }),
   });
   if (!tokenRes.ok) {
-    throw new Error("Your Spotify connection expired — reconnect in Profile.");
+    throw new Error(
+      `Your Spotify connection expired — reconnect in Profile. (${await tokenRes.text()})`,
+    );
   }
   const tokens = await tokenRes.json();
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
@@ -221,16 +225,23 @@ const trackUri = (id: string) => `spotify:track:${id}`;
 
 async function fetchLiveTrackIds(accessToken: string, playlistId: string): Promise<string[]> {
   const ids: string[] = [];
+  // Spotify's February 2026 migration renamed this endpoint from
+  // /playlists/{id}/tracks to /playlists/{id}/items, and the response's
+  // per-item field from "track" to "item" (also dropped max limit from
+  // 100 to 50). See createPlaylist/addTracks/removeTracks below for the
+  // same rename applied to the write endpoints.
   let url: string | null =
-    `${API_BASE}/playlists/${playlistId}/tracks?fields=items(track(id)),next&limit=100`;
+    `${API_BASE}/playlists/${playlistId}/items?fields=items(item(id)),next&limit=50`;
   while (url) {
     const res: Response = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!res.ok) throw new Error("Could not read your Spotify playlist.");
+    if (!res.ok) {
+      throw new Error(`Could not read your Spotify playlist: ${await res.text()}`);
+    }
     const page: any = await res.json();
-    for (const item of page.items ?? []) {
-      if (item.track?.id) ids.push(item.track.id);
+    for (const entry of page.items ?? []) {
+      if (entry.item?.id) ids.push(entry.item.id);
     }
     url = page.next ?? null;
   }
@@ -248,7 +259,7 @@ async function addTracks(
   const confirmed: string[] = [];
   for (const batch of chunk(trackIds, CHUNK_SIZE)) {
     if (!batch.length) continue;
-    const res = await fetch(`${API_BASE}/playlists/${playlistId}/tracks`, {
+    const res = await fetch(`${API_BASE}/playlists/${playlistId}/items`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -269,7 +280,7 @@ async function removeTracks(
   const confirmed: string[] = [];
   for (const batch of chunk(trackIds, CHUNK_SIZE)) {
     if (!batch.length) continue;
-    const res = await fetch(`${API_BASE}/playlists/${playlistId}/tracks`, {
+    const res = await fetch(`${API_BASE}/playlists/${playlistId}/items`, {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -288,10 +299,13 @@ async function createPlaylist(
   userId: string,
   trackIds: string[],
 ) {
-  const { accessToken, spotifyUserId } = await getAccessToken(db, clientId, userId);
+  // spotifyUserId no longer goes in the URL — Spotify's February 2026
+  // migration moved playlist creation from /users/{id}/playlists to
+  // /me/playlists, which just uses the token's own identity.
+  const { accessToken } = await getAccessToken(db, clientId, userId);
   const name = await playlistNameFor(db, userId);
 
-  const createRes = await fetch(`${API_BASE}/users/${spotifyUserId}/playlists`, {
+  const createRes = await fetch(`${API_BASE}/me/playlists`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -303,7 +317,9 @@ async function createPlaylist(
       public: false,
     }),
   });
-  if (!createRes.ok) throw new Error("Could not create your Spotify playlist.");
+  if (!createRes.ok) {
+    throw new Error(`Could not create your Spotify playlist: ${await createRes.text()}`);
+  }
   const playlist = await createRes.json();
 
   const added = await addTracks(accessToken, playlist.id, trackIds);
