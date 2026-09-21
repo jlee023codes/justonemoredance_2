@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Use — Just One More Dance</title>
+<meta name="description" content="A walkthrough of every feature in Just One More Dance — searching the catalog, My List, venues, friends, playlist sync, and more.">
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=Manrope:wght@500;600;700;800&display=swap">
+<style>
+  :root {
+    --bg: #16101d;
+    --card: #241b2d;
+    --ink: #fff8ee;
+    --muted: #c9bacd;
+    --pink: #ff4e9b;
+    --gold: #ffc75a;
+    --line: #43364d;
+    --green: #77d9a4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Manrope', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: var(--gold); }
+  img { max-width: 100%; display: block; }
+
+  .wrap { max-width: 1080px; margin-inline: auto; padding-inline: 20px; }
+
+  /* ---- top bar ---- */
+  .topbar {
+    padding-block: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand-mark { width: 32px; height: 32px; border-radius: 9px; overflow: hidden; flex-shrink: 0; }
+  .brand-mark img { width: 100%; height: 100%; object-fit: cover; }
+  .brand-name {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 1.6px;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .topbar-cta {
+    background: var(--gold);
+    color: var(--bg);
+    font-weight: 800;
+    font-size: 13.5px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  /* ---- hero ---- */
+  .hero { padding-block: 56px 40px; }
+  .eyebrow {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 2.4px;
+    text-transform: uppercase;
+    color: var(--pink);
+  }
+  h1.headline {
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 800;
+    font-size: clamp(32px, 5vw, 52px);
+    line-height: 1.12;
+    letter-spacing: -0.5px;
+    margin: 14px 0 16px;
+    max-width: 800px;
+    text-wrap: balance;
+  }
+  h1.headline .accent { color: var(--gold); }
+  .hero p.sub {
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+    max-width: 620px;
+    margin: 0;
+  }
+
+  /* ---- section nav ---- */
+  .jumpnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-block: 22px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    margin-top: 32px;
+  }
+  .jumpnav a {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--muted);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 12px;
+  }
+  .jumpnav a:hover { color: var(--gold); border-color: var(--gold); }
+
+  /* ---- feature sections ---- */
+  .feature {
+    padding-block: 64px;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: center;
+    scroll-margin-top: 20px;
+  }
+  .feature:last-of-type { border-bottom: none; }
+  .feature.reverse .feature-copy { order: 2; }
+  .feature.reverse .feature-shots { order: 1; }
+  .feature-copy .eyebrow { margin-bottom: 10px; display: block; }
+  .feature-copy h2 {
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 800;
+    font-size: clamp(22px, 3vw, 28px);
+    line-height: 1.2;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .feature-copy h2 .accent { color: var(--gold); }
+  .feature-copy h2 .accent2 { color: var(--pink); }
+  .feature-copy p { color: var(--muted); font-size: 15.5px; line-height: 1.65; margin: 0 0 12px; }
+  .feature-copy p:last-child { margin-bottom: 0; }
+  .feature-copy .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--gold);
+    background: rgba(255,199,90,0.12);
+    border: 1px solid rgba(255,199,90,0.35);
+    border-radius: 7px;
+    padding: 4px 9px;
+    margin-bottom: 14px;
+  }
+
+  .feature-shots {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .shot {
+    border-radius: 20px;
+    border: 3px solid var(--line);
+    background: #0d0912;
+    box-shadow: 0 24px 50px rgba(0,0,0,0.45);
+    overflow: hidden;
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 280px;
+  }
+  .feature-shots.solo .shot { max-width: 320px; }
+  .feature-shots.pair .shot { max-width: 240px; }
+  .feature-shots.trio { gap: 10px; }
+  .feature-shots.trio .shot { max-width: 150px; }
+  .shot img { width: 100%; height: auto; }
+  .shot-cap {
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--muted);
+    margin-top: 8px;
+    font-weight: 600;
+  }
+  .shot-col { display: flex; flex-direction: column; align-items: center; }
+
+  /* ---- no-screenshot feature card ---- */
+  .feature-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 28px;
+    width: 100%;
+    max-width: 340px;
+  }
+  .feature-card .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-top: 1px solid var(--line);
+  }
+  .feature-card .row:first-child { border-top: none; padding-top: 0; }
+  .feature-card .row-name { font-weight: 700; font-size: 14.5px; }
+  .feature-card .pill {
+    border: 1px solid var(--gold);
+    color: var(--gold);
+    font-size: 11.5px;
+    font-weight: 800;
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+
+  /* ---- CTA footer ---- */
+  .cta {
+    text-align: center;
+    padding-block: 72px;
+  }
+  .cta h2 {
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 900;
+    font-size: clamp(26px, 4vw, 38px);
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .cta p { color: var(--muted); font-size: 16px; max-width: 480px; margin: 0 auto 28px; }
+  .cta-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--gold);
+    color: var(--bg);
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    padding: 16px 30px;
+    border-radius: 14px;
+    text-decoration: none;
+  }
+  .btn-secondary {
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 15px 26px;
+    border-radius: 14px;
+    text-decoration: none;
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-block: 28px;
+    text-align: center;
+  }
+  footer .links { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+  footer a { color: var(--muted); font-size: 13px; text-decoration: none; font-weight: 600; }
+  footer a:hover { color: var(--gold); }
+  footer .copy { color: var(--line); font-size: 12px; }
+
+  @media (max-width: 760px) {
+    .feature { grid-template-columns: 1fr; gap: 28px; padding-block: 44px; }
+    .feature.reverse .feature-copy { order: 1; }
+    .feature.reverse .feature-shots { order: 2; }
+  }
+  @media (max-width: 540px) {
+    /* Brand wordmark + CTA together don't fit a narrow phone width —
+       drop the wordmark text, keep the mark and the CTA (the thing
+       people actually tap) fully visible. */
+    .brand-name { display: none; }
+    .topbar-cta { padding: 10px 14px; font-size: 12.5px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap topbar-row">
+    <a class="brand" href="/">
+      <span class="brand-mark"><img src="img/icon.png" alt=""></span>
+      <span class="brand-name">Just One More Dance</span>
+    </a>
+    <a class="topbar-cta" href="/">Open the app →</a>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="hero">
+    <span class="eyebrow">How to use</span>
+    <h1 class="headline">Everything Just One More Dance<br>can do for <span class="accent">your list</span>.</h1>
+    <p class="sub">A walkthrough of every screen — search, My List, venues, friends, and syncing your list to a real Spotify or Apple Music playlist.</p>
+  </div>
+
+  <nav class="jumpnav" aria-label="Jump to a section">
+    <a href="#search">Search &amp; Save</a>
+    <a href="#mylist">My List</a>
+    <a href="#sync">Playlist Sync</a>
+    <a href="#venues">Venues</a>
+    <a href="#friends">Friends</a>
+    <a href="#import">Import Your List</a>
+    <a href="#journey">Your Journey</a>
+  </nav>
+
+  <section class="feature" id="search">
+    <div class="feature-copy">
+      <span class="eyebrow">Home</span>
+      <h2>Search the catalog, <span class="accent">save in one tap</span>.</h2>
+      <p>Home searches the full BootStepper dance catalog — every dance, its choreographer, song, count, and difficulty. Find one and tap <strong>Want</strong>, <strong>Learning</strong>, or <strong>Learned</strong> right from the search results — no extra screen, no separate "add" step.</p>
+      <p>Each card also shows a <strong>Watch video</strong> link and whether its song has Spotify, Apple Music, or YouTube Music links attached, pulled in automatically from the catalog.</p>
+    </div>
+    <div class="feature-shots solo">
+      <div class="shot-col">
+        <div class="shot"><img src="img/1885.jpg" alt="Home screen search results for '3 tequila' showing two matching dances with Want/Learning/Learned buttons"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature reverse" id="mylist">
+    <div class="feature-copy">
+      <span class="eyebrow">My List</span>
+      <h2>One list, <span class="accent">filtered your way</span>.</h2>
+      <p>Every dance you've saved lives on My List — searchable, and filterable by venue, difficulty, choreographer, counts, and more. Sort by any of those too, or by when you added it.</p>
+      <p>Turn on <strong>Select</strong> to tag a batch of dances to a venue at once, or clear several off your list in one pass — no need to open each one individually.</p>
+    </div>
+    <div class="feature-shots pair">
+      <div class="shot-col">
+        <div class="shot"><img src="img/1889.jpg" alt="Filter and sort panel with venue, difficulty, and other filter chips"></div>
+        <div class="shot-cap">Filter &amp; sort</div>
+      </div>
+      <div class="shot-col">
+        <div class="shot"><img src="img/1888.jpg" alt="Add dances to a venue picker listing venues with endorsement counts"></div>
+        <div class="shot-cap">Bulk add to a venue</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="sync">
+    <div class="feature-copy">
+      <span class="eyebrow">My List → Spotify / Apple Music</span>
+      <h2>Turn My List into a <span class="accent2">real playlist</span>.</h2>
+      <p>Connect Spotify or Apple Music in Profile, and My List gets a <strong>Create Playlist</strong> button — it builds a playlist on your account from the songs behind your dances. Sync it again any time and only what's changed gets updated.</p>
+      <p>Sync is careful about it: if you remove a song from the playlist yourself in Spotify or Apple Music, it stays removed — sync won't add it back. If you remove a dance from My List instead, you're asked whether to keep the song in the playlist or take it out too.</p>
+      <p>Choose which dances count in Profile — <strong>Learning + Learned</strong> by default, or open it up to everything on My List.</p>
+    </div>
+    <div class="feature-shots solo">
+      <div class="shot-col">
+        <div class="feature-card">
+          <div class="row">
+            <span class="row-name">🎧 Apple Music</span>
+            <span class="pill">Sync</span>
+          </div>
+          <div class="row">
+            <span class="row-name">🎧 Spotify</span>
+            <span class="pill">Create</span>
+          </div>
+        </div>
+        <div class="shot-cap">Connect in Profile — then sync from My List</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature reverse" id="venues">
+    <div class="feature-copy">
+      <span class="eyebrow">Venues · Premium</span>
+      <h2>Know what's <span class="accent">playing</span> before you go.</h2>
+      <p>Browse any venue in the shared catalog — not just your own — and see which dances other people are actually reporting there, with a live count of how many dancers tagged each one.</p>
+      <p>Set a home bar in Profile and it's pinned to the top every time you open Venues.</p>
+    </div>
+    <div class="feature-shots solo">
+      <div class="shot-col">
+        <div class="shot"><img src="img/1890.jpg" alt="Venues screen showing Cancun Cantina as home bar with dances reported there"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="friends">
+    <div class="feature-copy">
+      <span class="eyebrow">Friends · Premium</span>
+      <h2>Dance together, <span class="accent2">not alone</span>.</h2>
+      <p>See what your friends are learning, add them from a username, and get a feed of what's changed on their list. <strong>Make an event</strong> to tell everyone where you're dancing and see a live headcount of who's coming.</p>
+      <p>Found a friend's list you like? Import their dances straight into your own — one at a time or all at once.</p>
+    </div>
+    <div class="feature-shots pair">
+      <div class="shot-col">
+        <div class="shot"><img src="img/1893.jpg" alt="Friends screen with an upcoming event and activity feed"></div>
+        <div class="shot-cap">Events &amp; activity</div>
+      </div>
+      <div class="shot-col">
+        <div class="shot"><img src="img/1892.jpg" alt="A friend's list open in read-only view, ready to import dances"></div>
+        <div class="shot-cap">Import from a friend's list</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature reverse" id="import">
+    <div class="feature-copy">
+      <span class="eyebrow">Profile</span>
+      <h2>Already keeping a list <span class="accent">somewhere else</span>?</h2>
+      <p>Paste it in from your Notes app, a spreadsheet, or anywhere else — a checklist, bullet list, or numbered list all work. Just One More Dance matches each line to the real dance in the catalog and pulls in any demo or tutorial link you'd already saved next to it.</p>
+      <p>Stop partway through and pick up right where you left off later — nothing's lost.</p>
+    </div>
+    <div class="feature-shots trio">
+      <div class="shot-col">
+        <div class="shot"><img src="img/1894.jpg" alt="Profile screen prompting to import a list kept elsewhere"></div>
+      </div>
+      <div class="shot-col">
+        <div class="shot"><img src="img/1896.jpg" alt="Import Your List modal with a pasted list matched to three dances"></div>
+      </div>
+      <div class="shot-col">
+        <div class="shot"><img src="img/1898.jpg" alt="Matching a pasted dance name to the correct catalog entry"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="feature" id="journey">
+    <div class="feature-copy">
+      <span class="eyebrow">Profile</span>
+      <h2>Track your progress. <span class="accent">Unlock awards.</span></h2>
+      <p>Profile keeps a running count of what you've learned and want to learn, fun facts for friends to see on your public profile, and a full set of milestone awards from <strong>First Steps</strong> at your very first dance up to <strong>Menace</strong> at 200.</p>
+      <p>Manage every venue you've added from here too — set your home bar, or remove one you don't dance at anymore.</p>
+    </div>
+    <div class="feature-shots pair">
+      <div class="shot-col">
+        <div class="shot"><img src="img/1899.jpg" alt="Dance journey stats and fun facts on the Profile screen"></div>
+        <div class="shot-cap">Your journey</div>
+      </div>
+      <div class="shot-col">
+        <div class="shot"><img src="img/1900.jpg" alt="List of unlockable awards from First Steps to Menace"></div>
+        <div class="shot-cap">Awards</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h2>Ready to start your list?</h2>
+    <p>Free to sign up — track as many dances as you like, then upgrade any time for Venues, Friends, and playlist sync.</p>
+    <div class="cta-buttons">
+      <a class="btn-primary" href="/">Open the app →</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="links">
+    <a href="/terms/">Terms</a>
+    <a href="/privacy/">Privacy</a>
+    <a href="/support/">Support</a>
+  </div>
+  <div class="copy">Just One More Dance</div>
+</footer>
+
+</body>
+</html>
