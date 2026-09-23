@@ -61,6 +61,13 @@ import { consumeWebSpotifyCallback, SpotifyAuthResult } from "./src/lib/spotifyA
 import { exchangeSpotifyCode } from "./src/lib/spotifySync";
 import { fetchAppleMusicDeveloperToken } from "./src/lib/appleMusicSync";
 import { AppleMusicProviderGate } from "./src/components/AppleMusicProviderGate";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
+import { initErrorReporting, reportError } from "./src/lib/errorReporting";
+
+// As early as possible — before the app root even renders — so a crash
+// during the very first render is still caught, not just ones after
+// Sentry happened to already be configured.
+initErrorReporting();
 import {
   loadProgress,
   saveProgress,
@@ -79,6 +86,14 @@ import { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 export default function App() {
+  return (
+    <ErrorBoundary onError={reportError}>
+      <AppRoot />
+    </ErrorBoundary>
+  );
+}
+
+function AppRoot() {
   const [tab, setTab] = useState<AppTab>("Home"),
     [query, setQuery] = useState(""),
     [progress, setProgress] = useState<Record<string, DanceProgress>>({}),
@@ -647,29 +662,37 @@ export default function App() {
           pendingCount={offlineCount}
           onPress={() => setOfflineOpen(true)}
         />
-        <AppleMusicProviderGate developerToken={appleDeveloperToken}>
         <KeyboardAvoidingView
           style={s.tabContent}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
         {tab === "Profile" ? (
-          <ProfileScreen
-            userId={session.user.id}
-            email={session.user.is_anonymous ? undefined : session.user.email}
-            learnedCount={learnedCount}
-            wantCount={wantCount}
-            progress={progress}
-            onProgressChange={handleProgressChange}
-            onCacheDances={mergeIntoCache}
-            openImport={openImportOnProfile}
-            onImportHandled={() => setOpenImportOnProfile(false)}
-            onOpenOfflineList={() => setOfflineOpen(true)}
-            onSignOut={() => void supabase.auth.signOut()}
-            onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
-            isPremium={isPremium}
-            musicRefreshKey={musicRefreshKey}
-            onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
-          />
+          // Scoped to just this tab, not the whole app — mounting the
+          // native Apple Music provider eagerly for every screen meant it
+          // did native init work the instant someone signed in, before
+          // they'd ever touched Profile. Suspected cause of a black
+          // screen right after a fresh install's first login (works fine
+          // on relaunch, once the OS has already initialized MusicKit for
+          // this app once).
+          <AppleMusicProviderGate developerToken={appleDeveloperToken}>
+            <ProfileScreen
+              userId={session.user.id}
+              email={session.user.is_anonymous ? undefined : session.user.email}
+              learnedCount={learnedCount}
+              wantCount={wantCount}
+              progress={progress}
+              onProgressChange={handleProgressChange}
+              onCacheDances={mergeIntoCache}
+              openImport={openImportOnProfile}
+              onImportHandled={() => setOpenImportOnProfile(false)}
+              onOpenOfflineList={() => setOfflineOpen(true)}
+              onSignOut={() => void supabase.auth.signOut()}
+              onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
+              isPremium={isPremium}
+              musicRefreshKey={musicRefreshKey}
+              onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
+            />
+          </AppleMusicProviderGate>
         ) : tab === "My List" ? (
           <MyListScreen
             userId={session.user.id}
@@ -767,7 +790,6 @@ export default function App() {
           </BackToTopScrollView>
         )}
         </KeyboardAvoidingView>
-        </AppleMusicProviderGate>
         <BottomTabs
           activeTab={tab}
           onChange={setTab}
