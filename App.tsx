@@ -325,7 +325,17 @@ function AppRoot() {
   // — takes effect next time they open the app, no app change needed.
   useEffect(() => {
     if (!userId) return;
-    configurePurchases(userId);
+    try {
+      // Synchronous, and the one call in this whole startup fan-out with
+      // no internal try/catch anywhere in its chain (unlike every other
+      // RevenueCat wrapper in src/lib/revenuecat.ts) — a native SDK
+      // hiccup here shouldn't be able to take down the first-ever render
+      // of the authenticated tree just because purchases failed to
+      // configure.
+      configurePurchases(userId);
+    } catch (err) {
+      console.warn("[App] configurePurchases failed", err);
+    }
     void loginPurchases(userId);
     return subscribeToPremiumStatus(userId, setIsPremium);
   }, [userId]);

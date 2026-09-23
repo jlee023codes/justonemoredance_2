@@ -74,10 +74,12 @@ export function subscribeToPremiumStatus(
     if (!cancelled) onChange(rcFlag || serverFlag);
   };
 
-  loadPremiumFromServer(userId).then((v) => {
-    serverFlag = v;
-    publish();
-  });
+  loadPremiumFromServer(userId)
+    .then((v) => {
+      serverFlag = v;
+      publish();
+    })
+    .catch((err) => console.warn("[entitlements] loadPremiumFromServer failed", err));
   const unsubscribeRC = RC.addEntitlementListener((v) => {
     rcFlag = v;
     publish();
