@@ -1,23 +1,17 @@
 import { supabase } from "../lib/supabase";
 import { LearningStatus } from "../types";
 
-export type PlaylistSyncScope = "all" | "learning_learned" | "learned";
+// A free-form subset of My List statuses to sync — multi-select, so any
+// combination is valid (e.g. "none" + "learned" but not "learning"). The
+// old three-way "all / learning_learned / learned" enum is gone: "none"
+// (added to My List but not yet tagged Want/Learning/Learned — still
+// counts toward your list per src/lib/planLimits.ts) is now its own
+// selectable option rather than something only "all" silently included,
+// so there's no longer any hidden/derived state — "Everything" in the
+// UI is purely a shortcut for selecting all four, computed client-side.
+export type PlaylistSyncScope = LearningStatus[];
 
-/** Which My List statuses count toward a synced playlist, per scope.
- *  "all" means every dance actually on My List — that includes "none"
- *  (added but not yet tagged Want/Learning/Learned; still counts toward
- *  your list per src/lib/planLimits.ts), not just the three named
- *  statuses. */
-export function statusesForScope(scope: PlaylistSyncScope): LearningStatus[] {
-  switch (scope) {
-    case "all":
-      return ["none", "want", "learning", "learned"];
-    case "learning_learned":
-      return ["learning", "learned"];
-    case "learned":
-      return ["learned"];
-  }
-}
+export const DEFAULT_SYNC_SCOPE: PlaylistSyncScope = ["learning", "learned"];
 
 export async function loadPlaylistSyncScope(
   userId: string,
@@ -28,7 +22,8 @@ export async function loadPlaylistSyncScope(
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
-  return (data?.playlist_sync_scope as PlaylistSyncScope) ?? "learning_learned";
+  const scope = data?.playlist_sync_scope as PlaylistSyncScope | null;
+  return scope?.length ? scope : DEFAULT_SYNC_SCOPE;
 }
 
 export async function setPlaylistSyncScope(
@@ -44,7 +39,7 @@ export async function setPlaylistSyncScope(
 
 /** Separate from playlist_sync_scope (Spotify/Apple Music only) — a user
  *  may reasonably want, say, "Learned only" for music but "Everything"
- *  for reference videos. Same three-way shape either way. */
+ *  for reference videos. Same shape either way. */
 export async function loadYoutubeSyncScope(
   userId: string,
 ): Promise<PlaylistSyncScope> {
@@ -54,7 +49,8 @@ export async function loadYoutubeSyncScope(
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
-  return (data?.youtube_sync_scope as PlaylistSyncScope) ?? "learning_learned";
+  const scope = data?.youtube_sync_scope as PlaylistSyncScope | null;
+  return scope?.length ? scope : DEFAULT_SYNC_SCOPE;
 }
 
 export async function setYoutubeSyncScope(

@@ -44,7 +44,6 @@ import {
   loadYoutubeStatus,
   loadYoutubeSyncScope,
   MusicAccountStatus,
-  statusesForScope,
 } from "../services/musicSync";
 import {
   applySpotifySync,
@@ -255,10 +254,10 @@ export function MyListScreen({
     loadAppleMusicStatus(userId).then(setAppleMusicStatus).catch(() => {});
     loadYoutubeStatus(userId).then(setYoutubeStatus).catch(() => {});
     loadPlaylistSyncScope(userId)
-      .then((scope) => setSyncScopeStatuses(new Set(statusesForScope(scope))))
+      .then((scope) => setSyncScopeStatuses(new Set(scope)))
       .catch(() => {});
     loadYoutubeSyncScope(userId)
-      .then((scope) => setYoutubeScopeStatuses(new Set(statusesForScope(scope))))
+      .then((scope) => setYoutubeScopeStatuses(new Set(scope)))
       .catch(() => {});
   }, [userId, musicRefreshKey]);
 

@@ -36,8 +36,9 @@ import {
   setFirstDance,
 } from "../services/friends";
 import { AWARDS as awards } from "../lib/awards";
-import { Dance, DanceProgress } from "../types";
+import { Dance, DanceProgress, LearningStatus } from "../types";
 import {
+  DEFAULT_SYNC_SCOPE,
   loadAppleMusicStatus,
   loadPlaylistSyncScope,
   loadSpotifyBetaEnabled,
@@ -55,6 +56,107 @@ import { useAppleMusicConnect } from "../lib/appleMusicAuth";
 import { connectAppleMusic, disconnectAppleMusic } from "../lib/appleMusicSync";
 import { connectYouTube } from "../lib/googleAuth";
 import { disconnectYoutube, exchangeYoutubeCode } from "../lib/youtubeSync";
+
+const SCOPE_OPTIONS: { key: LearningStatus; label: string }[] = [
+  { key: "none", label: "Untracked" },
+  { key: "want", label: "Want to Learn" },
+  { key: "learning", label: "Learning" },
+  { key: "learned", label: "Learned" },
+];
+
+function sameScope(a: PlaylistSyncScope, b: PlaylistSyncScope): boolean {
+  if (a.length !== b.length) return false;
+  const bSet = new Set(b);
+  return a.every((s) => bSet.has(s));
+}
+
+/** Multi-select replacement for the old three-way All/Learning+Learned/
+ *  Learned picker — any combination of the four My List statuses is
+ *  valid. "Everything" isn't its own stored state; it's purely a derived
+ *  shortcut, checked whenever all four are already selected, and tapping
+ *  it either selects all four or (if already all selected) resets to the
+ *  app default — deselecting any one of the four naturally un-derives
+ *  "Everything" with no special-case code needed. Edits are local until
+ *  Save, so toggling several chips doesn't fire a write per tap. */
+function SyncScopePicker({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: PlaylistSyncScope;
+  onSave: (scope: PlaylistSyncScope) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<PlaylistSyncScope>(value);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const everythingOn = SCOPE_OPTIONS.every((opt) => draft.includes(opt.key));
+  const dirty = !sameScope(draft, value);
+
+  const toggleStatus = (status: LearningStatus) => {
+    setDraft((current) =>
+      current.includes(status)
+        ? current.filter((s) => s !== status)
+        : [...current, status],
+    );
+  };
+
+  const toggleEverything = () => {
+    setDraft(everythingOn ? DEFAULT_SYNC_SCOPE : SCOPE_OPTIONS.map((o) => o.key));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Text style={[s.settingLabel, s.syncScopeLabel]}>{label}</Text>
+      <View style={s.syncScopeRow}>
+        <Pressable
+          onPress={toggleEverything}
+          style={[s.scopeChip, everythingOn && s.scopeChipOn]}
+        >
+          <Text style={[s.scopeChipText, everythingOn && s.scopeChipTextOn]}>
+            Everything
+          </Text>
+        </Pressable>
+        {SCOPE_OPTIONS.map((opt) => {
+          const active = draft.includes(opt.key);
+          return (
+            <Pressable
+              key={opt.key}
+              onPress={() => toggleStatus(opt.key)}
+              style={[s.scopeChip, active && s.scopeChipOn]}
+            >
+              <Text style={[s.scopeChipText, active && s.scopeChipTextOn]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {dirty && (
+        <Pressable
+          style={[s.scopeSave, saving && s.disabled]}
+          onPress={handleSave}
+          disabled={saving}
+        >
+          <Text style={s.scopeSaveText}>{saving ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      )}
+    </>
+  );
+}
 
 export function ProfileScreen({
   userId,
@@ -162,8 +264,11 @@ export function ProfileScreen({
   const [spotifyStatus, setSpotifyStatus] = useState<MusicAccountStatus | null>(null);
   const [appleMusicStatus, setAppleMusicStatus] = useState<MusicAccountStatus | null>(null);
   const [youtubeStatus, setYoutubeStatus] = useState<MusicAccountStatus | null>(null);
-  const [syncScope, setSyncScope] = useState<PlaylistSyncScope>("learning_learned");
-  const [youtubeSyncScope, setYoutubeSyncScopeState] = useState<PlaylistSyncScope>("learning_learned");
+  const [syncScope, setSyncScope] = useState<PlaylistSyncScope>(["learning", "learned"]);
+  const [youtubeSyncScope, setYoutubeSyncScopeState] = useState<PlaylistSyncScope>([
+    "learning",
+    "learned",
+  ]);
   const [connectingProvider, setConnectingProvider] = useState<
     "spotify" | "apple" | "youtube" | null
   >(null);
@@ -751,26 +856,11 @@ export function ProfileScreen({
           </View>
         ) : null}
 
-        <Text style={[s.settingLabel, s.syncScopeLabel]}>SYNC MY LIST&apos;S…</Text>
-        <View style={s.syncScopeRow}>
-          {(
-            [
-              { key: "all", label: "Everything" },
-              { key: "learning_learned", label: "Learning + Learned" },
-              { key: "learned", label: "Learned only" },
-            ] as { key: PlaylistSyncScope; label: string }[]
-          ).map((opt) => (
-            <Pressable
-              key={opt.key}
-              onPress={() => handleChangeSyncScope(opt.key)}
-              style={[s.scopeChip, syncScope === opt.key && s.scopeChipOn]}
-            >
-              <Text style={[s.scopeChipText, syncScope === opt.key && s.scopeChipTextOn]}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <SyncScopePicker
+          label="SYNC MY LIST'S…"
+          value={syncScope}
+          onSave={handleChangeSyncScope}
+        />
       </View>
 
       <Text style={s.section}>VIDEOS</Text>
@@ -806,26 +896,11 @@ export function ProfileScreen({
           )}
         </View>
 
-        <Text style={[s.settingLabel, s.syncScopeLabel]}>SYNC REFERENCE VIDEOS FOR…</Text>
-        <View style={s.syncScopeRow}>
-          {(
-            [
-              { key: "all", label: "Everything" },
-              { key: "learning_learned", label: "Learning + Learned" },
-              { key: "learned", label: "Learned only" },
-            ] as { key: PlaylistSyncScope; label: string }[]
-          ).map((opt) => (
-            <Pressable
-              key={opt.key}
-              onPress={() => handleChangeYoutubeSyncScope(opt.key)}
-              style={[s.scopeChip, youtubeSyncScope === opt.key && s.scopeChipOn]}
-            >
-              <Text style={[s.scopeChipText, youtubeSyncScope === opt.key && s.scopeChipTextOn]}>
-                {opt.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        <SyncScopePicker
+          label="SYNC REFERENCE VIDEOS FOR…"
+          value={youtubeSyncScope}
+          onSave={handleChangeYoutubeSyncScope}
+        />
       </View>
 
       <Text style={s.section}>SETTINGS</Text>
@@ -1130,6 +1205,14 @@ const s = StyleSheet.create({
   scopeChipOn: { backgroundColor: colors.gold, borderColor: colors.gold },
   scopeChipText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
   scopeChipTextOn: { color: colors.bg },
+  scopeSave: {
+    backgroundColor: colors.pink,
+    borderRadius: 9,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  scopeSaveText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   addVenueButton: {
     marginTop: 14,
     borderWidth: 1,
