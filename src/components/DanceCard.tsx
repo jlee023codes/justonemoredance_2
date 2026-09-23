@@ -1,6 +1,7 @@
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
+import { openExternalLink } from "../lib/openExternalLink";
 
 const DIFFICULTY_COLOR: Record<Dance["difficulty"], string> = {
   Beginner: colors.green,
@@ -122,7 +123,7 @@ export function DanceCard({
             {videoUrl ? (
               <Pressable
                 style={s.videoLink}
-                onPress={() => Linking.openURL(videoUrl).catch(() => {})}
+                onPress={() => openExternalLink(videoUrl).catch(() => {})}
                 hitSlop={6}
               >
                 <Text style={s.videoLinkText} numberOfLines={1}>

@@ -53,7 +53,7 @@ Line dances (Numbered - needs #. format)
 3. TATLO - https://youtube.com
 4. Stetson | https://youtube.com`;
 
-type Phase = "loading" | "paste" | "match" | "done";
+type Phase = "loading" | "paste" | "bulk" | "match" | "done";
 
 export function NotesImportModal({
   visible,
@@ -78,6 +78,12 @@ export function NotesImportModal({
   const [phase, setPhase] = useState<Phase>("loading");
   const [pasteText, setPasteText] = useState("");
   const [queueing, setQueueing] = useState(false);
+  const [autoAcceptTop, setAutoAcceptTop] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  // Bulk import runs as one long async loop after the modal has already
+  // moved past "paste" — closing the modal mid-run shouldn't make its
+  // callbacks keep firing into a screen the user has navigated away from.
+  const bulkCancelled = useRef(false);
 
   const [items, setItems] = useState<ImportItem[]>([]);
   const [index, setIndex] = useState(0);
@@ -95,8 +101,10 @@ export function NotesImportModal({
   // Open: resume an unfinished run if there is one, otherwise start fresh.
   useEffect(() => {
     if (!visible) return;
+    bulkCancelled.current = false;
     setPhase("loading");
     setPasteText("");
+    setAutoAcceptTop(false);
     setItems([]);
     setIndex(0);
     loadPendingImport(userId)
@@ -142,6 +150,7 @@ export function NotesImportModal({
   }, [query, phase]);
 
   const close = async () => {
+    bulkCancelled.current = true;
     await clearFinishedImport(userId).catch(() => {});
     onClose();
   };
@@ -172,6 +181,111 @@ export function NotesImportModal({
       setPhase("match");
     } catch (err: any) {
       showError(err, "Could not start the import.");
+    } finally {
+      setQueueing(false);
+    }
+  };
+
+  /** "Accept top result" mode — no per-dance review. Runs the searches
+   *  sequentially (not Promise.all) so it doesn't hammer BootStepper's
+   *  search endpoint with 100+ concurrent requests. Anything that comes
+   *  back with zero results is left pending on purpose — after this loop,
+   *  reloading pending items naturally returns exactly that no-match set
+   *  (everything else got marked done/skipped along the way), so it flows
+   *  straight into the normal one-by-one match phase for just those. */
+  const handleBulkAccept = async () => {
+    if (!parsed.length) return;
+    setQueueing(true);
+    try {
+      await queueImport(userId, parsed);
+      const pending = await loadPendingImport(userId);
+      setPhase("bulk");
+      setBulkProgress({ done: 0, total: pending.length });
+
+      // Tracks dances added *this run*, since `progress` (a prop) won't
+      // reflect onProgressChange calls made earlier in this same loop —
+      // two different pasted lines can resolve to the same BootStepper
+      // dance, and that duplicate needs catching too.
+      const addedThisRun = new Set(Object.keys(progress));
+      let imported = 0;
+      let duplicates = 0;
+      let limitHit = false;
+
+      for (let i = 0; i < pending.length; i++) {
+        if (bulkCancelled.current) break;
+        const item = pending[i];
+        try {
+          const found = await searchDances(item.rawName);
+          const dance = found[0];
+          if (!dance) {
+            // No match — stays pending, surfaced in the match phase next.
+          } else if (addedThisRun.has(dance.id)) {
+            await finishImportItem(item.id, "skipped");
+            duplicates++;
+          } else if (reachedDanceLimit(progress, Boolean(isPremium))) {
+            limitHit = true;
+            break; // leave this item + the rest pending, stop importing
+          } else {
+            const now = new Date().toISOString();
+            const next: DanceProgress = {
+              danceId: dance.id,
+              status: item.suggestedStatus,
+              danceName: dance.name,
+              danceSong: dance.defaultSong,
+              danceDifficulty: dance.difficulty,
+              link: item.rawLink,
+              createdAt: now,
+              updatedAt: now,
+            };
+            onCacheDances([dance]);
+            onProgressChange(dance.id, next);
+            addedThisRun.add(dance.id);
+            await saveProgress(userId, next, dance);
+            if (item.rawLink) {
+              await setDanceLink(userId, dance.id, item.rawLink, "user").catch(() => {});
+            }
+            await finishImportItem(item.id, "done");
+            imported++;
+          }
+        } catch {
+          // A single search/save failure shouldn't kill the whole run —
+          // leave that item pending, same as a genuine no-match.
+        }
+        if (bulkCancelled.current) break;
+        setBulkProgress({ done: i + 1, total: pending.length });
+      }
+
+      if (bulkCancelled.current) return;
+
+      await clearFinishedImport(userId).catch(() => {});
+      const remaining = await loadPendingImport(userId);
+      setItems(remaining);
+      setIndex(0);
+
+      // Always state every count explicitly, even at zero — omitting a
+      // zero-value line (e.g. no duplicates) reads as a dangling/missing
+      // stat rather than "there were none."
+      const parts = [
+        `${imported} dance${imported === 1 ? "" : "s"} imported.`,
+        `${duplicates} already in your list (skipped).`,
+      ];
+      if (!limitHit) {
+        parts.push(
+          remaining.length
+            ? `${remaining.length} had no match — let's find those now.`
+            : "0 had no match.",
+        );
+      } else {
+        parts.push(
+          `\n\nYou reached your free-tier limit. ${remaining.length} dance${remaining.length === 1 ? "" : "s"} are still waiting — upgrade to keep importing.`,
+        );
+      }
+      showAlert(imported ? "Import complete" : "Nothing new to import", parts.join(" "));
+
+      setPhase(remaining.length ? "match" : "done");
+    } catch (err: any) {
+      showError(err, "Could not start the import.");
+      setPhase("paste");
     } finally {
       setQueueing(false);
     }
@@ -268,10 +382,12 @@ export function NotesImportModal({
           )}
 
           {phase === "paste" && (
-            <ScrollView
-              contentContainerStyle={s.sheet}
-              keyboardShouldPersistTaps="handled"
-            >
+            <>
+              <ScrollView
+                style={s.pasteBody}
+                contentContainerStyle={s.sheet}
+                keyboardShouldPersistTaps="handled"
+              >
               <Text style={s.title}>Import Your List</Text>
               <Text style={s.subtitle}>
                 From your your Notes app (or spreadsheet, etc) select the dances
@@ -316,20 +432,65 @@ export function NotesImportModal({
                 </>
               )}
 
-              <Pressable
-                style={[s.primary, !parsed.length && s.disabled]}
-                onPress={handleQueue}
-                disabled={!parsed.length || queueing}
-              >
-                <Text style={s.primaryText}>
-                  {queueing
-                    ? "Starting…"
-                    : parsed.length
-                      ? `Match ${parsed.length} dance${parsed.length === 1 ? "" : "s"}`
-                      : "Paste your list above"}
-                </Text>
-              </Pressable>
-            </ScrollView>
+              </ScrollView>
+
+              <View style={s.stickyFooter}>
+                {parsed.length > 0 && (
+                  <View style={s.checkboxRow}>
+                    <Pressable
+                      style={s.checkboxToggle}
+                      onPress={() => setAutoAcceptTop((v) => !v)}
+                      hitSlop={4}
+                    >
+                      <View style={[s.checkbox, autoAcceptTop && s.checkboxOn]}>
+                        {autoAcceptTop && <Text style={s.checkboxMark}>✓</Text>}
+                      </View>
+                      <Text style={s.checkboxLabel}>
+                        Accept top result for each dance.
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        showAlert(
+                          "Accept top result",
+                          "Skips one-by-one review — best for long lists. Anything with no match still comes to you to match by hand.",
+                        )
+                      }
+                      hitSlop={8}
+                    >
+                      <Text style={s.infoIcon}>ⓘ</Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                <Pressable
+                  style={[s.primary, !parsed.length && s.disabled]}
+                  onPress={autoAcceptTop ? handleBulkAccept : handleQueue}
+                  disabled={!parsed.length || queueing}
+                >
+                  <Text style={s.primaryText}>
+                    {queueing
+                      ? "Starting…"
+                      : !parsed.length
+                        ? "Paste your list above"
+                        : autoAcceptTop
+                          ? `Auto-import ${parsed.length} dance${parsed.length === 1 ? "" : "s"}`
+                          : `Match ${parsed.length} dance${parsed.length === 1 ? "" : "s"}`}
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+
+          {phase === "bulk" && (
+            <View style={s.sheet}>
+              <Text style={s.title}>Importing your list…</Text>
+              <Text style={s.subtitle}>
+                Matching {bulkProgress.done} of {bulkProgress.total} dances.
+                Anything with no clean match will come back to you next.
+              </Text>
+              <ActivityIndicator color={colors.gold} style={s.loader} />
+            </View>
           )}
 
           {phase === "match" && current && (
@@ -459,7 +620,21 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
-  sheet: { padding: 25, paddingBottom: 32 },
+  sheet: { padding: 25, paddingBottom: 20 },
+  // ScrollView itself (not contentContainerStyle) — flexGrow: 0 stops it
+  // from expanding past its content, so within the card's maxHeight it
+  // only takes what it needs and the footer below always stays put
+  // instead of getting pushed off-screen by a long preview list. Same
+  // pattern as MyListToolsModal's `body` style.
+  pasteBody: { flexGrow: 0 },
+  stickyFooter: {
+    paddingHorizontal: 25,
+    paddingTop: 14,
+    paddingBottom: 25,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    backgroundColor: "#2b1f35",
+  },
   title: {
     color: colors.ink,
     fontSize: 24,
@@ -548,6 +723,42 @@ const s = StyleSheet.create({
   statusButtonTextOn: { color: colors.pink },
   loader: { marginTop: 16 },
   empty: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 16,
+  },
+  checkboxToggle: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  infoIcon: {
+    color: colors.gold,
+    fontSize: 16,
+    fontWeight: "800",
+    marginTop: 1,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  checkboxOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  checkboxMark: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  checkboxLabel: {
+    flex: 1,
+    color: colors.muted,
+    fontSize: 12.5,
+    lineHeight: 17,
+  },
   primary: {
     backgroundColor: colors.pink,
     borderRadius: 12,

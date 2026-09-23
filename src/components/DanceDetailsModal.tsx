@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
+import { openExternalLink } from "../lib/openExternalLink";
 import { DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE } from "../lib/planLimits";
 import { VenuePicker } from "./VenuePicker";
 import {
@@ -476,7 +476,7 @@ export function DanceDetailsModal({
                 {progress.link ?? dance.teachVideoUrl ? (
                   <Pressable
                     onPress={() =>
-                      Linking.openURL(
+                      openExternalLink(
                         (progress.link ?? dance.teachVideoUrl)!,
                       ).catch(() => {})
                     }
