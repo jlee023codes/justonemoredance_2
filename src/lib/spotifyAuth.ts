@@ -112,6 +112,12 @@ function startWebConnect(): void {
 export function consumeWebSpotifyCallback(): SpotifyAuthResult | null {
   if (Platform.OS !== "web") return null;
   const params = new URLSearchParams(window.location.search);
+  // A YouTube (Google) callback also lands on this same root URL — see
+  // googleAuth.ts's `?provider=youtube` marker baked into its redirect_uri
+  // — and would otherwise satisfy the code/error check below with no
+  // matching Spotify verifier in sessionStorage, showing a false "Spotify
+  // link expired" alert on every YouTube connect.
+  if (params.get("provider") === "youtube") return null;
   if (!params.has("code") && !params.has("error")) return null;
 
   const verifier = window.sessionStorage.getItem(VERIFIER_KEY) ?? "";

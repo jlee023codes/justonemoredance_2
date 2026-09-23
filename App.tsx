@@ -60,6 +60,8 @@ import {
 import { consumeWebSpotifyCallback, SpotifyAuthResult } from "./src/lib/spotifyAuth";
 import { exchangeSpotifyCode } from "./src/lib/spotifySync";
 import { fetchAppleMusicDeveloperToken } from "./src/lib/appleMusicSync";
+import { consumeWebGoogleCallback, GoogleAuthResult } from "./src/lib/googleAuth";
+import { exchangeYoutubeCode } from "./src/lib/youtubeSync";
 import { AppleMusicProviderGate } from "./src/components/AppleMusicProviderGate";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { initErrorReporting, reportError } from "./src/lib/errorReporting";
@@ -227,6 +229,34 @@ function AppRoot() {
         showAlert(
           "Spotify connection failed",
           err?.message ?? "Could not finish connecting to Spotify.",
+        ),
+      );
+  };
+
+  // Web side of YouTube's (Google) OAuth round trip — same shape as
+  // Spotify's above, sharing this same effect/mount since both land on
+  // the same root URL; consumeWebGoogleCallback's `?provider=youtube`
+  // guard (see googleAuth.ts) is what tells the two apart.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const result = consumeWebGoogleCallback();
+    if (!result) return;
+    handleGoogleAuthResult(result);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleGoogleAuthResult = (result: GoogleAuthResult) => {
+    if (result.kind === "cancelled") return;
+    if (result.kind === "error") {
+      showAlert("YouTube connection failed", result.message);
+      return;
+    }
+    exchangeYoutubeCode(result.code, result.codeVerifier, result.redirectUri, result.platform)
+      .then(() => setMusicRefreshKey((k) => k + 1))
+      .catch((err: any) =>
+        showAlert(
+          "YouTube connection failed",
+          err?.message ?? "Could not finish connecting to YouTube.",
         ),
       );
   };

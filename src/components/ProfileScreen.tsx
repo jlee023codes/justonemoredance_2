@@ -42,14 +42,19 @@ import {
   loadPlaylistSyncScope,
   loadSpotifyBetaEnabled,
   loadSpotifyStatus,
+  loadYoutubeStatus,
+  loadYoutubeSyncScope,
   MusicAccountStatus,
   PlaylistSyncScope,
   setPlaylistSyncScope,
+  setYoutubeSyncScope,
 } from "../services/musicSync";
 import { connectSpotify } from "../lib/spotifyAuth";
 import { disconnectSpotify, exchangeSpotifyCode } from "../lib/spotifySync";
 import { useAppleMusicConnect } from "../lib/appleMusicAuth";
 import { connectAppleMusic, disconnectAppleMusic } from "../lib/appleMusicSync";
+import { connectYouTube } from "../lib/googleAuth";
+import { disconnectYoutube, exchangeYoutubeCode } from "../lib/youtubeSync";
 
 export function ProfileScreen({
   userId,
@@ -156,15 +161,21 @@ export function ProfileScreen({
   const [spotifyBetaEnabled, setSpotifyBetaEnabled] = useState(false);
   const [spotifyStatus, setSpotifyStatus] = useState<MusicAccountStatus | null>(null);
   const [appleMusicStatus, setAppleMusicStatus] = useState<MusicAccountStatus | null>(null);
+  const [youtubeStatus, setYoutubeStatus] = useState<MusicAccountStatus | null>(null);
   const [syncScope, setSyncScope] = useState<PlaylistSyncScope>("learning_learned");
-  const [connectingProvider, setConnectingProvider] = useState<"spotify" | "apple" | null>(null);
+  const [youtubeSyncScope, setYoutubeSyncScopeState] = useState<PlaylistSyncScope>("learning_learned");
+  const [connectingProvider, setConnectingProvider] = useState<
+    "spotify" | "apple" | "youtube" | null
+  >(null);
   const { connect: connectApple } = useAppleMusicConnect();
 
   const refreshMusicAccounts = () => {
     loadSpotifyBetaEnabled(userId).then(setSpotifyBetaEnabled).catch(() => {});
     loadSpotifyStatus(userId).then(setSpotifyStatus).catch(() => {});
     loadAppleMusicStatus(userId).then(setAppleMusicStatus).catch(() => {});
+    loadYoutubeStatus(userId).then(setYoutubeStatus).catch(() => {});
     loadPlaylistSyncScope(userId).then(setSyncScope).catch(() => {});
+    loadYoutubeSyncScope(userId).then(setYoutubeSyncScopeState).catch(() => {});
   };
 
   useEffect(() => {
@@ -245,6 +256,53 @@ export function ProfileScreen({
     setSyncScope(scope);
     try {
       await setPlaylistSyncScope(userId, scope);
+    } catch (err: any) {
+      showAlert("Couldn't save that", err?.message ?? "Please try again.");
+    }
+  };
+
+  const handleConnectYoutube = async () => {
+    if (!isPremium) return void presentPaywall();
+    setConnectingProvider("youtube");
+    try {
+      // Web navigates away and never resolves this promise — the round
+      // trip back is picked up by App.tsx's own effect instead. Native
+      // resolves directly, here. Same shape as Spotify's connect flow.
+      const result = await connectYouTube();
+      if (result.kind === "cancelled") return;
+      if (result.kind === "error") {
+        showAlert("YouTube connection failed", result.message);
+        return;
+      }
+      await exchangeYoutubeCode(result.code, result.codeVerifier, result.redirectUri, result.platform);
+      refreshMusicAccounts();
+      onMusicChanged?.();
+    } catch (err: any) {
+      showAlert("YouTube connection failed", err?.message ?? "Please try again.");
+    } finally {
+      setConnectingProvider(null);
+    }
+  };
+
+  const handleDisconnectYoutube = async () => {
+    const ok = await confirmAction(
+      "Disconnect YouTube?",
+      "Just One More Dance will stop syncing to your YouTube playlist. The playlist itself stays on YouTube, untouched.",
+    );
+    if (!ok) return;
+    try {
+      await disconnectYoutube();
+      refreshMusicAccounts();
+      onMusicChanged?.();
+    } catch (err: any) {
+      showAlert("Couldn't disconnect", err?.message ?? "Please try again.");
+    }
+  };
+
+  const handleChangeYoutubeSyncScope = async (scope: PlaylistSyncScope) => {
+    setYoutubeSyncScopeState(scope);
+    try {
+      await setYoutubeSyncScope(userId, scope);
     } catch (err: any) {
       showAlert("Couldn't save that", err?.message ?? "Please try again.");
     }
@@ -708,6 +766,61 @@ export function ProfileScreen({
               style={[s.scopeChip, syncScope === opt.key && s.scopeChipOn]}
             >
               <Text style={[s.scopeChipText, syncScope === opt.key && s.scopeChipTextOn]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <Text style={s.section}>VIDEOS</Text>
+      <View style={s.settings}>
+        <Text style={s.hint}>
+          Connect YouTube to turn My List's reference videos into a real playlist —
+          sync it any time from My List. {isPremium ? "" : "Premium unlocks this."}
+        </Text>
+
+        <View style={s.musicRow}>
+          <View style={s.musicRowCopy}>
+            <Text style={s.musicRowName}>🎥 YouTube</Text>
+            <Text style={s.musicRowStatus}>
+              {youtubeStatus?.connected ? "Connected" : "Not connected"}
+            </Text>
+          </View>
+          {youtubeStatus?.connected ? (
+            <Pressable onPress={handleDisconnectYoutube} hitSlop={8}>
+              <Text style={s.musicDisconnect}>Disconnect</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[s.musicConnect, connectingProvider === "youtube" && s.disabled]}
+              onPress={handleConnectYoutube}
+              disabled={connectingProvider === "youtube"}
+            >
+              {connectingProvider === "youtube" ? (
+                <ActivityIndicator color={colors.bg} size="small" />
+              ) : (
+                <Text style={s.musicConnectText}>Connect</Text>
+              )}
+            </Pressable>
+          )}
+        </View>
+
+        <Text style={[s.settingLabel, s.syncScopeLabel]}>SYNC REFERENCE VIDEOS FOR…</Text>
+        <View style={s.syncScopeRow}>
+          {(
+            [
+              { key: "all", label: "Everything" },
+              { key: "learning_learned", label: "Learning + Learned" },
+              { key: "learned", label: "Learned only" },
+            ] as { key: PlaylistSyncScope; label: string }[]
+          ).map((opt) => (
+            <Pressable
+              key={opt.key}
+              onPress={() => handleChangeYoutubeSyncScope(opt.key)}
+              style={[s.scopeChip, youtubeSyncScope === opt.key && s.scopeChipOn]}
+            >
+              <Text style={[s.scopeChipText, youtubeSyncScope === opt.key && s.scopeChipTextOn]}>
                 {opt.label}
               </Text>
             </Pressable>

@@ -35,10 +35,13 @@ import {
 } from "../lib/danceListView";
 import { PlaylistSyncModal, PlaylistSyncProvider } from "./PlaylistSyncModal";
 import { appleMusicTrackIdFromUrl } from "../lib/appleMusicTrackId";
+import { youtubeVideoIdFromUrl } from "../lib/youtubeVideoId";
 import {
   loadAppleMusicStatus,
   loadPlaylistSyncScope,
   loadSpotifyStatus,
+  loadYoutubeStatus,
+  loadYoutubeSyncScope,
   MusicAccountStatus,
   statusesForScope,
 } from "../services/musicSync";
@@ -52,6 +55,11 @@ import {
   createAppleMusicPlaylist,
   planAppleMusicSync,
 } from "../lib/appleMusicSync";
+import {
+  applyYoutubeSync,
+  createYoutubePlaylist,
+  planYoutubeSync,
+} from "../lib/youtubeSync";
 
 // Falls back to whatever was snapshotted on the progress row if BootStepper
 // hasn't resolved the full dance yet.
@@ -223,7 +231,14 @@ export function MyListScreen({
   // self-owned write is (see supabase/functions/spotify-sync's comments).
   const [spotifyStatus, setSpotifyStatus] = useState<MusicAccountStatus | null>(null);
   const [appleMusicStatus, setAppleMusicStatus] = useState<MusicAccountStatus | null>(null);
+  const [youtubeStatus, setYoutubeStatus] = useState<MusicAccountStatus | null>(null);
   const [syncScopeStatuses, setSyncScopeStatuses] = useState<Set<string>>(
+    new Set(["learning", "learned"]),
+  );
+  // Independent from the music providers' scope above — a user may
+  // reasonably want "Learned only" for music but "Everything" for
+  // reference videos.
+  const [youtubeScopeStatuses, setYoutubeScopeStatuses] = useState<Set<string>>(
     new Set(["learning", "learned"]),
   );
   const [syncingProvider, setSyncingProvider] = useState<PlaylistSyncProvider | null>(null);
@@ -237,14 +252,22 @@ export function MyListScreen({
   useEffect(() => {
     loadSpotifyStatus(userId).then(setSpotifyStatus).catch(() => {});
     loadAppleMusicStatus(userId).then(setAppleMusicStatus).catch(() => {});
+    loadYoutubeStatus(userId).then(setYoutubeStatus).catch(() => {});
     loadPlaylistSyncScope(userId)
       .then((scope) => setSyncScopeStatuses(new Set(statusesForScope(scope))))
+      .catch(() => {});
+    loadYoutubeSyncScope(userId)
+      .then((scope) => setYoutubeScopeStatuses(new Set(statusesForScope(scope))))
       .catch(() => {});
   }, [userId, musicRefreshKey]);
 
   const scopedRows = useMemo(
     () => rows.filter((r) => syncScopeStatuses.has(r.progress.status)),
     [rows, syncScopeStatuses],
+  );
+  const youtubeScopedRows = useMemo(
+    () => rows.filter((r) => youtubeScopeStatuses.has(r.progress.status)),
+    [rows, youtubeScopeStatuses],
   );
 
   const spotifyTrackIds = useMemo(
@@ -279,23 +302,129 @@ export function MyListScreen({
     [scopedRows],
   );
 
-  // For the "keep or remove?" confirmation copy — a track id can map to
-  // more than one dance (two choreographies, same song), so every
-  // matching name is listed, not just one.
-  function danceNamesForTrackIds(trackIds: string[], byTrackId: (d: Dance) => string | null) {
+  // YouTube reads progress.link (the same field the "Watch video" chip
+  // reads — see danceFromProgress's comment above) rather than a
+  // dance.* field, since the effective reference video is user-editable
+  // and not necessarily what BootStepper originally provided.
+  const youtubeTrackIds = useMemo(
+    () =>
+      [...new Set(
+        youtubeScopedRows
+          .map((r) => youtubeVideoIdFromUrl(r.progress.link))
+          .filter((id): id is string => !!id),
+      )],
+    [youtubeScopedRows],
+  );
+  // No song title is available client-side for a video the way song names
+  // are for music — the dance name is the only label on hand for the
+  // "Skipped:" note here.
+  const youtubeUnmatched = useMemo(
+    () =>
+      youtubeScopedRows
+        .filter((r) => !youtubeVideoIdFromUrl(r.progress.link))
+        .map((r) => r.dance.name),
+    [youtubeScopedRows],
+  );
+
+  // For the "keep or remove?" confirmation copy — a track/video id can map
+  // to more than one dance (two choreographies, same song/video), so
+  // every matching name is listed, not just one. `sourceRows` lets the
+  // caller pick which scoped-rows array to search (music providers share
+  // one scope, YouTube has its own).
+  function danceNamesForTrackIds(
+    trackIds: string[],
+    byTrackId: (r: (typeof scopedRows)[number]) => string | null,
+    sourceRows: typeof scopedRows = scopedRows,
+  ) {
     const names = new Map<string, string[]>();
-    for (const r of scopedRows) {
-      const id = byTrackId(r.dance);
+    for (const r of sourceRows) {
+      const id = byTrackId(r);
       if (!id) continue;
       names.set(id, [...(names.get(id) ?? []), r.dance.name]);
     }
     return [...new Set(trackIds.flatMap((id) => names.get(id) ?? [id]))];
   }
 
+  // Everything that differs between the three providers, keyed once so
+  // handlePlaylistSync/resolvePendingRemoval read the same shape
+  // regardless of which one is running. `apply` is typed loosely
+  // (Spotify/Apple share a track-id argument shape, YouTube a video-id
+  // one — both are {add,remove,keep: string[]} on the wire either way).
+  const providerConfig = (provider: PlaylistSyncProvider) => {
+    switch (provider) {
+      case "spotify":
+        return {
+          status: spotifyStatus,
+          trackIds: spotifyTrackIds,
+          unmatched: spotifyUnmatched,
+          rows: scopedRows,
+          byTrackId: (r: (typeof scopedRows)[number]) => r.dance.spotifyTrackId ?? null,
+          displayName: "Spotify",
+          noun: "song",
+          create: createSpotifyPlaylist,
+          plan: planSpotifySync,
+          apply: (args: { add: string[]; remove: string[]; keep: string[] }) =>
+            applySpotifySync({
+              addTrackIds: args.add,
+              removeTrackIds: args.remove,
+              keepTrackIds: args.keep,
+            }),
+        };
+      case "apple":
+        return {
+          status: appleMusicStatus,
+          trackIds: appleMusicTrackIds,
+          unmatched: appleMusicUnmatched,
+          rows: scopedRows,
+          byTrackId: (r: (typeof scopedRows)[number]) =>
+            appleMusicTrackIdFromUrl(r.dance.appleMusicUrl),
+          displayName: "Apple Music",
+          noun: "song",
+          create: createAppleMusicPlaylist,
+          plan: planAppleMusicSync,
+          apply: (args: { add: string[]; remove: string[]; keep: string[] }) =>
+            applyAppleMusicSync({
+              addTrackIds: args.add,
+              removeTrackIds: args.remove,
+              keepTrackIds: args.keep,
+            }),
+        };
+      case "youtube":
+        return {
+          status: youtubeStatus,
+          trackIds: youtubeTrackIds,
+          unmatched: youtubeUnmatched,
+          rows: youtubeScopedRows,
+          byTrackId: (r: (typeof scopedRows)[number]) => youtubeVideoIdFromUrl(r.progress.link),
+          displayName: "YouTube",
+          noun: "video",
+          create: async (videoIds: string[]) => {
+            const result = await createYoutubePlaylist(videoIds);
+            return { playlistId: result.playlistId, playlistUrl: result.playlistUrl, trackCount: result.videoCount };
+          },
+          plan: async (videoIds: string[]) => {
+            const result = await planYoutubeSync(videoIds);
+            return {
+              playlistMissing: result.playlistMissing,
+              toAddTrackIds: result.toAddVideoIds,
+              toRemoveCandidateTrackIds: result.toRemoveCandidateVideoIds,
+            };
+          },
+          apply: async (args: { add: string[]; remove: string[]; keep: string[] }) => {
+            const result = await applyYoutubeSync({
+              addVideoIds: args.add,
+              removeVideoIds: args.remove,
+              keepVideoIds: args.keep,
+            });
+            return result;
+          },
+        };
+    }
+  };
+
   const handlePlaylistSync = async (provider: PlaylistSyncProvider) => {
-    const status = provider === "spotify" ? spotifyStatus : appleMusicStatus;
-    const trackIds = provider === "spotify" ? spotifyTrackIds : appleMusicTrackIds;
-    const unmatched = provider === "spotify" ? spotifyUnmatched : appleMusicUnmatched;
+    const { status, trackIds, unmatched, displayName, noun, create, plan, apply } =
+      providerConfig(provider);
     const unmatchedNote = unmatched.length
       ? `\n\nSkipped:\n${unmatched.map((l) => `• ${l}`).join("\n")}`
       : "";
@@ -303,22 +432,21 @@ export function MyListScreen({
     if (!trackIds.length) {
       showAlert(
         "Nothing to sync yet",
-        "Move a dance to Learning or Learned (or adjust your sync scope in Profile) — dances need a matching song to sync.",
+        provider === "youtube"
+          ? "Move a dance to Learning or Learned (or adjust your YouTube sync scope in Profile) — dances need a reference video link to sync."
+          : "Move a dance to Learning or Learned (or adjust your sync scope in Profile) — dances need a matching song to sync.",
       );
       return;
     }
     setSyncingProvider(provider);
     try {
       if (!status?.connected) return; // row isn't rendered in this state; guard anyway
-      const create = provider === "spotify" ? createSpotifyPlaylist : createAppleMusicPlaylist;
-      const plan = provider === "spotify" ? planSpotifySync : planAppleMusicSync;
-      const apply = provider === "spotify" ? applySpotifySync : applyAppleMusicSync;
 
       if (!status.playlistId) {
         const result = await create(trackIds);
         showAlert(
           "Playlist created 🎉",
-          `${result.trackCount} song${result.trackCount === 1 ? "" : "s"} added.${unmatchedNote}`,
+          `${result.trackCount} ${noun}${result.trackCount === 1 ? "" : "s"} added.${unmatchedNote}`,
         );
         onMusicChanged?.();
         return;
@@ -329,33 +457,30 @@ export function MyListScreen({
         onMusicChanged?.(); // refreshes status — button flips back to "Create"
         showAlert(
           "Playlist no longer exists",
-          `Looks like your ${provider === "spotify" ? "Spotify" : "Apple Music"} playlist was deleted. Tap Create to make a new one.`,
+          `Looks like your ${displayName} playlist was deleted. Tap Create to make a new one.`,
         );
         return;
       }
       if (syncPlan.toRemoveCandidateTrackIds.length) {
-        const byTrackId =
-          provider === "spotify"
-            ? (d: Dance) => d.spotifyTrackId ?? null
-            : (d: Dance) => appleMusicTrackIdFromUrl(d.appleMusicUrl);
+        const { byTrackId, rows: sourceRows } = providerConfig(provider);
         setPendingRemoval({
           provider,
           trackIds: syncPlan.toRemoveCandidateTrackIds,
-          danceNames: danceNamesForTrackIds(syncPlan.toRemoveCandidateTrackIds, byTrackId),
+          danceNames: danceNamesForTrackIds(
+            syncPlan.toRemoveCandidateTrackIds,
+            byTrackId,
+            sourceRows,
+          ),
           addTrackIds: syncPlan.toAddTrackIds,
         });
         return;
       }
 
-      const result = await apply({
-        addTrackIds: syncPlan.toAddTrackIds,
-        removeTrackIds: [],
-        keepTrackIds: [],
-      });
+      const result = await apply({ add: syncPlan.toAddTrackIds, remove: [], keep: [] });
       showAlert(
         "Synced",
         (result.added
-          ? `${result.added} song${result.added === 1 ? "" : "s"} added.`
+          ? `${result.added} ${noun}${result.added === 1 ? "" : "s"} added.`
           : "Your playlist is already up to date.") + unmatchedNote,
       );
       onMusicChanged?.();
@@ -369,8 +494,7 @@ export function MyListScreen({
   const resolvePendingRemoval = async (keep: boolean) => {
     if (!pendingRemoval) return;
     const { provider, trackIds, addTrackIds } = pendingRemoval;
-    const apply = provider === "spotify" ? applySpotifySync : applyAppleMusicSync;
-    const unmatched = provider === "spotify" ? spotifyUnmatched : appleMusicUnmatched;
+    const { apply, unmatched } = providerConfig(provider);
     const unmatchedNote = unmatched.length
       ? `\n\nSkipped:\n${unmatched.map((l) => `• ${l}`).join("\n")}`
       : "";
@@ -378,9 +502,9 @@ export function MyListScreen({
     setSyncingProvider(provider);
     try {
       const result = await apply({
-        addTrackIds,
-        removeTrackIds: keep ? [] : trackIds,
-        keepTrackIds: keep ? trackIds : [],
+        add: addTrackIds,
+        remove: keep ? [] : trackIds,
+        keep: keep ? trackIds : [],
       });
       showAlert(
         "Synced",
@@ -486,6 +610,24 @@ export function MyListScreen({
             </View>
           )}
         </View>
+
+        {youtubeStatus?.connected && (
+          <View style={s.videoSyncRow}>
+            <Pressable
+              style={[s.syncButton, syncingProvider === "youtube" && s.disabled]}
+              onPress={() => handlePlaylistSync("youtube")}
+              disabled={syncingProvider !== null}
+            >
+              {syncingProvider === "youtube" ? (
+                <ActivityIndicator color={colors.gold} size="small" />
+              ) : (
+                <Text style={s.syncButtonText} numberOfLines={1}>
+                  🎥  {youtubeStatus.playlistId ? "Sync" : "Create"}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        )}
 
         <SearchInput
           value={search}
@@ -684,6 +826,15 @@ const s = StyleSheet.create({
     fontWeight: "900",
   },
   headerSyncButtons: { flexDirection: "row", gap: 6, flexShrink: 0 },
+  // Deliberately its own row, not folded into headerSyncButtons — video
+  // sync is a distinct action from music sync, not a third button in the
+  // same undifferentiated group.
+  videoSyncRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: -6,
+    marginBottom: 14,
+  },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,

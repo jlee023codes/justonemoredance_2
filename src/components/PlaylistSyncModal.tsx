@@ -1,7 +1,7 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
 
-export type PlaylistSyncProvider = "spotify" | "apple";
+export type PlaylistSyncProvider = "spotify" | "apple" | "youtube";
 
 /** Shown only when a sync-plan found tracks that were synced before, are
  *  still sitting in the playlist untouched, but no longer on My List —
@@ -24,7 +24,8 @@ export function PlaylistSyncModal({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const providerName = provider === "spotify" ? "Spotify" : "Apple Music";
+  const providerName =
+    provider === "spotify" ? "Spotify" : provider === "apple" ? "Apple Music" : "YouTube";
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

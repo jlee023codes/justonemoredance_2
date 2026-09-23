@@ -10,7 +10,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#16101d"
     },
-    "scheme": "justonemoredance",
+    "scheme": ["justonemoredance", "com.justonemoredance.app"],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.justonemoredance.app"

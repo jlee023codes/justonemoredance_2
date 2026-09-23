@@ -42,6 +42,32 @@ export async function setPlaylistSyncScope(
   if (error) throw error;
 }
 
+/** Separate from playlist_sync_scope (Spotify/Apple Music only) — a user
+ *  may reasonably want, say, "Learned only" for music but "Everything"
+ *  for reference videos. Same three-way shape either way. */
+export async function loadYoutubeSyncScope(
+  userId: string,
+): Promise<PlaylistSyncScope> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("youtube_sync_scope")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.youtube_sync_scope as PlaylistSyncScope) ?? "learning_learned";
+}
+
+export async function setYoutubeSyncScope(
+  userId: string,
+  scope: PlaylistSyncScope,
+): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ youtube_sync_scope: scope })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
 /** Spotify's developer-mode cap means only manually-allowlisted users can
  *  connect at all — see migration_playlist_sync.sql. Apple Music has no
  *  such gate. */
@@ -106,5 +132,23 @@ export async function loadAppleMusicStatus(userId: string): Promise<MusicAccount
     connected: !!account.data,
     playlistId: playlist.data?.playlist_id ?? null,
     playlistUrl: null,
+  };
+}
+
+export async function loadYoutubeStatus(userId: string): Promise<MusicAccountStatus> {
+  const [account, playlist] = await Promise.all([
+    supabase.from("my_youtube_account").select("user_id").eq("user_id", userId).maybeSingle(),
+    supabase
+      .from("user_youtube_playlists")
+      .select("playlist_id, playlist_url")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+  if (account.error) throw account.error;
+  if (playlist.error) throw playlist.error;
+  return {
+    connected: !!account.data,
+    playlistId: playlist.data?.playlist_id ?? null,
+    playlistUrl: playlist.data?.playlist_url ?? null,
   };
 }
