@@ -34,6 +34,7 @@ import {
   activeFilterCount,
 } from "../lib/danceListView";
 import { PlaylistSyncModal, PlaylistSyncProvider } from "./PlaylistSyncModal";
+import { ProviderLogo } from "./ProviderLogo";
 import { appleMusicTrackIdFromUrl } from "../lib/appleMusicTrackId";
 import { youtubeVideoIdFromUrl } from "../lib/youtubeVideoId";
 import {
@@ -575,7 +576,7 @@ export function MyListScreen({
       >
         <View style={s.headerRow}>
           <Text style={s.heading}>My List</Text>
-          {(spotifyStatus?.connected || appleMusicStatus?.connected) && (
+          {(spotifyStatus?.connected || appleMusicStatus?.connected || youtubeStatus?.connected) && (
             <View style={s.headerSyncButtons}>
               {appleMusicStatus?.connected && (
                 <Pressable
@@ -586,9 +587,12 @@ export function MyListScreen({
                   {syncingProvider === "apple" ? (
                     <ActivityIndicator color={colors.gold} size="small" />
                   ) : (
-                    <Text style={s.syncButtonText} numberOfLines={1}>
-                      🎧  {appleMusicStatus.playlistId ? "Sync" : "Create"}
-                    </Text>
+                    <>
+                      <ProviderLogo provider="apple" />
+                      <Text style={s.syncButtonText} numberOfLines={1}>
+                        {appleMusicStatus.playlistId ? "Sync" : "Create"}
+                      </Text>
+                    </>
                   )}
                 </Pressable>
               )}
@@ -601,33 +605,36 @@ export function MyListScreen({
                   {syncingProvider === "spotify" ? (
                     <ActivityIndicator color={colors.gold} size="small" />
                   ) : (
-                    <Text style={s.syncButtonText} numberOfLines={1}>
-                      🎧  {spotifyStatus.playlistId ? "Sync" : "Create"}
-                    </Text>
+                    <>
+                      <ProviderLogo provider="spotify" />
+                      <Text style={s.syncButtonText} numberOfLines={1}>
+                        {spotifyStatus.playlistId ? "Sync" : "Create"}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              )}
+              {youtubeStatus?.connected && (
+                <Pressable
+                  style={[s.syncButton, syncingProvider === "youtube" && s.disabled]}
+                  onPress={() => handlePlaylistSync("youtube")}
+                  disabled={syncingProvider !== null}
+                >
+                  {syncingProvider === "youtube" ? (
+                    <ActivityIndicator color={colors.gold} size="small" />
+                  ) : (
+                    <>
+                      <ProviderLogo provider="youtube" />
+                      <Text style={s.syncButtonText} numberOfLines={1}>
+                        {youtubeStatus.playlistId ? "Sync" : "Create"}
+                      </Text>
+                    </>
                   )}
                 </Pressable>
               )}
             </View>
           )}
         </View>
-
-        {youtubeStatus?.connected && (
-          <View style={s.videoSyncRow}>
-            <Pressable
-              style={[s.syncButton, syncingProvider === "youtube" && s.disabled]}
-              onPress={() => handlePlaylistSync("youtube")}
-              disabled={syncingProvider !== null}
-            >
-              {syncingProvider === "youtube" ? (
-                <ActivityIndicator color={colors.gold} size="small" />
-              ) : (
-                <Text style={s.syncButtonText} numberOfLines={1}>
-                  🎥  {youtubeStatus.playlistId ? "Sync" : "Create"}
-                </Text>
-              )}
-            </Pressable>
-          </View>
-        )}
 
         <SearchInput
           value={search}
@@ -826,15 +833,6 @@ const s = StyleSheet.create({
     fontWeight: "900",
   },
   headerSyncButtons: { flexDirection: "row", gap: 6, flexShrink: 0 },
-  // Deliberately its own row, not folded into headerSyncButtons — video
-  // sync is a distinct action from music sync, not a third button in the
-  // same undifferentiated group.
-  videoSyncRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: -6,
-    marginBottom: 14,
-  },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -894,13 +892,15 @@ const s = StyleSheet.create({
   },
   clearInlineText: { color: colors.pink, fontSize: 13, fontWeight: "800" },
   syncButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
     borderWidth: 1,
     borderColor: colors.gold,
     borderRadius: 9,
     paddingVertical: 8,
     paddingHorizontal: 10,
-    alignItems: "center",
-    justifyContent: "center",
     minWidth: 34,
   },
   syncButtonText: { color: colors.gold, fontWeight: "800", fontSize: 12 },

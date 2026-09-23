@@ -122,6 +122,22 @@ Deno.serve(async (req: Request) => {
 // Token lifecycle
 // ---------------------------------------------------------------------
 
+/** Google's userinfo endpoint 401s a token that only carries an unrelated
+ *  scope like youtube — it needs an openid-scoped token (see
+ *  googleAuth.ts). Rather than requesting profile/email too (scope creep
+ *  for something we don't need), openid alone gets us an id_token whose
+ *  `sub` claim is a stable per-account identifier — decoded directly, no
+ *  signature verification needed since this came straight from Google's
+ *  token endpoint in the same request, not from an untrusted caller. */
+function subFromIdToken(idToken: string): string {
+  const payload = idToken.split(".")[1];
+  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  const json = JSON.parse(atob(padded));
+  if (!json.sub) throw new Error("Google's id_token had no sub claim.");
+  return json.sub as string;
+}
+
 function tokenRequestBody(creds: ClientCreds, extra: Record<string, string>) {
   const params: Record<string, string> = { client_id: creds.clientId, ...extra };
   // Only sent when actually configured — the native (iOS) client is
@@ -161,18 +177,15 @@ async function exchangeCode(
     );
   }
 
-  const meRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
-  });
-  if (!meRes.ok) {
-    throw new Error(`Could not read your Google profile: ${await meRes.text()}`);
+  if (!tokens.id_token) {
+    throw new Error("Google didn't return an id_token — check that 'openid' is in the requested scope.");
   }
-  const me = await meRes.json();
+  const googleUserId = subFromIdToken(tokens.id_token);
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
   const { error } = await db.from("user_youtube_accounts").upsert({
     user_id: userId,
-    google_user_id: me.id,
+    google_user_id: googleUserId,
     refresh_token: tokens.refresh_token,
     access_token: tokens.access_token,
     access_token_expires_at: expiresAt,

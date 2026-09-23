@@ -30,7 +30,14 @@ const DISCOVERY = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
 };
 
-const SCOPES = ["https://www.googleapis.com/auth/youtube"];
+// openid is required to get an id_token back at all — Google's userinfo
+// endpoint flatly 401s a token that only carries an unrelated scope like
+// youtube (unlike Spotify's /me, which just works off any valid token
+// regardless of which scopes it was granted). openid alone (no
+// email/profile) is the minimal addition that unlocks this — the edge
+// function decodes the id_token's `sub` claim rather than calling
+// userinfo as a second request.
+const SCOPES = ["openid", "https://www.googleapis.com/auth/youtube"];
 
 // Google's documented format for an iOS-type client's custom-scheme
 // redirect is a reverse-DNS scheme matching the bundle id
