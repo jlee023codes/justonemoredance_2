@@ -269,6 +269,34 @@ export async function getDanceById(id: string): Promise<Dance | null> {
   return data ? adaptDance(data) : null;
 }
 
+// Caps how many of the per-id fallback lookups below run at once. Without
+// this, a My List of ~150 dances with even one stale id (the batch
+// endpoint returns *nothing* if any single id is unknown — see below)
+// fires 150 concurrent requests, blowing past the connection's ~100
+// simultaneous-stream limit (HTTP/2 STREAMS_BLOCKED) — worst right after
+// a cold start, when the edge functions being woken are all asleep at
+// once. Same reasoning as the chunked writes in spotify-sync/youtube-sync.
+const FALLBACK_CONCURRENCY = 8;
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  return results;
+}
+
 /** Batch fetch — used to resolve dances saved in "Want to learn" / "Learned"
  *  that aren't in the current search results. */
 export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
@@ -288,12 +316,15 @@ export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
   // The batch endpoint returns *nothing* (empty body) if even one id is
   // unknown, so a single stale id — an old friend sample, a dance deleted
   // upstream — would otherwise sink the whole request. Retry the missing
-  // ones individually and just drop whatever still doesn't resolve.
+  // ones individually (throttled — see FALLBACK_CONCURRENCY above) and
+  // just drop whatever still doesn't resolve.
   const found = new Set(resolved.map((d) => d.id));
   const missing = ids.filter((id) => !found.has(id));
   if (missing.length) {
-    const singles = await Promise.all(
-      missing.map((id) => getDanceById(id).catch(() => null)),
+    const singles = await mapWithConcurrency(
+      missing,
+      FALLBACK_CONCURRENCY,
+      (id) => getDanceById(id).catch(() => null),
     );
     resolved = resolved.concat(
       singles.filter((d): d is Dance => d !== null),

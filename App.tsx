@@ -435,11 +435,17 @@ function AppRoot() {
         // its progress row — backfills rows saved before these columns
         // existed, and keeps them current from here on. A failure here
         // shouldn't be user-visible; the live catalogCache copy already has
-        // what's needed for this session either way.
+        // what's needed for this session either way. Sequential, not fired
+        // all at once — a cold-start My List can be ~150 dances resolving
+        // together, and nothing here is time-sensitive enough to need
+        // more than one write in flight (see the same reasoning for
+        // getDancesByIds's own fallback in bootstepper.ts).
         if (userId) {
-          dances.forEach((d) => {
-            void backfillDanceLinks(userId, d).catch(() => {});
-          });
+          (async () => {
+            for (const d of dances) {
+              await backfillDanceLinks(userId, d).catch(() => {});
+            }
+          })();
         }
       })
       .catch(() => {
