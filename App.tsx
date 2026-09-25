@@ -83,7 +83,12 @@ import {
   loadCachedCatalog,
   saveCachedCatalog,
 } from "./src/services/catalogCache";
-import { searchDances, getDancesByIds } from "./src/lib/bootstepper";
+import {
+  searchDances,
+  getDancesByIds,
+  searchTeachVideoUrl,
+  mapWithConcurrency,
+} from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
@@ -479,6 +484,62 @@ function AppRoot() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress, catalogCache, resolveTick]);
+
+  // Backfills a missing teach video for any My List dance already sitting
+  // in catalogCache, however it got there — resolved this session by the
+  // effect above, OR rehydrated from yesterday's persisted cache (see
+  // loadCachedCatalog's 24h TTL in catalogCache.ts). That second case is
+  // why this has to be its own separate pass rather than living inside
+  // the resolve effect above: a dance that was already fully resolved
+  // (non-snapshot) in a *previous* session, before this backfill existed,
+  // loads back in on every app open still missing a video — the resolve
+  // effect above only ever looks at snapshots, so it would never revisit
+  // an already-resolved entry no matter how many times the app reloads.
+  // getDancesByIds's underlying endpoint never carries teachVideos at all
+  // (a permanent BootStepper API limitation, not a transient failure —
+  // see searchTeachVideoUrl's own comment), so this is the only way any
+  // of these dances ever gets one without the user manually searching for
+  // it on Home themselves.
+  const videoBackfillAttempts = useRef<Map<string, number>>(new Map());
+  const MAX_VIDEO_BACKFILL_ATTEMPTS = 3;
+  useEffect(() => {
+    const needVideo = Object.keys(progress)
+      .map((id) => catalogCache[id])
+      .filter(
+        (d): d is Dance =>
+          !!d &&
+          !d.snapshot &&
+          !d.teachVideoUrl &&
+          (videoBackfillAttempts.current.get(d.id) ?? 0) <
+            MAX_VIDEO_BACKFILL_ATTEMPTS,
+      );
+    if (!needVideo.length) return;
+    let cancelled = false;
+    mapWithConcurrency(
+      needVideo,
+      8,
+      (d): Promise<Dance | null> =>
+        searchTeachVideoUrl(d.id, d.name)
+          .then((teachVideoUrl): Dance | null =>
+            teachVideoUrl ? { ...d, teachVideoUrl } : null,
+          )
+          .catch(() => null),
+    ).then((results) => {
+      if (cancelled) return;
+      needVideo.forEach((d) => {
+        videoBackfillAttempts.current.set(
+          d.id,
+          (videoBackfillAttempts.current.get(d.id) ?? 0) + 1,
+        );
+      });
+      const found = results.filter((d): d is Dance => d !== null);
+      if (found.length) mergeIntoCache(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress, catalogCache]);
 
   const progressValues = Object.values(progress);
   const learnedCount = progressValues.filter(

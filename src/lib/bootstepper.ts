@@ -278,7 +278,7 @@ export async function getDanceById(id: string): Promise<Dance | null> {
 // once. Same reasoning as the chunked writes in spotify-sync/youtube-sync.
 const FALLBACK_CONCURRENCY = 8;
 
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
   fn: (item: T) => Promise<R>,

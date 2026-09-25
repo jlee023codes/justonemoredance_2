@@ -12,7 +12,7 @@ import { DanceCard, QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { VenuePicker } from "./VenuePicker";
 import { SearchInput } from "./SearchInput";
-import { getDancesByIds, searchTeachVideoUrl } from "../lib/bootstepper";
+import { getDancesByIds, searchTeachVideoUrl, mapWithConcurrency } from "../lib/bootstepper";
 import {
   loadHomeVenueId,
   loadVenueById,
@@ -143,16 +143,15 @@ export function VenuesScreen({
         // lookup so a dance you haven't added yet still gets to show
         // BootStepper's video here, not just once you've searched for it
         // on Home.
-        Promise.all(
-          dances
-            .filter((d) => !d.teachVideoUrl)
-            .map((d): Promise<Dance | null> =>
-              searchTeachVideoUrl(d.id, d.name)
-                .then((teachVideoUrl): Dance | null =>
-                  teachVideoUrl ? { ...d, teachVideoUrl } : null,
-                )
-                .catch(() => null),
-            ),
+        mapWithConcurrency(
+          dances.filter((d) => !d.teachVideoUrl),
+          8,
+          (d): Promise<Dance | null> =>
+            searchTeachVideoUrl(d.id, d.name)
+              .then((teachVideoUrl): Dance | null =>
+                teachVideoUrl ? { ...d, teachVideoUrl } : null,
+              )
+              .catch(() => null),
         ).then((withVideos) => {
           if (cancelled) return;
           const found = withVideos.filter((d): d is Dance => d !== null);
