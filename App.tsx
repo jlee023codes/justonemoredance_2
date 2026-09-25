@@ -409,14 +409,23 @@ function AppRoot() {
   // Resolve dance ids saved in progress that we only have a snapshot for —
   // covers opening straight to "Want to learn" / "Learned" without having
   // searched this session, and dances imported from a friend's list (which
-  // arrive as bare name/song/difficulty snapshots). Each id is attempted
-  // once per session; a miss just leaves the snapshot in place.
-  const resolveAttemptedRef = useRef<Set<string>>(new Set());
+  // arrive as bare name/song/difficulty snapshots). Tracks attempt COUNTS
+  // per id, not a one-shot "tried" flag — getDancesByIds can return fewer
+  // dances than requested (an individual id failing inside it is swallowed
+  // and just dropped), so a flat "mark the whole batch as tried" would
+  // permanently strand any dance that missed within an otherwise-successful
+  // batch as a bare snapshot for the rest of the session, with no way to
+  // recover short of some unrelated code path (e.g. Home's search) happening
+  // to overwrite catalogCache for that id on its own.
+  const resolveAttemptCounts = useRef<Map<string, number>>(new Map());
+  const MAX_RESOLVE_ATTEMPTS = 3;
   const resolveRetryRef = useRef(0);
   const [resolveTick, setResolveTick] = useState(0);
   useEffect(() => {
     const needIds = Object.keys(progress).filter((id) => {
-      if (resolveAttemptedRef.current.has(id)) return false;
+      if ((resolveAttemptCounts.current.get(id) ?? 0) >= MAX_RESOLVE_ATTEMPTS) {
+        return false;
+      }
       const cached = catalogCache[id];
       return !cached || cached.snapshot;
     });
@@ -425,10 +434,21 @@ function AppRoot() {
     getDancesByIds(needIds)
       .then((dances) => {
         if (cancelled) return;
-        // Mark tried only on success — a transient BootStepper / auth
-        // hiccup shouldn't permanently leave a card as a bare snapshot
-        // with no choreographer / counts until a full reload.
-        needIds.forEach((id) => resolveAttemptedRef.current.add(id));
+        // Only ids that actually came back stop being retried — anything
+        // still missing gets its attempt count bumped instead, so a
+        // transient per-id miss gets a few more chances on the next tick
+        // rather than being given up on forever.
+        const resolvedIds = new Set(dances.map((d) => d.id));
+        needIds.forEach((id) => {
+          if (resolvedIds.has(id)) {
+            resolveAttemptCounts.current.delete(id);
+          } else {
+            resolveAttemptCounts.current.set(
+              id,
+              (resolveAttemptCounts.current.get(id) ?? 0) + 1,
+            );
+          }
+        });
         resolveRetryRef.current = 0;
         mergeIntoCache(dances);
         // Best-effort: sync each freshly-resolved dance's music links onto
