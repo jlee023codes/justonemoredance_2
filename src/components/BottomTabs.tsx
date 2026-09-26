@@ -29,7 +29,7 @@ export function BottomTabs({
             style={s.tab}
             onPress={() => onChange(tab.name)}
           >
-            <View>
+            <View style={s.iconBox}>
               <Text style={[s.icon, activeTab === tab.name && s.active]}>
                 {tab.icon}
               </Text>
@@ -62,7 +62,15 @@ const s = StyleSheet.create({
     paddingBottom: 20,
   },
   tab: { flex: 1, alignItems: "center" },
-  icon: { fontSize: 22, color: colors.muted },
+  // Fixed-height, centered box for every icon — plain Unicode symbols
+  // (⌂, ≣, ☻) and real emoji (📍, 👥) have different natural vertical
+  // metrics within their own glyph box even at the same fontSize, so
+  // without this some sit visibly higher/lower than their neighbors.
+  // Forcing them all into an identical centered box fixes the whole
+  // class of misalignment at once, rather than nudging one icon by a
+  // magic-number offset that could drift again on a font/OS update.
+  iconBox: { height: 24, alignItems: "center", justifyContent: "center" },
+  icon: { fontSize: 22, color: colors.muted, lineHeight: 24 },
   label: { fontSize: 10, color: colors.muted, marginTop: 3 },
   active: { color: colors.gold },
   badge: {
