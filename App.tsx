@@ -53,6 +53,7 @@ import {
   countOfflineList,
   OfflineDance,
 } from "./src/services/offlineList";
+import { LastUser, loadLastUser, rememberLastUser } from "./src/lib/lastUser";
 import { queueImport } from "./src/services/notesImport";
 import {
   applyRecoveryLink,
@@ -148,7 +149,23 @@ function AppRoot() {
     // Gates Venues ("pro"), Friends ("friends"+), and playlist sync
     // ("sync"+) — a real RevenueCat entitlement OR a manual server comp
     // (profiles.comped_premium, always "pro"). See src/lib/entitlements.ts.
-    [tier, setTier] = useState<Tier>("free");
+    [tier, setTier] = useState<Tier>("free"),
+    // True once the initial getSession() call has been hanging for a
+    // while — almost always a weak/no signal, since a merely-expired
+    // token still resolves fast when there's a network to refresh it
+    // over. Offers a way out of the loading screen instead of leaving
+    // the user staring at it until it eventually times out (which, on a
+    // dead connection, has read as "got signed out" — see authLoading's
+    // render branch below).
+    [authStuck, setAuthStuck] = useState(false),
+    // Who was last signed in on this device (see src/lib/lastUser.ts) —
+    // the only thing Offline Mode needs, since there's no live session to
+    // read a userId from while stuck offline.
+    [lastUser, setLastUser] = useState<LastUser | null>(null),
+    // Set by tapping "Turn on Offline Mode" from the stuck-loading screen.
+    // Bypasses the normal session-gated flow entirely and drops straight
+    // into Profile, scoped to `lastUser`, for the offline notepad.
+    [forcedOffline, setForcedOffline] = useState(false);
 
   const online = useOnlineStatus();
   // Only one of Home / My List / Venues / Friends is ever mounted at a
@@ -157,17 +174,37 @@ function AppRoot() {
   // where tapping the logo is then just a no-op).
   const activeScrollRef = useRef<BackToTopHandle>(null);
 
+  // Read once on mount — this is what Offline Mode falls back to; it only
+  // ever needs to have been written during some earlier, successful
+  // session, not this one.
   useEffect(() => {
+    loadLastUser().then(setLastUser).catch(() => {});
+  }, []);
+
+  // Shared with the "Try reconnecting" button on the offline-mode screen —
+  // that's just this same initial check, run again by hand once the user
+  // believes they have signal again.
+  const restoreSession = () => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthLoading(false);
+      if (data.session) {
+        void rememberLastUser(data.session.user.id, data.session.user.email);
+      }
     });
+  };
+
+  useEffect(() => {
+    restoreSession();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
-      if (nextSession) setSessionEpoch((n) => n + 1);
+      if (nextSession) {
+        setSessionEpoch((n) => n + 1);
+        void rememberLastUser(nextSession.user.id, nextSession.user.email);
+      }
       if (event === "PASSWORD_RECOVERY") {
         // Web only: supabase-js read the recovery tokens out of the URL
         // fragment itself (detectSessionInUrl). Wipe them so a refresh
@@ -188,6 +225,29 @@ function AppRoot() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // A merely-expired access token still refreshes fast when there's a
+  // network to do it over — this only fires when getSession() has
+  // genuinely been stuck for a while, which in practice means bad/no
+  // signal. Timer resets the moment authLoading resolves either way, so
+  // it's only ever showing while the loading screen actually would be.
+  useEffect(() => {
+    if (!authLoading) {
+      setAuthStuck(false);
+      return;
+    }
+    const timer = setTimeout(() => setAuthStuck(true), 5000);
+    return () => clearTimeout(timer);
+  }, [authLoading]);
+
+  // The original hung getSession() call (or a background token refresh)
+  // can still land a real session after the user has already switched to
+  // Offline Mode — signal came back a moment too late to matter for the
+  // 5-second prompt. Drop back into the normal flow as soon as that
+  // happens rather than leaving them stuck on the offline screen.
+  useEffect(() => {
+    if (session && forcedOffline) setForcedOffline(false);
+  }, [session, forcedOffline]);
 
   // Native side of the password-reset flow. On web, supabase-js handles
   // the URL itself; on iOS/Android the deep link arrives here instead and
@@ -355,6 +415,29 @@ function AppRoot() {
     countOfflineList(userId).then(setOfflineCount).catch(() => {});
   };
   useEffect(refreshOfflineCount, [userId, online]);
+
+  // Back online: push every offline-notepad line into the normal import
+  // queue, wipe the notepad, and drop the user into the matcher on Profile.
+  // Falls back to `lastUser` when there's no live session yet — reachable
+  // from the forced-offline screen, where `online` can read true (native's
+  // useOnlineStatus always assumes so — see that hook) before the user has
+  // actually tapped "Try reconnecting" to restore a real session.
+  const handleOfflineImport = async (items: OfflineDance[]) => {
+    const importUserId = userId ?? lastUser?.userId;
+    if (!importUserId || !items.length) return;
+    await queueImport(
+      importUserId,
+      items.map((item) => ({
+        name: item.note ? `${item.name} — ${item.note}` : item.name,
+        checked: false,
+      })),
+    );
+    await clearOfflineList(importUserId);
+    setOfflineCount(0);
+    setOfflineOpen(false);
+    setOpenImportOnProfile(true);
+    setTab("Profile");
+  };
 
   const refreshRequestCount = () => {
     if (!userId) return;
@@ -550,7 +633,77 @@ function AppRoot() {
   ).length;
   const wantCount = progressValues.filter((p) => p.status === "want").length;
 
-  if (authLoading)
+  // Bypasses the normal session-gated flow entirely — there may never be a
+  // real session this launch if signal doesn't come back, so this can't
+  // wait on one. Scoped to `lastUser` (see src/lib/lastUser.ts) purely so
+  // the offline notepad has a userId to key its on-device storage to.
+  if (forcedOffline && lastUser)
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={s.safe}>
+          <StatusBar style="light" />
+          <View style={s.header}>
+            <Text style={s.offlineModeTitle}>Offline Mode</Text>
+          </View>
+          <Pressable style={s.reconnectButton} onPress={restoreSession}>
+            <Text style={s.reconnectButtonText}>↻ Try reconnecting</Text>
+          </Pressable>
+          <KeyboardAvoidingView
+            style={s.tabContent}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <AppleMusicProviderGate developerToken={appleDeveloperToken}>
+              <ProfileScreen
+                userId={lastUser.userId}
+                email={lastUser.email ?? undefined}
+                learnedCount={0}
+                wantCount={0}
+                progress={{}}
+                onProgressChange={() => {}}
+                onCacheDances={() => {}}
+                onOpenOfflineList={() => setOfflineOpen(true)}
+                onSignOut={() => void supabase.auth.signOut()}
+                tier="free"
+                musicRefreshKey={musicRefreshKey}
+              />
+            </AppleMusicProviderGate>
+          </KeyboardAvoidingView>
+          <OfflineListModal
+            visible={offlineOpen}
+            online={online}
+            userId={lastUser.userId}
+            onClose={() => {
+              setOfflineOpen(false);
+              refreshOfflineCount();
+            }}
+            onImport={handleOfflineImport}
+          />
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+
+  if (authLoading) {
+    if (authStuck && lastUser)
+      return (
+        <SafeAreaProvider>
+          <SafeAreaView style={s.safe}>
+            <View style={s.stuckWrap}>
+              <Text style={s.loading}>Still trying to reach the server…</Text>
+              <Text style={s.stuckHint}>
+                This can happen with a weak or no signal. You can keep
+                waiting, or switch to Offline Mode to jot down dances now and
+                import them once you're back online.
+              </Text>
+              <Pressable
+                style={s.stuckButton}
+                onPress={() => setForcedOffline(true)}
+              >
+                <Text style={s.stuckButtonText}>Turn on Offline Mode</Text>
+              </Pressable>
+            </View>
+          </SafeAreaView>
+        </SafeAreaProvider>
+      );
     return (
       <SafeAreaProvider>
         <SafeAreaView style={s.safe}>
@@ -558,6 +711,7 @@ function AppRoot() {
         </SafeAreaView>
       </SafeAreaProvider>
     );
+  }
   // The reset screen needs the session the recovery link created, so it
   // has to come after the auth check but before everything else.
   if (session && resetPassword)
@@ -698,24 +852,6 @@ function AppRoot() {
     handleProgressChange(danceId, null);
 
     setVenuesRefreshKey((k) => k + 1);
-  };
-
-  // Back online: push every offline-notepad line into the normal import
-  // queue, wipe the notepad, and drop the user into the matcher on Profile.
-  const handleOfflineImport = async (items: OfflineDance[]) => {
-    if (!userId || !items.length) return;
-    await queueImport(
-      userId,
-      items.map((item) => ({
-        name: item.note ? `${item.name} — ${item.note}` : item.name,
-        checked: false,
-      })),
-    );
-    await clearOfflineList(userId);
-    setOfflineCount(0);
-    setOfflineOpen(false);
-    setOpenImportOnProfile(true);
-    setTab("Profile");
   };
 
   // Removes the given dances from every list + venue. `confirm` is caller
@@ -971,6 +1107,39 @@ const s = StyleSheet.create({
     marginTop: 100,
     fontSize: 16,
   },
+  stuckWrap: { flex: 1, justifyContent: "center", padding: 30 },
+  stuckHint: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 12,
+  },
+  stuckButton: {
+    backgroundColor: colors.gold,
+    borderRadius: 12,
+    padding: 15,
+    alignItems: "center",
+    marginTop: 24,
+  },
+  stuckButtonText: { color: colors.bg, fontWeight: "900", fontSize: 15 },
+  offlineModeTitle: {
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: "900",
+    flex: 1,
+    textAlign: "center",
+  },
+  reconnectButton: {
+    alignSelf: "center",
+    borderWidth: 1,
+    borderColor: colors.gold,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    marginTop: 10,
+  },
+  reconnectButtonText: { color: colors.gold, fontWeight: "800", fontSize: 13 },
   tabContent: { flex: 1 },
   header: {
     paddingHorizontal: 24,
