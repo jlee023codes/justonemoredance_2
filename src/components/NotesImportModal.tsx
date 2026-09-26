@@ -19,6 +19,7 @@ import {
   DANCE_LIMIT_TITLE,
   DANCE_LIMIT_MESSAGE,
 } from "../lib/planLimits";
+import { Tier } from "../lib/entitlements";
 import { DanceCard } from "./DanceCard";
 import { searchDances } from "../lib/bootstepper";
 import { saveProgress, setDanceLink } from "../services/progress";
@@ -62,7 +63,7 @@ export function NotesImportModal({
   onClose,
   onProgressChange,
   onCacheDances,
-  isPremium,
+  tier,
 }: {
   visible: boolean;
   userId: string;
@@ -72,8 +73,8 @@ export function NotesImportModal({
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
   /** Lets a matched BootStepper dance render with full details right away. */
   onCacheDances: (dances: Dance[]) => void;
-  /** Free tier caps My List at FREE_DANCE_LIMIT dances. */
-  isPremium?: boolean;
+  /** The My List dance cap varies by tier. */
+  tier?: Tier;
 }) {
   const [phase, setPhase] = useState<Phase>("loading");
   const [pasteText, setPasteText] = useState("");
@@ -222,7 +223,7 @@ export function NotesImportModal({
           } else if (addedThisRun.has(dance.id)) {
             await finishImportItem(item.id, "skipped");
             duplicates++;
-          } else if (reachedDanceLimit(progress, Boolean(isPremium))) {
+          } else if (reachedDanceLimit(progress, tier ?? "free")) {
             limitHit = true;
             break; // leave this item + the rest pending, stop importing
           } else {
@@ -318,7 +319,7 @@ export function NotesImportModal({
       return; // otherwise: stay put so they can pick a different match
     }
 
-    if (reachedDanceLimit(progress, Boolean(isPremium))) {
+    if (reachedDanceLimit(progress, tier ?? "free")) {
       busy.current = false;
       showAlert(DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE);
       return; // stay put — this item is still in the queue to retry later

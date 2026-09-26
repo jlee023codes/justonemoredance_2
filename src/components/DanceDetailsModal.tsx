@@ -15,6 +15,7 @@ import { Dance, DanceProgress, LearningStatus } from "../types";
 import { colors } from "../styles";
 import { openExternalLink } from "../lib/openExternalLink";
 import { DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE } from "../lib/planLimits";
+import { tierAtLeast, Tier } from "../lib/entitlements";
 import { VenuePicker } from "./VenuePicker";
 import {
   // The modal's status *buttons* are commented out (see handleStatus below),
@@ -55,7 +56,7 @@ export function DanceDetailsModal({
   onProgressChange,
   onRemoved,
   onVenuesChanged,
-  isPremium,
+  tier,
   atDanceLimit,
 }: {
   dance: Dance | null;
@@ -69,12 +70,13 @@ export function DanceDetailsModal({
   onRemoved: (danceId: string) => void;
   // Called after a venue tie is added, so My List re-reads its venue links.
   onVenuesChanged?: () => void;
-  // Free tier only searches venues the user already added when tagging a
-  // dance — browsing everyone else's venues is premium (see VenuePicker).
-  isPremium?: boolean;
-  // Free tier caps My List at FREE_DANCE_LIMIT dances — precomputed by the
-  // parent (which holds the full progress map), since this modal only ever
-  // sees one dance's progress.
+  // Below "pro" tier only searches venues the user already added when
+  // tagging a dance — browsing everyone else's venues is a pro perk (see
+  // VenuePicker).
+  tier?: Tier;
+  // The dance cap varies by tier — precomputed by the parent (which holds
+  // the full progress map), since this modal only ever sees one dance's
+  // progress.
   atDanceLimit?: boolean;
 }) {
   const [songSwap, setSongSwap] = useState("");
@@ -655,7 +657,7 @@ export function DanceDetailsModal({
         title="Venues for this dance"
         userId={userId}
         homeVenueId={homeVenueId}
-        restrictToMine={!isPremium}
+        restrictToMine={!tierAtLeast(tier ?? "free", "pro")}
         multi
         initialSelected={danceVenues}
         onSaveMulti={handleSaveVenues}

@@ -9,8 +9,14 @@ import {
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { confirmAction, showAlert } from "../lib/alerts";
-import { presentPaywall } from "../lib/entitlements";
-import { FREE_DANCE_LIMIT } from "../lib/planLimits";
+import {
+  presentPaywall,
+  presentPaywallIfNeeded,
+  SYNC_ENTITLEMENT_ID,
+  tierAtLeast,
+  Tier,
+} from "../lib/entitlements";
+import { danceLimitFor } from "../lib/planLimits";
 import { DanceCard, QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { BulkActionBar, SelectModeButton } from "./BulkRemoveBar";
@@ -98,7 +104,7 @@ export function MyListScreen({
   onRemoveDances,
   refreshKey,
   scrollRef,
-  isPremium,
+  tier,
   onVenuesChanged,
   musicRefreshKey,
   onMusicChanged,
@@ -116,8 +122,9 @@ export function MyListScreen({
   // Lets the header logo's "back to top" tap reach whichever screen is
   // currently mounted.
   scrollRef?: Ref<BackToTopHandle>;
-  // Shows the free-tier "X of FREE_DANCE_LIMIT dances" note + upgrade prompt when false.
-  isPremium: boolean;
+  // Shows the "X of {limit} dances" note + upgrade prompt below "pro" tier,
+  // and gates the sync Connect/Create/Sync actions ("sync" tier or above).
+  tier: Tier;
   // Lets the parent bump its venuesRefreshKey after a bulk add-to-venue,
   // same as everywhere else a venue tie changes.
   onVenuesChanged?: () => void;
@@ -428,7 +435,7 @@ export function MyListScreen({
     const unmatchedNote = unmatched.length
       ? `\n\nSkipped:\n${unmatched.map((l) => `• ${l}`).join("\n")}`
       : "";
-    if (!isPremium) return void presentPaywall();
+    if (!tierAtLeast(tier, "sync")) return void presentPaywallIfNeeded(SYNC_ENTITLEMENT_ID);
     if (!trackIds.length) {
       showAlert(
         "Nothing to sync yet",
@@ -707,10 +714,10 @@ export function MyListScreen({
             ))}
         </View>
 
-        {!isPremium && (
+        {!tierAtLeast(tier, "pro") && (
           <View style={s.limitRow}>
             <Text style={s.limitText}>
-              {rows.length} of {FREE_DANCE_LIMIT} free dances
+              {rows.length} of {danceLimitFor(tier)} dances
             </Text>
             <Pressable
               onPress={handleUpgrade}
@@ -789,7 +796,7 @@ export function MyListScreen({
             : `Add ${selectedIds.size} dance${selectedIds.size === 1 ? "" : "s"} to a venue`
         }
         userId={userId}
-        restrictToMine={!isPremium}
+        restrictToMine={!tierAtLeast(tier, "pro")}
         onSelect={handleAddSelectedToVenue}
         onClose={() => setVenuePickerOpen(false)}
       />

@@ -13,8 +13,12 @@ import { confirmAction, showAlert } from "../lib/alerts";
 import { supabase } from "../lib/supabase";
 import {
   presentCustomerCenter,
-  presentPaywall,
+  presentPaywallIfNeeded,
   restorePurchases,
+  SYNC_ENTITLEMENT_ID,
+  tierAtLeast,
+  Tier,
+  TIER_LABELS,
 } from "../lib/entitlements";
 import { deleteAccount } from "../lib/account";
 import { NotesImportModal } from "./NotesImportModal";
@@ -171,7 +175,7 @@ export function ProfileScreen({
   openImport,
   onImportHandled,
   onOpenOfflineList,
-  isPremium,
+  tier,
   musicRefreshKey,
   onMusicChanged,
 }: {
@@ -194,9 +198,10 @@ export function ProfileScreen({
   // Opens the on-device offline notepad (lives in App).
   onOpenOfflineList?: () => void;
   // Real RevenueCat entitlement OR a manual server comp — see
-  // src/lib/entitlements.ts. Used here to scope the venue picker's search
-  // (Premium unlocks browsing the whole shared catalog, not just your own).
-  isPremium: boolean;
+  // src/lib/entitlements.ts. Used here to gate the three Connect actions
+  // ("sync" or above) and scope the venue picker's search ("pro" unlocks
+  // browsing the whole shared catalog, not just your own).
+  tier: Tier;
   // Bumped in App.tsx after Spotify's web OAuth round trip completes, so
   // this screen's connection-status reads refresh.
   musicRefreshKey: number;
@@ -289,7 +294,7 @@ export function ProfileScreen({
   }, [userId, musicRefreshKey]);
 
   const handleConnectSpotify = async () => {
-    if (!isPremium) return void presentPaywall();
+    if (!tierAtLeast(tier, "sync")) return void presentPaywallIfNeeded(SYNC_ENTITLEMENT_ID);
     setConnectingProvider("spotify");
     try {
       // Web navigates away and never resolves this promise — the round
@@ -327,7 +332,7 @@ export function ProfileScreen({
   };
 
   const handleConnectAppleMusic = async () => {
-    if (!isPremium) return void presentPaywall();
+    if (!tierAtLeast(tier, "sync")) return void presentPaywallIfNeeded(SYNC_ENTITLEMENT_ID);
     setConnectingProvider("apple");
     try {
       const musicUserToken = await connectApple();
@@ -367,7 +372,7 @@ export function ProfileScreen({
   };
 
   const handleConnectYoutube = async () => {
-    if (!isPremium) return void presentPaywall();
+    if (!tierAtLeast(tier, "sync")) return void presentPaywallIfNeeded(SYNC_ENTITLEMENT_ID);
     setConnectingProvider("youtube");
     try {
       // Web navigates away and never resolves this promise — the round
@@ -582,7 +587,7 @@ export function ProfileScreen({
   // Restoring re-links any past purchase on this Apple/Google account to
   // this RevenueCat customer — no result handling needed beyond the
   // message: a successful restore fires RevenueCat's customer-info
-  // listener, which App.tsx is already subscribed to, so `isPremium`
+  // listener, which App.tsx is already subscribed to, so `tier`
   // (and anything gated on it) updates on its own.
   const [restoring, setRestoring] = useState(false);
   const handleRestorePurchases = async () => {
@@ -797,7 +802,7 @@ export function ProfileScreen({
       <View style={s.settings}>
         <Text style={s.hint}>
           Connect a music account to turn My List into a real playlist —
-          sync it any time from My List. {isPremium ? "" : "Premium unlocks this."}
+          sync it any time from My List. {tierAtLeast(tier, "sync") ? "" : "Grapevine unlocks this."}
         </Text>
 
         <View style={s.musicRow}>
@@ -867,7 +872,7 @@ export function ProfileScreen({
       <View style={s.settings}>
         <Text style={s.hint}>
           Connect YouTube to turn My List's reference videos into a real playlist —
-          sync it any time from My List. {isPremium ? "" : "Premium unlocks this."}
+          sync it any time from My List. {tierAtLeast(tier, "sync") ? "" : "Grapevine unlocks this."}
         </Text>
 
         <View style={s.musicRow}>
@@ -986,7 +991,7 @@ export function ProfileScreen({
         <View style={s.subscriptionRow}>
           <Text style={s.settingLabel}>SUBSCRIPTION</Text>
           <Text style={s.subscriptionStatus}>
-            {isPremium ? "★ Premium" : "Free"}
+            {tier === "free" ? "Free" : `★ ${TIER_LABELS[tier]}`}
           </Text>
         </View>
         <Pressable
@@ -1025,7 +1030,7 @@ export function ProfileScreen({
         progress={progress}
         onProgressChange={onProgressChange}
         onCacheDances={onCacheDances}
-        isPremium={isPremium}
+        tier={tier}
         onClose={() => {
           setImportOpen(false);
           refreshPendingImport();
@@ -1037,7 +1042,7 @@ export function ProfileScreen({
         title="Add a venue"
         userId={userId}
         homeVenueId={homeVenueId}
-        restrictToMine={!isPremium}
+        restrictToMine={!tierAtLeast(tier, "pro")}
         alreadyAddedVenueIds={myVenues.map((v) => v.id)}
         onSelect={handleAddVenue}
         onClose={() => setVenuePickerOpen(false)}

@@ -12,8 +12,9 @@ import { presentPaywall, redeemOfferCode } from "../lib/entitlements";
  *
  *  A successful purchase/restore doesn't need any handling here: it fires
  *  RevenueCat's customer-info listener, which App.tsx is already
- *  subscribed to (subscribeToPremiumStatus) — `isPremium` flips and this
- *  screen gets swapped out for the real one automatically. */
+ *  subscribed to (subscribeToPremiumStatus) — `tier` updates and this
+ *  screen gets swapped out for the real one automatically once it's high
+ *  enough. */
 export function PaywallScreen({
   title,
   bullets,
@@ -37,7 +38,7 @@ export function PaywallScreen({
       }
       // "cancelled" / "not_presented": nothing to say, they backed out or
       // already have the entitlement (the latter shouldn't happen here
-      // since this screen only shows when isPremium is false).
+      // since this screen only shows when the required tier isn't met).
     } finally {
       setPresenting(false);
     }

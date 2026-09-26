@@ -37,6 +37,7 @@ import { loadHomeVenueId } from "../services/venues";
 import { FriendDancesModal } from "./FriendDancesModal";
 import { MakeEventModal } from "./MakeEventModal";
 import { Dance, DanceProgress } from "../types";
+import { Tier } from "../lib/entitlements";
 
 // @username, plus "(Display Name)" only when they've actually set one.
 // Works whether `displayName` is the raw (possibly null) column or
@@ -89,7 +90,7 @@ export function FriendsScreen({
   onProgressChange,
   onOpenDance,
   onPendingRequestCountChange,
-  isPremium,
+  tier,
   scrollRef,
 }: {
   userId: string;
@@ -102,9 +103,9 @@ export function FriendsScreen({
   onOpenDance: (dance: Dance) => void;
   // Keeps the badge on the Friends tab in step with what's on screen.
   onPendingRequestCountChange?: (count: number) => void;
-  /** Passed through to FriendDancesModal — the free-tier My List cap only
-   *  applies without Premium. */
-  isPremium?: boolean;
+  /** Passed through to FriendDancesModal — the My List dance cap varies
+   *  by tier (see src/lib/planLimits.ts). */
+  tier?: Tier;
   scrollRef?: Ref<BackToTopHandle>;
 }) {
   // My username / display name
@@ -818,7 +819,7 @@ export function FriendsScreen({
         progress={progress}
         onClose={() => setSelectedFriend(null)}
         onProgressChange={onProgressChange}
-        isPremium={isPremium}
+        tier={tier}
       />
 
       <MakeEventModal

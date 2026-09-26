@@ -6,6 +6,7 @@ import {
   type Package,
 } from "@revenuecat/purchases-js";
 import { showAlert } from "./alerts";
+import { Tier } from "./tier";
 
 // Web implementation, backed by RevenueCat's Web Billing SDK
 // (@revenuecat/purchases-js) — a separate SDK from react-native-purchases,
@@ -16,6 +17,8 @@ import { showAlert } from "./alerts";
 // Every export mirrors revenuecat.ts's signature so callers never need a
 // Platform.OS check of their own.
 
+export const SYNC_ENTITLEMENT_ID = "grapevine";
+export const FRIENDS_ENTITLEMENT_ID = "line-up";
 export const PRO_ENTITLEMENT_ID = "just_one_more_dance_pro";
 export const PACKAGE_IDS = {
   monthly: "monthly",
@@ -38,10 +41,10 @@ let purchases: Purchases | null = null;
 // The web SDK has no addCustomerInfoUpdateListener equivalent — we simulate
 // one by re-checking the entitlement after anything that could change it
 // (login, purchase, restore/refresh) and pushing the result to subscribers.
-const listeners = new Set<(isPro: boolean) => void>();
+const listeners = new Set<(tier: Tier) => void>();
 async function notifyListeners(): Promise<void> {
-  const isPro = await checkProEntitlement();
-  listeners.forEach((l) => l(isPro));
+  const tier = await checkTier();
+  listeners.forEach((l) => l(tier));
 }
 
 /** Idempotent — safe to call every time you have a userId. Unlike the
@@ -81,15 +84,23 @@ export async function logoutPurchases(): Promise<void> {
   purchases = null;
 }
 
+function tierFor(info: CustomerInfo): Tier {
+  const active = info.entitlements.active;
+  if (active[PRO_ENTITLEMENT_ID]) return "pro";
+  if (active[FRIENDS_ENTITLEMENT_ID]) return "friends";
+  if (active[SYNC_ENTITLEMENT_ID]) return "sync";
+  return "free";
+}
+
 /** The one function everything else in the app should call to answer
- *  "is this person a paying (or comped-via-store) subscriber?" */
-export async function checkProEntitlement(): Promise<boolean> {
-  if (!purchases) return false;
+ *  "what tier is this person paying (or comped-via-store) for?" */
+export async function checkTier(): Promise<Tier> {
+  if (!purchases) return "free";
   try {
-    return await purchases.isEntitledTo(PRO_ENTITLEMENT_ID);
+    return tierFor(await purchases.getCustomerInfo());
   } catch (err) {
-    console.warn("[revenuecat.web] isEntitledTo failed", err);
-    return false;
+    console.warn("[revenuecat.web] getCustomerInfo failed", err);
+    return "free";
   }
 }
 
@@ -98,10 +109,10 @@ export async function checkProEntitlement(): Promise<boolean> {
  *  re-checks (login, purchase, restore) — good enough since a purchase
  *  made on web always goes through one of those. */
 export function addEntitlementListener(
-  onChange: (isPro: boolean) => void,
+  onChange: (tier: Tier) => void,
 ): () => void {
   listeners.add(onChange);
-  checkProEntitlement().then(onChange);
+  checkTier().then(onChange);
   return () => listeners.delete(onChange);
 }
 
@@ -164,7 +175,7 @@ export async function restorePurchases(): Promise<PurchaseOutcome> {
   try {
     const customerInfo = await purchases.getCustomerInfo();
     void notifyListeners();
-    if (customerInfo.entitlements.active[PRO_ENTITLEMENT_ID]) {
+    if (tierFor(customerInfo) !== "free") {
       return { success: true, customerInfo };
     }
     return {
@@ -223,9 +234,17 @@ export async function presentPaywall(): Promise<PaywallOutcome> {
   });
 }
 
-export async function presentPaywallIfNeeded(): Promise<PaywallOutcome> {
+export async function presentPaywallIfNeeded(
+  requiredEntitlementIdentifier: string = PRO_ENTITLEMENT_ID,
+): Promise<PaywallOutcome> {
   if (!purchases) return "error";
-  if (await checkProEntitlement()) return "not_presented";
+  try {
+    if (await purchases.isEntitledTo(requiredEntitlementIdentifier)) {
+      return "not_presented";
+    }
+  } catch (err) {
+    console.warn("[revenuecat.web] isEntitledTo failed", err);
+  }
   return presentPaywall();
 }
 

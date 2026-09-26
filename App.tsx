@@ -45,6 +45,8 @@ import {
   loginPurchases,
   logoutPurchases,
   subscribeToPremiumStatus,
+  tierAtLeast,
+  Tier,
 } from "./src/lib/entitlements";
 import {
   clearOfflineList,
@@ -143,9 +145,10 @@ function AppRoot() {
     // Set when an offline import has been queued, so the Profile tab opens
     // straight into the matcher.
     [openImportOnProfile, setOpenImportOnProfile] = useState(false),
-    // Gates the Venues/Friends tabs — a real RevenueCat entitlement OR a
-    // manual server comp (profiles.is_premium). See src/lib/entitlements.ts.
-    [isPremium, setIsPremium] = useState(false);
+    // Gates Venues ("pro"), Friends ("friends"+), and playlist sync
+    // ("sync"+) — a real RevenueCat entitlement OR a manual server comp
+    // (profiles.comped_premium, always "pro"). See src/lib/entitlements.ts.
+    [tier, setTier] = useState<Tier>("free");
 
   const online = useOnlineStatus();
   // Only one of Home / My List / Venues / Friends is ever mounted at a
@@ -176,7 +179,7 @@ function AppRoot() {
         setResetPassword(false);
         setProgress({});
         setPendingRequestCount(0);
-        setIsPremium(false);
+        setTier("free");
         // So a next sign-in (possibly a different account, shared device)
         // doesn't briefly inherit this customer's entitlement.
         void logoutPurchases();
@@ -323,10 +326,10 @@ function AppRoot() {
   }, [userId]);
 
   // Ties this device's RevenueCat customer to the signed-in Supabase user,
-  // then keeps `isPremium` live: a real entitlement OR a manual server
-  // comp (see subscribeToPremiumStatus). Comping someone ahead of a real
-  // subscription is just
-  //   update profiles set is_premium = true where id = '<their user id>';
+  // then keeps `tier` live: a real entitlement OR a manual server comp
+  // (see subscribeToPremiumStatus). Comping someone ahead of a real
+  // subscription (always grants "pro", the top tier) is just
+  //   update profiles set comped_premium = true where id = '<their user id>';
   // — takes effect next time they open the app, no app change needed.
   useEffect(() => {
     if (!userId) return;
@@ -342,7 +345,7 @@ function AppRoot() {
       console.warn("[App] configurePurchases failed", err);
     }
     void loginPurchases(userId);
-    return subscribeToPremiumStatus(userId, setIsPremium);
+    return subscribeToPremiumStatus(userId, setTier);
   }, [userId]);
 
   // Keep the offline-notepad badge in step: on load, when connectivity
@@ -600,7 +603,7 @@ function AppRoot() {
   ) => {
     if (!session) return;
     const isNewAddition = !progress[dance.id];
-    if (isNewAddition && reachedDanceLimit(progress, isPremium)) {
+    if (isNewAddition && reachedDanceLimit(progress, tier)) {
       showAlert(DANCE_LIMIT_TITLE, DANCE_LIMIT_MESSAGE);
       return;
     }
@@ -815,7 +818,7 @@ function AppRoot() {
               onOpenOfflineList={() => setOfflineOpen(true)}
               onSignOut={() => void supabase.auth.signOut()}
               onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
-              isPremium={isPremium}
+              tier={tier}
               musicRefreshKey={musicRefreshKey}
               onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
             />
@@ -830,13 +833,13 @@ function AppRoot() {
             onRemoveDances={(ids) => removeDances(ids, "")}
             refreshKey={venuesRefreshKey}
             scrollRef={activeScrollRef}
-            isPremium={isPremium}
+            tier={tier}
             onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
             musicRefreshKey={musicRefreshKey}
             onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
           />
         ) : tab === "Venues" ? (
-          isPremium ? (
+          tierAtLeast(tier, "pro") ? (
             <VenuesScreen
               userId={session.user.id}
               progress={progress}
@@ -859,7 +862,7 @@ function AppRoot() {
             />
           )
         ) : tab === "Friends" ? (
-          isPremium ? (
+          tierAtLeast(tier, "friends") ? (
             <FriendsScreen
               userId={session.user.id}
               email={session.user.is_anonymous ? undefined : session.user.email}
@@ -867,7 +870,7 @@ function AppRoot() {
               onProgressChange={handleProgressChange}
               onOpenDance={openDance}
               onPendingRequestCountChange={setPendingRequestCount}
-              isPremium={isPremium}
+              tier={tier}
               scrollRef={activeScrollRef}
             />
           ) : (
@@ -941,9 +944,9 @@ function AppRoot() {
           onProgressChange={handleProgressChange}
           onRemoved={handleRemoved}
           onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
-          isPremium={isPremium}
+          tier={tier}
           atDanceLimit={
-            selected ? reachedDanceLimit(progress, isPremium) : false
+            selected ? reachedDanceLimit(progress, tier) : false
           }
         />
         <OfflineListModal

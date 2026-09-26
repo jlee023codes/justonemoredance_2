@@ -6,6 +6,7 @@ import Purchases, {
   PurchasesPackage,
 } from "react-native-purchases";
 import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
+import { Tier } from "./tier";
 
 // Native (iOS/Android) implementation. See revenuecat.web.ts for the web
 // stub with the same exported surface — react-native-purchases has no web
@@ -14,6 +15,12 @@ import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
 // Requires a development build (Expo Go can't load native modules) — see
 // REVENUECAT_SETUP.md.
 
+// Three tiers, three entitlement identifiers — each tier's product in
+// RevenueCat is attached to every entitlement at or below its own level
+// (Grapevine → sync; Line Up → sync + friends; Floor Boss/"pro" → all
+// three), so tierFor() below just needs to check from the top down.
+export const SYNC_ENTITLEMENT_ID = "grapevine";
+export const FRIENDS_ENTITLEMENT_ID = "line-up";
 export const PRO_ENTITLEMENT_ID = "just_one_more_dance_pro";
 
 // The package identifiers as configured on the Offering in the RevenueCat
@@ -76,20 +83,24 @@ export async function logoutPurchases(): Promise<void> {
   }
 }
 
-function hasProEntitlement(info: CustomerInfo): boolean {
-  return Boolean(info.entitlements.active[PRO_ENTITLEMENT_ID]);
+function tierFor(info: CustomerInfo): Tier {
+  const active = info.entitlements.active;
+  if (active[PRO_ENTITLEMENT_ID]) return "pro";
+  if (active[FRIENDS_ENTITLEMENT_ID]) return "friends";
+  if (active[SYNC_ENTITLEMENT_ID]) return "sync";
+  return "free";
 }
 
 /** The one function everything else in the app should call to answer
- *  "is this person a paying (or comped-via-store) subscriber?" */
-export async function checkProEntitlement(): Promise<boolean> {
-  if (!configured) return false;
+ *  "what tier is this person paying (or comped-via-store) for?" */
+export async function checkTier(): Promise<Tier> {
+  if (!configured) return "free";
   try {
     const info = await Purchases.getCustomerInfo();
-    return hasProEntitlement(info);
+    return tierFor(info);
   } catch (err) {
     console.warn("[revenuecat] getCustomerInfo failed", err);
-    return false;
+    return "free";
   }
 }
 
@@ -97,12 +108,12 @@ export async function checkProEntitlement(): Promise<boolean> {
  *  change (purchase, renewal, cancellation, refund, restore — anywhere,
  *  not just from this session). Returns an unsubscribe function. */
 export function addEntitlementListener(
-  onChange: (isPro: boolean) => void,
+  onChange: (tier: Tier) => void,
 ): () => void {
   if (!configured) return () => {};
-  const listener = (info: CustomerInfo) => onChange(hasProEntitlement(info));
+  const listener = (info: CustomerInfo) => onChange(tierFor(info));
   Purchases.addCustomerInfoUpdateListener(listener);
-  checkProEntitlement().then(onChange);
+  checkTier().then(onChange);
   return () => Purchases.removeCustomerInfoUpdateListener(listener);
 }
 
@@ -191,13 +202,13 @@ export async function presentPaywall(): Promise<PaywallOutcome> {
   }
 }
 
-export async function presentPaywallIfNeeded(): Promise<PaywallOutcome> {
+export async function presentPaywallIfNeeded(
+  requiredEntitlementIdentifier: string = PRO_ENTITLEMENT_ID,
+): Promise<PaywallOutcome> {
   if (!configured) return "error";
   try {
     return mapPaywallResult(
-      await RevenueCatUI.presentPaywallIfNeeded({
-        requiredEntitlementIdentifier: PRO_ENTITLEMENT_ID,
-      }),
+      await RevenueCatUI.presentPaywallIfNeeded({ requiredEntitlementIdentifier }),
     );
   } catch (err) {
     console.warn("[revenuecat] presentPaywallIfNeeded failed", err);

@@ -13,10 +13,11 @@ import { colors } from "../styles";
 import { showAlert, showError } from "../lib/alerts";
 import { currentAward } from "../lib/awards";
 import {
-  FREE_DANCE_LIMIT,
+  danceLimitFor,
   DANCE_LIMIT_TITLE,
   DANCE_LIMIT_MESSAGE,
 } from "../lib/planLimits";
+import { Tier } from "../lib/entitlements";
 import { DanceCard } from "./DanceCard";
 import {
   Friend,
@@ -52,7 +53,7 @@ export function FriendDancesModal({
   progress,
   onClose,
   onProgressChange,
-  isPremium,
+  tier,
 }: {
   userId: string;
   friend: Friend | null;
@@ -61,9 +62,9 @@ export function FriendDancesModal({
   progress: Record<string, DanceProgress>;
   onClose: () => void;
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
-  /** Free tier caps My List at FREE_DANCE_LIMIT dances — import stops
-   *  filling once it's hit rather than silently going over. */
-  isPremium?: boolean;
+  /** The My List dance cap varies by tier — import stops filling once
+   *  it's hit rather than silently going over. */
+  tier?: Tier;
 }) {
   const [dances, setDances] = useState<FriendDance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,11 +128,13 @@ export function FriendDancesModal({
       );
     }
 
-    // Free tier caps My List at FREE_DANCE_LIMIT — only fill up to it,
-    // rather than letting a bulk import quietly blow past the limit.
-    const remainingSlots = isPremium
-      ? fresh.length
-      : Math.max(0, FREE_DANCE_LIMIT - Object.keys(progress).length);
+    // The tier's dance cap — only fill up to it, rather than letting a
+    // bulk import quietly blow past the limit. Math.max/slice both handle
+    // "pro"'s Infinity limit correctly with no separate branch needed.
+    const remainingSlots = Math.max(
+      0,
+      danceLimitFor(tier ?? "free") - Object.keys(progress).length,
+    );
     const overLimit = fresh.length - remainingSlots;
     const toImport = fresh.slice(0, remainingSlots);
 
