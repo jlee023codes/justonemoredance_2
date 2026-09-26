@@ -19,6 +19,7 @@ import {
 } from "../lib/planLimits";
 import { Tier } from "../lib/entitlements";
 import { DanceCard } from "./DanceCard";
+import { Avatar } from "./Avatar";
 import {
   Friend,
   FriendDance,
@@ -229,18 +230,21 @@ export function FriendDancesModal({
             <Text style={s.closeButtonText}>✕</Text>
           </Pressable>
           <View style={s.header}>
-            <Text style={s.title}>
-              {friend.displayName}'s list
-              {friendAward && (
-                <Text
-                  style={s.titleAward}
-                  accessibilityLabel={`${friendAward.title} award`}
-                >
-                  {" "}
-                  {friendAward.icon}
-                </Text>
-              )}
-            </Text>
+            <View style={s.titleRow}>
+              <Avatar avatarUrl={friend.avatarUrl} label={friend.displayName} size={36} />
+              <Text style={s.title}>
+                {friend.displayName}'s list
+                {friendAward && (
+                  <Text
+                    style={s.titleAward}
+                    accessibilityLabel={`${friendAward.title} award`}
+                  >
+                    {" "}
+                    {friendAward.icon}
+                  </Text>
+                )}
+              </Text>
+            </View>
             <Text style={s.subtitle}>
               {picked
                 ? "Tap dances to pick the ones you want."
@@ -476,11 +480,17 @@ const s = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 32,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   title: {
     color: colors.ink,
     fontSize: 25,
     fontWeight: "900",
     paddingRight: 36,
+    flexShrink: 1,
   },
   titleAward: { fontSize: 20 },
   subtitle: {

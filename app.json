@@ -29,7 +29,13 @@
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-web-browser",
-      "@sentry/react-native"
+      "@sentry/react-native",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a photo from your library to use as your profile picture."
+        }
+      ]
     ]
   }
 }

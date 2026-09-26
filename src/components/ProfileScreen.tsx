@@ -34,11 +34,14 @@ import {
   VenueOption,
 } from "../services/venues";
 import {
+  getMyProfile,
   loadProfileMeta,
   setDancerSince,
   setFavoriteDance,
   setFirstDance,
 } from "../services/friends";
+import { Avatar } from "./Avatar";
+import { AvatarPickerModal } from "./AvatarPickerModal";
 import { AWARDS as awards } from "../lib/awards";
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import {
@@ -210,6 +213,23 @@ export function ProfileScreen({
   onMusicChanged?: () => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
+
+  // Profile picture — a premade icon badge or an uploaded photo (see
+  // src/lib/avatarPresets.ts / AvatarPickerModal). Loaded independently
+  // of username/display name (which live in FriendsScreen's own editing
+  // UI) since this screen is where the user actually asked for the
+  // picture to live.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarLabel, setAvatarLabel] = useState("?");
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  useEffect(() => {
+    getMyProfile(userId)
+      .then((p) => {
+        setAvatarUrl(p.avatarUrl);
+        setAvatarLabel(p.displayName || p.username || "?");
+      })
+      .catch(() => {});
+  }, [userId]);
 
   // Change password
   const [newPassword, setNewPassword] = useState("");
@@ -633,6 +653,13 @@ export function ProfileScreen({
 
   return (
     <ScrollView contentContainerStyle={s.page}>
+      <Pressable style={s.avatarHeader} onPress={() => setAvatarPickerOpen(true)}>
+        <Avatar avatarUrl={avatarUrl} label={avatarLabel} size={72} />
+        <View style={s.avatarEditBadge}>
+          <Text style={s.avatarEditBadgeText}>✎</Text>
+        </View>
+      </Pressable>
+
       <Text style={s.section}>Keeping Track Somewhere Else Already?</Text>
       <View style={s.friendsCard}>
         <Text style={s.hint}>
@@ -1047,12 +1074,38 @@ export function ProfileScreen({
         onSelect={handleAddVenue}
         onClose={() => setVenuePickerOpen(false)}
       />
+
+      <AvatarPickerModal
+        visible={avatarPickerOpen}
+        userId={userId}
+        hasAvatar={!!avatarUrl}
+        onChange={setAvatarUrl}
+        onClose={() => setAvatarPickerOpen(false)}
+      />
     </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
   page: { padding: 20, paddingBottom: 115 },
+  avatarHeader: {
+    alignSelf: "center",
+    marginBottom: 14,
+  },
+  avatarEditBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.gold,
+    borderWidth: 2,
+    borderColor: colors.bg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarEditBadgeText: { color: colors.bg, fontSize: 12, fontWeight: "900" },
   heading: {
     color: colors.ink,
     fontSize: 25,

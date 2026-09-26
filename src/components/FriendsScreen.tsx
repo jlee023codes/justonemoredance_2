@@ -36,6 +36,7 @@ import {
 import { loadHomeVenueId } from "../services/venues";
 import { FriendDancesModal } from "./FriendDancesModal";
 import { MakeEventModal } from "./MakeEventModal";
+import { Avatar } from "./Avatar";
 import { Dance, DanceProgress } from "../types";
 import { Tier } from "../lib/entitlements";
 
@@ -556,6 +557,13 @@ export function FriendsScreen({
               </Text>
               {incoming.map((request) => (
                 <View key={request.requestId} style={s.requestRow}>
+                  <View style={s.rowAvatar}>
+                    <Avatar
+                      avatarUrl={request.from.avatarUrl}
+                      label={request.from.displayName}
+                      size={32}
+                    />
+                  </View>
                   <Text style={s.friendName} numberOfLines={1}>
                     {request.from.displayName}
                     <Text style={s.requestHandle}>
@@ -592,6 +600,13 @@ export function FriendsScreen({
               </Text>
               {outgoing.map((request) => (
                 <View key={request.requestId} style={s.requestRow}>
+                  <View style={s.rowAvatar}>
+                    <Avatar
+                      avatarUrl={request.from.avatarUrl}
+                      label={request.from.displayName}
+                      size={32}
+                    />
+                  </View>
                   <Text style={s.pendingName} numberOfLines={1}>
                     @{request.from.username} · pending
                   </Text>
@@ -644,6 +659,9 @@ export function FriendsScreen({
                 style={s.friendRow}
                 onPress={() => setSelectedFriend(friend)}
               >
+                <View style={s.rowAvatar}>
+                  <Avatar avatarUrl={friend.avatarUrl} label={friend.displayName} size={36} />
+                </View>
                 <Text style={s.friendName}>
                   {award && (
                     <Text
@@ -769,9 +787,17 @@ export function FriendsScreen({
               return (
                 <View key={key + i} style={s.activityRow}>
                   <Pressable
+                    style={s.activityRowInner}
                     onPress={() => count > 1 && toggleExpanded(key)}
                     disabled={count <= 1}
                   >
+                    <View style={s.rowAvatar}>
+                      <Avatar
+                        avatarUrl={item.friend.avatarUrl}
+                        label={item.friend.displayName}
+                        size={28}
+                      />
+                    </View>
                     <Text style={s.activityText}>
                       {friendLabel(item.friend)} {activityMessage(item)}
                     </Text>
@@ -1027,7 +1053,9 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
-  activityText: { color: colors.ink, fontSize: 14, lineHeight: 20 },
+  activityRowInner: { flexDirection: "row", alignItems: "center" },
+  activityText: { color: colors.ink, fontSize: 14, lineHeight: 20, flex: 1 },
+  rowAvatar: { marginRight: 10 },
   activityExpand: { marginTop: 6, paddingLeft: 4 },
   activityExpandItem: { color: colors.muted, fontSize: 13, marginBottom: 4 },
 });

@@ -1,9 +1,11 @@
 import { supabase } from "../lib/supabase";
+import { AvatarFocal, appendAvatarFocal } from "../lib/avatarFocal";
 
 export type Friend = {
   id: string;
   displayName: string;
   username: string;
+  avatarUrl: string | null;
 };
 
 export type FriendDance = {
@@ -29,14 +31,18 @@ function labelFor(profile: { display_name: string | null; username: string }): s
 
 export async function getMyProfile(
   userId: string,
-): Promise<{ username: string | null; displayName: string | null }> {
+): Promise<{ username: string | null; displayName: string | null; avatarUrl: string | null }> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("username, display_name")
+    .select("username, display_name, avatar_url")
     .eq("id", userId)
     .single();
   if (error) throw error;
-  return { username: data.username, displayName: data.display_name };
+  return {
+    username: data.username,
+    displayName: data.display_name,
+    avatarUrl: data.avatar_url,
+  };
 }
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
@@ -63,6 +69,62 @@ export async function setDisplayName(userId: string, name: string): Promise<void
     .update({ display_name: name.trim() || null })
     .eq("id", userId);
   if (error) throw error;
+}
+
+/** Selects one of the premade icon-badge avatars (see
+ *  src/lib/avatarPresets.ts) — stored as "preset:<id>", same column as an
+ *  uploaded photo. Overwrites whichever kind was there before. */
+export async function setAvatarPreset(userId: string, avatarUrl: string): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ avatar_url: avatarUrl })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+export async function clearAvatar(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ avatar_url: null })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+/** Uploads a photo picked from the device's library to the public
+ *  "avatars" Storage bucket (see migration_profile_avatar.sql), then
+ *  points profiles.avatar_url at it. Always the same path per user
+ *  (upsert: true) — a re-upload replaces the old file rather than
+ *  accumulating one per change, and a cache-busting query param is
+ *  appended since the URL itself would otherwise be identical to a
+ *  previous upload the client/CDN may have already cached. The full,
+ *  uncropped photo is what actually gets stored — `focal` (from
+ *  AvatarCropModal's circular positioner) is encoded onto the same URL
+ *  as query params so every Avatar render can reproduce the exact same
+ *  framing without a separate DB column. */
+export async function uploadAvatarPhoto(
+  userId: string,
+  localUri: string,
+  focal: AvatarFocal,
+): Promise<string> {
+  const response = await fetch(localUri);
+  const blob = await response.blob();
+  const path = `${userId}/avatar.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  const avatarUrl = appendAvatarFocal(`${data.publicUrl}?v=${Date.now()}`, focal);
+
+  const { error: updateError } = await supabase
+    .from("profiles")
+    .update({ avatar_url: avatarUrl })
+    .eq("id", userId);
+  if (updateError) throw updateError;
+
+  return avatarUrl;
 }
 
 /** A friend request waiting on someone: `incoming` ones are yours to
@@ -107,6 +169,12 @@ export async function sendFriendRequest(
         username: row.username,
       }),
       username: row.username,
+      // This RPC's result is only ever used for confirmation-alert text
+      // (displayName), never rendered as an Avatar directly — the roster
+      // reload right after accepting uses loadFriends(), which already
+      // selects the real avatar_url. Not worth widening the SQL
+      // function's return shape for a value nothing here reads.
+      avatarUrl: null,
     },
   };
 }
@@ -127,6 +195,7 @@ export async function loadFriendRequests(): Promise<FriendRequest[]> {
         username: row.username,
       }),
       username: row.username as string,
+      avatarUrl: row.avatar_url ?? null,
     },
   }));
 }
@@ -152,6 +221,7 @@ export async function respondToFriendRequest(
       username: row.username,
     }),
     username: row.username,
+    avatarUrl: row.avatar_url ?? null,
   };
 }
 
@@ -182,7 +252,7 @@ export async function loadFriends(userId: string): Promise<Friend[]> {
 
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
-    .select("id, display_name, username")
+    .select("id, display_name, username, avatar_url")
     .in("id", friendIds);
   if (profileError) throw profileError;
 
@@ -191,6 +261,7 @@ export async function loadFriends(userId: string): Promise<Friend[]> {
       id: p.id as string,
       displayName: labelFor({ display_name: p.display_name, username: p.username }),
       username: p.username as string,
+      avatarUrl: p.avatar_url ?? null,
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
