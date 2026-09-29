@@ -1,5 +1,6 @@
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
+import { openExternalLink } from "../lib/openExternalLink";
 
 const FEATURE_ROWS: { icon: string; label: string; note: string }[] = [
   {
@@ -60,6 +61,24 @@ export function HelpModal({
               </View>
             ))}
           </View>
+          <View style={s.webLinks}>
+            <Pressable
+              onPress={() =>
+                openExternalLink("https://justonemoredance.com/how-to-use/").catch(() => {})
+              }
+              hitSlop={6}
+            >
+              <Text style={s.webLink}>📖 How to Use guide</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                openExternalLink("https://justonemoredance.com/whats-new/").catch(() => {})
+              }
+              hitSlop={6}
+            >
+              <Text style={s.webLink}>✦ What's New</Text>
+            </Pressable>
+          </View>
           <Pressable style={s.done} onPress={onClose} hitSlop={8}>
             <Text style={s.doneText}>Got it</Text>
           </Pressable>
@@ -118,6 +137,18 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     lineHeight: 17,
+  },
+  webLinks: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    gap: 10,
+  },
+  webLink: {
+    color: colors.gold,
+    fontSize: 13,
+    fontWeight: "800",
   },
   done: {
     marginTop: 20,

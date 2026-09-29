@@ -186,6 +186,47 @@
   footer a:hover { color: var(--gold); }
   footer .copy { color: var(--line); font-size: 12px; }
 
+  /* ---- coming next ---- */
+  .next-section { margin-bottom: 44px; }
+  .next-head { margin-bottom: 16px; }
+  .next-card {
+    background: transparent;
+    border: 1.5px dashed var(--line);
+    border-radius: 16px;
+    padding: 20px 22px;
+  }
+  .next-card ul { margin: 0; padding: 0; list-style: none; }
+  .next-card li {
+    position: relative;
+    padding-left: 26px;
+    font-size: 15px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .next-card li:last-child { margin-bottom: 0; }
+  .next-card li::before {
+    content: "○";
+    position: absolute;
+    left: 0;
+    top: 1px;
+    color: var(--gold);
+    font-size: 12px;
+  }
+  .next-card li strong { color: var(--ink); font-weight: 700; }
+  .next-card li .status {
+    display: inline-block;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--gold);
+    border: 1px solid rgba(255,199,90,0.4);
+    border-radius: 6px;
+    padding: 2px 7px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
   @media (max-width: 520px) {
     .brand-name { display: none; }
     .topbar-cta { padding: 10px 14px; font-size: 12.5px; }
@@ -211,6 +252,20 @@
     <span class="eyebrow">What's new</span>
     <h1 class="headline">Everything shipped so far, <span class="accent">week by week</span>.</h1>
     <p class="sub">A running log of what's gone out to Just One More Dance — new features, fixes, and everything in between. Newest first.</p>
+  </div>
+
+  <div class="next-section">
+    <div class="next-head">
+      <span class="eyebrow">Coming soon</span>
+      <h2 style="font-family:'Unbounded',sans-serif; font-weight:800; font-size:20px; margin:10px 0 0;">What's coming next</h2>
+    </div>
+    <div class="next-card">
+      <ul>
+        <li><strong>iOS app update</strong><span class="status">On the way</span> — profile pictures, Offline Mode, and a tab-bar polish fix, already built and headed to TestFlight next.</li>
+        <li><strong>Android</strong> — bringing Just One More Dance to Android.</li>
+        <li><strong>An even richer YouTube sync</strong> — a second auto-playlist just for demo videos, alongside the teach-video one that already exists.</li>
+      </ul>
+    </div>
   </div>
 
   <div class="timeline">
