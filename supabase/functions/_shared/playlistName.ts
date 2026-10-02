@@ -11,6 +11,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 export async function playlistNameFor(
   db: ReturnType<typeof createClient>,
   userId: string,
+  // e.g. "Learning" / "Learned" — appended for a provider (YouTube) that
+  // splits into more than one playlist per user, so the two don't show up
+  // as identically-named playlists in the same library.
+  suffix?: string,
 ): Promise<string> {
   const { data } = await db
     .from("profiles")
@@ -18,5 +22,6 @@ export async function playlistNameFor(
     .eq("id", userId)
     .maybeSingle();
   const label = data?.display_name?.trim() || (data?.username ? `@${data.username}` : null);
-  return label ? `Just One More Dance — ${label}` : "Just One More Dance";
+  const base = label ? `Just One More Dance — ${label}` : "Just One More Dance";
+  return suffix ? `${base} (${suffix})` : base;
 }

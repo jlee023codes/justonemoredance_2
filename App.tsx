@@ -89,7 +89,7 @@ import {
 import {
   searchDances,
   getDancesByIds,
-  searchTeachVideoUrl,
+  searchVideoUrls,
   mapWithConcurrency,
 } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
@@ -292,7 +292,10 @@ function AppRoot() {
       return;
     }
     exchangeSpotifyCode(result.code, result.codeVerifier, result.redirectUri)
-      .then(() => setMusicRefreshKey((k) => k + 1))
+      .then(() => {
+        setMusicRefreshKey((k) => k + 1);
+        setTab("My List");
+      })
       .catch((err: any) =>
         showAlert(
           "Spotify connection failed",
@@ -320,7 +323,10 @@ function AppRoot() {
       return;
     }
     exchangeYoutubeCode(result.code, result.codeVerifier, result.redirectUri, result.platform)
-      .then(() => setMusicRefreshKey((k) => k + 1))
+      .then(() => {
+        setMusicRefreshKey((k) => k + 1);
+        setTab("My List");
+      })
       .catch((err: any) =>
         showAlert(
           "YouTube connection failed",
@@ -571,21 +577,22 @@ function AppRoot() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress, catalogCache, resolveTick]);
 
-  // Backfills a missing teach video for any My List dance already sitting
-  // in catalogCache, however it got there — resolved this session by the
-  // effect above, OR rehydrated from yesterday's persisted cache (see
-  // loadCachedCatalog's 24h TTL in catalogCache.ts). That second case is
-  // why this has to be its own separate pass rather than living inside
-  // the resolve effect above: a dance that was already fully resolved
-  // (non-snapshot) in a *previous* session, before this backfill existed,
-  // loads back in on every app open still missing a video — the resolve
-  // effect above only ever looks at snapshots, so it would never revisit
-  // an already-resolved entry no matter how many times the app reloads.
-  // getDancesByIds's underlying endpoint never carries teachVideos at all
-  // (a permanent BootStepper API limitation, not a transient failure —
-  // see searchTeachVideoUrl's own comment), so this is the only way any
-  // of these dances ever gets one without the user manually searching for
-  // it on Home themselves.
+  // Backfills a missing teach and/or demo video for any My List dance
+  // already sitting in catalogCache, however it got there — resolved this
+  // session by the effect above, OR rehydrated from yesterday's persisted
+  // cache (see loadCachedCatalog's 24h TTL in catalogCache.ts). That
+  // second case is why this has to be its own separate pass rather than
+  // living inside the resolve effect above: a dance that was already
+  // fully resolved (non-snapshot) in a *previous* session, before this
+  // backfill existed, loads back in on every app open still missing a
+  // video — the resolve effect above only ever looks at snapshots, so it
+  // would never revisit an already-resolved entry no matter how many
+  // times the app reloads. getDancesByIds's underlying endpoint never
+  // carries teachVideos/demoVideos at all (a permanent BootStepper API
+  // limitation, not a transient failure — see searchVideoUrls's own
+  // comment), so this is the only way any of these dances ever gets
+  // either video without the user manually searching for it on Home
+  // themselves.
   const videoBackfillAttempts = useRef<Map<string, number>>(new Map());
   const MAX_VIDEO_BACKFILL_ATTEMPTS = 3;
   useEffect(() => {
@@ -595,7 +602,7 @@ function AppRoot() {
         (d): d is Dance =>
           !!d &&
           !d.snapshot &&
-          !d.teachVideoUrl &&
+          (!d.teachVideoUrl || !d.demoVideoUrl) &&
           (videoBackfillAttempts.current.get(d.id) ?? 0) <
             MAX_VIDEO_BACKFILL_ATTEMPTS,
       );
@@ -605,9 +612,15 @@ function AppRoot() {
       needVideo,
       8,
       (d): Promise<Dance | null> =>
-        searchTeachVideoUrl(d.id, d.name)
-          .then((teachVideoUrl): Dance | null =>
-            teachVideoUrl ? { ...d, teachVideoUrl } : null,
+        searchVideoUrls(d.id, d.name)
+          .then(({ teachVideoUrl, demoVideoUrl }): Dance | null =>
+            teachVideoUrl || demoVideoUrl
+              ? {
+                  ...d,
+                  teachVideoUrl: d.teachVideoUrl ?? teachVideoUrl,
+                  demoVideoUrl: d.demoVideoUrl ?? demoVideoUrl,
+                }
+              : null,
           )
           .catch(() => null),
     ).then((results) => {
@@ -957,6 +970,7 @@ function AppRoot() {
               tier={tier}
               musicRefreshKey={musicRefreshKey}
               onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
+              onConnected={() => setTab("My List")}
             />
           </AppleMusicProviderGate>
         ) : tab === "My List" ? (

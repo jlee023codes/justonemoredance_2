@@ -1,5 +1,6 @@
 import { supabase } from "../lib/supabase";
 import { LearningStatus } from "../types";
+import { YoutubePlaylistKind } from "../lib/youtubeSync";
 
 // A free-form subset of My List statuses to sync — multi-select, so any
 // combination is valid (e.g. "none" + "learned" but not "learning"). The
@@ -37,29 +38,52 @@ export async function setPlaylistSyncScope(
   if (error) throw error;
 }
 
-/** Separate from playlist_sync_scope (Spotify/Apple Music only) — a user
- *  may reasonably want, say, "Learned only" for music but "Everything"
- *  for reference videos. Same shape either way. */
+// YouTube syncs to two fully separate playlists by video kind — see
+// YoutubePlaylistKind in lib/youtubeSync.ts ("tutorials"/"demos") — each
+// with its own status-scope preference (which dances count toward that
+// playlist: any combination of "learning" [= want + learning dances
+// together] and "learned"). Two profiles columns, same text[] shape as
+// playlist_sync_scope above: youtube_sync_scope (repurposed as
+// Tutorials' scope) and youtube_demo_sync_scope (Demos').
+export type YoutubeStatusGroup = "learning" | "learned";
+export type YoutubeSyncScope = YoutubeStatusGroup[];
+
+export const DEFAULT_YOUTUBE_SYNC_SCOPE: YoutubeSyncScope = ["learning", "learned"];
+
+function isYoutubeStatusGroup(value: unknown): value is YoutubeStatusGroup {
+  return value === "learning" || value === "learned";
+}
+
+const YOUTUBE_SCOPE_COLUMN: Record<YoutubePlaylistKind, "youtube_sync_scope" | "youtube_demo_sync_scope"> = {
+  tutorials: "youtube_sync_scope",
+  demos: "youtube_demo_sync_scope",
+};
+
 export async function loadYoutubeSyncScope(
   userId: string,
-): Promise<PlaylistSyncScope> {
+  kind: YoutubePlaylistKind,
+): Promise<YoutubeSyncScope> {
+  const column = YOUTUBE_SCOPE_COLUMN[kind];
   const { data, error } = await supabase
     .from("profiles")
-    .select("youtube_sync_scope")
+    .select(column)
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
-  const scope = data?.youtube_sync_scope as PlaylistSyncScope | null;
-  return scope?.length ? scope : DEFAULT_SYNC_SCOPE;
+  const raw = ((data as any)?.[column] as unknown[] | null) ?? [];
+  const scope = raw.filter(isYoutubeStatusGroup);
+  return scope.length ? scope : DEFAULT_YOUTUBE_SYNC_SCOPE;
 }
 
 export async function setYoutubeSyncScope(
   userId: string,
-  scope: PlaylistSyncScope,
+  kind: YoutubePlaylistKind,
+  scope: YoutubeSyncScope,
 ): Promise<void> {
+  const column = YOUTUBE_SCOPE_COLUMN[kind];
   const { error } = await supabase
     .from("profiles")
-    .update({ youtube_sync_scope: scope })
+    .update({ [column]: scope })
     .eq("id", userId);
   if (error) throw error;
 }
@@ -131,20 +155,36 @@ export async function loadAppleMusicStatus(userId: string): Promise<MusicAccount
   };
 }
 
-export async function loadYoutubeStatus(userId: string): Promise<MusicAccountStatus> {
-  const [account, playlist] = await Promise.all([
+export type YoutubeAccountStatus = {
+  connected: boolean;
+  tutorials: { playlistId: string | null; playlistUrl: string | null };
+  demos: { playlistId: string | null; playlistUrl: string | null };
+};
+
+/** Two rows possible now (one per kind, see
+ *  migration_youtube_tutorials_demos_split.sql) instead of one — this
+ *  returns both playlists' status in one call rather than the
+ *  single-playlist MusicAccountStatus shape Spotify/Apple Music use. */
+export async function loadYoutubeStatus(userId: string): Promise<YoutubeAccountStatus> {
+  const [account, playlists] = await Promise.all([
     supabase.from("my_youtube_account").select("user_id").eq("user_id", userId).maybeSingle(),
     supabase
       .from("user_youtube_playlists")
-      .select("playlist_id, playlist_url")
-      .eq("user_id", userId)
-      .maybeSingle(),
+      .select("kind, playlist_id, playlist_url")
+      .eq("user_id", userId),
   ]);
   if (account.error) throw account.error;
-  if (playlist.error) throw playlist.error;
+  if (playlists.error) throw playlists.error;
+  const byKind = new Map(
+    (playlists.data ?? []).map((row: any) => [row.kind as YoutubePlaylistKind, row]),
+  );
+  const forKind = (kind: YoutubePlaylistKind) => ({
+    playlistId: byKind.get(kind)?.playlist_id ?? null,
+    playlistUrl: byKind.get(kind)?.playlist_url ?? null,
+  });
   return {
     connected: !!account.data,
-    playlistId: playlist.data?.playlist_id ?? null,
-    playlistUrl: playlist.data?.playlist_url ?? null,
+    tutorials: forKind("tutorials"),
+    demos: forKind("demos"),
   };
 }

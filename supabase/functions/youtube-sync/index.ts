@@ -4,6 +4,14 @@
 // third provider alongside Spotify/Apple Music) — see
 // src/lib/playlistDiff.ts for the diff algorithm this applies, and
 // src/lib/googleAuth.ts / src/lib/youtubeSync.ts for the client side.
+// Unlike Spotify/Apple Music, this manages TWO fully independent
+// playlists per user — "tutorials" (teach videos) and "demos" (demo
+// videos) — see migration_youtube_tutorials_demos_split.sql. Every
+// create/sync-plan/sync-apply call carries a `kind` field saying which
+// one; the account connection itself (exchange-code/disconnect) is
+// user-level, not per-kind. Which actual dances land in each playlist is
+// entirely a client-side decision (Profile's per-kind status-scope
+// picker) — this function just syncs whatever video id list it's handed.
 //
 // Deploy:
 //   supabase functions deploy youtube-sync
@@ -18,10 +26,10 @@
 //   supabase secrets set GOOGLE_CLIENT_ID_WEB=your-web-client-id
 //   supabase secrets set GOOGLE_CLIENT_SECRET_WEB=your-web-client-secret
 //
-// user_youtube_accounts / user_youtube_playlists (migration_youtube_sync.sql)
-// have no RLS policy for `authenticated` at all on the accounts table —
-// only this function's service-role client ever reads/writes a refresh
-// token.
+// user_youtube_accounts / user_youtube_playlists (migration_youtube_sync.sql,
+// migration_youtube_tutorials_demos_split.sql) have no RLS policy for
+// `authenticated` at all on the accounts table — only this function's
+// service-role client ever reads/writes a refresh token.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { computeSyncPlan, computeNewSynced } from "../_shared/playlistDiff.ts";
@@ -37,6 +45,11 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const API_BASE = "https://www.googleapis.com/youtube/v3";
 
 type ClientCreds = { clientId: string; clientSecret: string };
+type PlaylistKind = "tutorials" | "demos";
+
+function parseKind(value: unknown): PlaylistKind {
+  return value === "demos" ? "demos" : "tutorials";
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -96,15 +109,15 @@ Deno.serve(async (req: Request) => {
         return json(await disconnect(db, userId));
       case "create":
         return json(
-          await createPlaylist(db, creds, userId, body.videoIds as string[]),
+          await createPlaylist(db, creds, userId, parseKind(body.kind), body.videoIds as string[]),
         );
       case "sync-plan":
         return json(
-          await syncPlan(db, creds, userId, body.videoIds as string[]),
+          await syncPlan(db, creds, userId, parseKind(body.kind), body.videoIds as string[]),
         );
       case "sync-apply":
         return json(
-          await syncApply(db, creds, userId, body as {
+          await syncApply(db, creds, userId, parseKind(body.kind), body as {
             addVideoIds: string[];
             removeVideoIds: string[];
             keepVideoIds: string[];
@@ -378,14 +391,23 @@ async function removeVideos(
   return confirmed;
 }
 
+// "Tutorials" (teach videos, from progress.link) and "Demos" (demo
+// videos, from dance.demoVideoUrl) get separate playlists entirely —
+// separate row, separate create/plan/apply call, no shared state between
+// them. Which dances actually land in each is a client-side concern (the
+// status-scope picker in Profile, per kind) — this function just syncs
+// whatever video id list it's handed for a given kind.
+const KIND_LABEL: Record<PlaylistKind, string> = { tutorials: "Tutorials", demos: "Demos" };
+
 async function createPlaylist(
   db: ReturnType<typeof createClient>,
   creds: Record<"native" | "web", ClientCreds>,
   userId: string,
+  kind: PlaylistKind,
   videoIds: string[],
 ) {
   const accessToken = await getAccessToken(db, creds, userId);
-  const name = await playlistNameFor(db, userId);
+  const name = await playlistNameFor(db, userId, KIND_LABEL[kind]);
 
   const createRes = await fetch(`${API_BASE}/playlists?part=snippet,status`, {
     method: "POST",
@@ -410,6 +432,7 @@ async function createPlaylist(
 
   const { error } = await db.from("user_youtube_playlists").upsert({
     user_id: userId,
+    kind,
     playlist_id: playlist.id,
     playlist_url: `https://www.youtube.com/playlist?list=${playlist.id}`,
     last_synced_video_ids: added,
@@ -424,11 +447,16 @@ async function createPlaylist(
   };
 }
 
-async function loadPlaylistRow(db: ReturnType<typeof createClient>, userId: string) {
+async function loadPlaylistRow(
+  db: ReturnType<typeof createClient>,
+  userId: string,
+  kind: PlaylistKind,
+) {
   const { data, error } = await db
     .from("user_youtube_playlists")
     .select("playlist_id, last_synced_video_ids")
     .eq("user_id", userId)
+    .eq("kind", kind)
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("No playlist yet — create one first.");
@@ -439,10 +467,11 @@ async function syncPlan(
   db: ReturnType<typeof createClient>,
   creds: Record<"native" | "web", ClientCreds>,
   userId: string,
+  kind: PlaylistKind,
   myList: string[],
 ) {
   const accessToken = await getAccessToken(db, creds, userId);
-  const row = await loadPlaylistRow(db, userId);
+  const row = await loadPlaylistRow(db, userId, kind);
   let live: { videoIds: string[]; itemIdByVideoId: Map<string, string> };
   try {
     live = await fetchLiveVideos(accessToken, row.playlist_id);
@@ -451,7 +480,7 @@ async function syncPlan(
       // Stale row — the user deleted the playlist directly in YouTube.
       // Drop it so the client sees "not connected to a playlist" and
       // offers Create instead of a broken Sync.
-      await db.from("user_youtube_playlists").delete().eq("user_id", userId);
+      await db.from("user_youtube_playlists").delete().eq("user_id", userId).eq("kind", kind);
       return { playlistMissing: true, toAddVideoIds: [], toRemoveCandidateVideoIds: [] };
     }
     throw err;
@@ -468,10 +497,11 @@ async function syncApply(
   db: ReturnType<typeof createClient>,
   creds: Record<"native" | "web", ClientCreds>,
   userId: string,
+  kind: PlaylistKind,
   args: { addVideoIds: string[]; removeVideoIds: string[]; keepVideoIds: string[] },
 ) {
   const accessToken = await getAccessToken(db, creds, userId);
-  const row = await loadPlaylistRow(db, userId);
+  const row = await loadPlaylistRow(db, userId, kind);
 
   const confirmedAdded = await addVideos(accessToken, row.playlist_id, args.addVideoIds ?? []);
 
@@ -492,7 +522,8 @@ async function syncApply(
   const { error } = await db
     .from("user_youtube_playlists")
     .update({ last_synced_video_ids: newSynced, last_synced_at: new Date().toISOString() })
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("kind", kind);
   if (error) throw error;
 
   const failedToAdd = (args.addVideoIds ?? []).filter((id) => !confirmedAdded.includes(id));

@@ -3,6 +3,16 @@ import { invokeEdgeFunction } from "./edgeFunctions";
 // Thin client for supabase/functions/youtube-sync — mirrors spotifySync.ts.
 // See that function for the actual YouTube Data API calls; nothing here
 // talks to Google/YouTube directly.
+//
+// YouTube gets two fully independent playlists per user — "Tutorials"
+// (teach videos) and "Demos" (demo videos) — so every create/plan/apply
+// call needs a `kind` telling the server which one it's operating on.
+// Which dances actually land in each is a client-side decision (each
+// kind's own status-scope picker in Profile — see musicSync.ts's
+// YoutubeSyncScope), not something this function or the server knows
+// about.
+
+export type YoutubePlaylistKind = "tutorials" | "demos";
 
 export async function exchangeYoutubeCode(
   code: string,
@@ -30,9 +40,10 @@ export type CreateYoutubePlaylistResult = {
 };
 
 export async function createYoutubePlaylist(
+  kind: YoutubePlaylistKind,
   videoIds: string[],
 ): Promise<CreateYoutubePlaylistResult> {
-  return invokeEdgeFunction("youtube-sync", { action: "create", videoIds });
+  return invokeEdgeFunction("youtube-sync", { action: "create", kind, videoIds });
 }
 
 export type YoutubeSyncPlanResult = {
@@ -44,8 +55,11 @@ export type YoutubeSyncPlanResult = {
   toRemoveCandidateVideoIds: string[];
 };
 
-export async function planYoutubeSync(videoIds: string[]): Promise<YoutubeSyncPlanResult> {
-  return invokeEdgeFunction("youtube-sync", { action: "sync-plan", videoIds });
+export async function planYoutubeSync(
+  kind: YoutubePlaylistKind,
+  videoIds: string[],
+): Promise<YoutubeSyncPlanResult> {
+  return invokeEdgeFunction("youtube-sync", { action: "sync-plan", kind, videoIds });
 }
 
 export type YoutubeSyncApplyResult = {
@@ -54,10 +68,13 @@ export type YoutubeSyncApplyResult = {
   failed: string[];
 };
 
-export async function applyYoutubeSync(args: {
-  addVideoIds: string[];
-  removeVideoIds: string[];
-  keepVideoIds: string[];
-}): Promise<YoutubeSyncApplyResult> {
-  return invokeEdgeFunction("youtube-sync", { action: "sync-apply", ...args });
+export async function applyYoutubeSync(
+  kind: YoutubePlaylistKind,
+  args: {
+    addVideoIds: string[];
+    removeVideoIds: string[];
+    keepVideoIds: string[];
+  },
+): Promise<YoutubeSyncApplyResult> {
+  return invokeEdgeFunction("youtube-sync", { action: "sync-apply", kind, ...args });
 }

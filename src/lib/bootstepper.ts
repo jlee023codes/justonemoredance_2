@@ -47,9 +47,11 @@ type RawDance = {
   danceSongs?: { position?: number; song?: RawSong }[];
   danceChoreographers?: { choreographer?: { name?: string } }[];
   teachVideos?: RawDanceVideo[];
-  // demoVideos also exists on the payload but isn't read — teachVideos is
-  // the one meant for "how do I do this dance", which is what a "Watch
-  // video" chip should point at.
+  // Someone dancing it full-out, as opposed to teachVideos' instructional
+  // walkthrough — same {url, sourceViewCount, isPinned, platform} shape.
+  // Only used for YouTube's separate "Demos" playlist, never shown as a
+  // "Watch video" chip (that's teachVideoUrl).
+  demoVideos?: RawDanceVideo[];
 };
 
 // /dances/search wraps results in `{ items: [...] }`; /dances/getByIds
@@ -177,11 +179,12 @@ function musicLinksFor(song?: RawSong): MusicLinks {
   };
 }
 
-// The pinned teach video if BootStepper has flagged one, else the
-// most-viewed. Undefined when the dance has none on this payload (which
-// isn't necessarily "has no video" — see the RawDanceVideo note above).
-function teachVideoUrlFor(raw: RawDance): string | undefined {
-  const videos = raw.teachVideos ?? [];
+// The pinned video if BootStepper has flagged one, else the most-viewed.
+// Undefined when the dance has none on this payload (which isn't
+// necessarily "has no video" — see the RawDanceVideo note above). Shared
+// by teachVideoUrlFor/demoVideoUrlFor — same pick-the-best-one logic,
+// different source array.
+function bestVideoUrl(videos: RawDanceVideo[]): string | undefined {
   if (!videos.length) return undefined;
   const pinned = videos.find((v) => v.isPinned && v.url);
   if (pinned) return pinned.url;
@@ -189,6 +192,14 @@ function teachVideoUrlFor(raw: RawDance): string | undefined {
     (a, b) => (b.sourceViewCount ?? 0) - (a.sourceViewCount ?? 0),
   )[0];
   return mostViewed?.url;
+}
+
+function teachVideoUrlFor(raw: RawDance): string | undefined {
+  return bestVideoUrl(raw.teachVideos ?? []);
+}
+
+function demoVideoUrlFor(raw: RawDance): string | undefined {
+  return bestVideoUrl(raw.demoVideos ?? []);
 }
 
 function detailsFor(raw: RawDance): string {
@@ -219,6 +230,7 @@ function adaptDance(raw: RawDance): Dance {
     // is built from).
     ...musicLinksFor(raw.danceSongs?.[0]?.song),
     teachVideoUrl: teachVideoUrlFor(raw),
+    demoVideoUrl: demoVideoUrlFor(raw),
   };
 }
 
@@ -262,6 +274,29 @@ export async function searchTeachVideoUrl(
 ): Promise<string | undefined> {
   const results = await searchDances(danceName, { limit: 5 });
   return results.find((d) => d.id === danceId)?.teachVideoUrl;
+}
+
+/** Same gap, same fix, for demo videos — BootStepper's by-id endpoints
+ *  omit demoVideos too. */
+export async function searchDemoVideoUrl(
+  danceId: string,
+  danceName: string,
+): Promise<string | undefined> {
+  const results = await searchDances(danceName, { limit: 5 });
+  return results.find((d) => d.id === danceId)?.demoVideoUrl;
+}
+
+/** Backfills both video fields from a single search, rather than making
+ *  App.tsx's backfill effect call searchTeachVideoUrl and
+ *  searchDemoVideoUrl separately (same search either way — no reason to
+ *  hit BootStepper twice per dance). */
+export async function searchVideoUrls(
+  danceId: string,
+  danceName: string,
+): Promise<{ teachVideoUrl?: string; demoVideoUrl?: string }> {
+  const results = await searchDances(danceName, { limit: 5 });
+  const match = results.find((d) => d.id === danceId);
+  return { teachVideoUrl: match?.teachVideoUrl, demoVideoUrl: match?.demoVideoUrl };
 }
 
 export async function getDanceById(id: string): Promise<Dance | null> {

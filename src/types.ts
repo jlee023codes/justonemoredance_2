@@ -41,6 +41,11 @@ export type Dance = MusicLinks & {
   // only ever the *default* — DanceProgress.link (a user's own saved video)
   // always wins once set; see DanceCard/DanceDetailsModal for the fallback.
   teachVideoUrl?: string;
+  // BootStepper's demo video — someone dancing it full-out, as opposed to
+  // teachVideoUrl's instructional walkthrough. Not user-editable like
+  // progress.link is; purely catalog data, used for YouTube's separate
+  // "Demos" playlist (see src/lib/youtubeSync.ts).
+  demoVideoUrl?: string;
   // True for a Dance reconstructed from a saved snapshot (a friend's
   // imported list, or a progress-row fallback) rather than fetched live
   // from BootStepper — so `details`, `choreographers`, `songSwaps` and the

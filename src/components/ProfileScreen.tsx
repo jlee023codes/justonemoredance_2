@@ -46,6 +46,7 @@ import { AWARDS as awards } from "../lib/awards";
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import {
   DEFAULT_SYNC_SCOPE,
+  DEFAULT_YOUTUBE_SYNC_SCOPE,
   loadAppleMusicStatus,
   loadPlaylistSyncScope,
   loadSpotifyBetaEnabled,
@@ -56,6 +57,9 @@ import {
   PlaylistSyncScope,
   setPlaylistSyncScope,
   setYoutubeSyncScope,
+  YoutubeAccountStatus,
+  YoutubeStatusGroup,
+  YoutubeSyncScope,
 } from "../services/musicSync";
 import { connectSpotify } from "../lib/spotifyAuth";
 import { disconnectSpotify, exchangeSpotifyCode } from "../lib/spotifySync";
@@ -71,49 +75,61 @@ const SCOPE_OPTIONS: { key: LearningStatus; label: string }[] = [
   { key: "learned", label: "Learned" },
 ];
 
-function sameScope(a: PlaylistSyncScope, b: PlaylistSyncScope): boolean {
+// Each of YouTube's two playlists (Tutorials, Demos — see
+// YoutubePlaylistKind in lib/youtubeSync.ts) gets its own copy of this
+// same status-scope picker, independently. "Learning" here really means
+// want + learning together (see musicSync.ts's YoutubeSyncScope comment).
+const YOUTUBE_SCOPE_OPTIONS: { key: YoutubeStatusGroup; label: string }[] = [
+  { key: "learning", label: "Learning + Want to Learn" },
+  { key: "learned", label: "Learned" },
+];
+
+function sameScope<T extends string>(a: T[], b: T[]): boolean {
   if (a.length !== b.length) return false;
   const bSet = new Set(b);
   return a.every((s) => bSet.has(s));
 }
 
-/** Multi-select replacement for the old three-way All/Learning+Learned/
- *  Learned picker — any combination of the four My List statuses is
- *  valid. "Everything" isn't its own stored state; it's purely a derived
- *  shortcut, checked whenever all four are already selected, and tapping
- *  it either selects all four or (if already all selected) resets to the
- *  app default — deselecting any one of the four naturally un-derives
- *  "Everything" with no special-case code needed. Edits are local until
- *  Save, so toggling several chips doesn't fire a write per tap. */
-function SyncScopePicker({
+/** Multi-select scope toggle, reused for the music providers' four-status
+ *  filter and (one instance each) YouTube's Tutorials/Demos status scope.
+ *  "Everything" is never its own stored state; it's purely a derived
+ *  shortcut, checked whenever every option is already selected, and
+ *  tapping it either selects them all or (if already all selected)
+ *  resets to `defaultValue` — deselecting any one option naturally
+ *  un-derives "Everything" with no special-case code needed. Edits are
+ *  local until Save, so toggling several chips doesn't fire a write per
+ *  tap. */
+function SyncScopePicker<T extends string>({
   label,
   value,
+  options,
+  defaultValue,
   onSave,
 }: {
   label: string;
-  value: PlaylistSyncScope;
-  onSave: (scope: PlaylistSyncScope) => Promise<void>;
+  value: T[];
+  options: { key: T; label: string }[];
+  defaultValue: T[];
+  onSave: (scope: T[]) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<PlaylistSyncScope>(value);
+  const [draft, setDraft] = useState<T[]>(value);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
 
-  const everythingOn = SCOPE_OPTIONS.every((opt) => draft.includes(opt.key));
+  const everythingOn = options.every((opt) => draft.includes(opt.key));
   const dirty = !sameScope(draft, value);
 
-  const toggleStatus = (status: LearningStatus) => {
+  const toggleOption = (key: T) => {
     setDraft((current) =>
-      current.includes(status)
-        ? current.filter((s) => s !== status)
-        : [...current, status],
+      current.includes(key) ? current.filter((s) => s !== key) : [...current, key],
     );
   };
 
   const toggleEverything = () => {
-    setDraft(everythingOn ? DEFAULT_SYNC_SCOPE : SCOPE_OPTIONS.map((o) => o.key));
+    setDraft(everythingOn ? defaultValue : options.map((o) => o.key));
   };
 
   const handleSave = async () => {
@@ -137,12 +153,12 @@ function SyncScopePicker({
             Everything
           </Text>
         </Pressable>
-        {SCOPE_OPTIONS.map((opt) => {
+        {options.map((opt) => {
           const active = draft.includes(opt.key);
           return (
             <Pressable
               key={opt.key}
-              onPress={() => toggleStatus(opt.key)}
+              onPress={() => toggleOption(opt.key)}
               style={[s.scopeChip, active && s.scopeChipOn]}
             >
               <Text style={[s.scopeChipText, active && s.scopeChipTextOn]}>
@@ -181,6 +197,7 @@ export function ProfileScreen({
   tier,
   musicRefreshKey,
   onMusicChanged,
+  onConnected,
 }: {
   userId: string;
   email?: string;
@@ -211,6 +228,13 @@ export function ProfileScreen({
   // Bumped after any connect/disconnect here, so My List's playlist-sync
   // row (which also depends on connection status) refreshes.
   onMusicChanged?: () => void;
+  // Called right after a successful Spotify/Apple Music/YouTube connect —
+  // switches the active tab to My List, since that's where the new
+  // Create/Sync button actually shows up. Native/Apple Music resolve
+  // here; web's Spotify/YouTube connect finishes in App.tsx instead (see
+  // handleSpotifyAuthResult/handleGoogleAuthResult there), which calls
+  // this same navigation separately.
+  onConnected?: () => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -288,12 +312,14 @@ export function ProfileScreen({
   const [spotifyBetaEnabled, setSpotifyBetaEnabled] = useState(false);
   const [spotifyStatus, setSpotifyStatus] = useState<MusicAccountStatus | null>(null);
   const [appleMusicStatus, setAppleMusicStatus] = useState<MusicAccountStatus | null>(null);
-  const [youtubeStatus, setYoutubeStatus] = useState<MusicAccountStatus | null>(null);
+  const [youtubeStatus, setYoutubeStatus] = useState<YoutubeAccountStatus | null>(null);
   const [syncScope, setSyncScope] = useState<PlaylistSyncScope>(["learning", "learned"]);
-  const [youtubeSyncScope, setYoutubeSyncScopeState] = useState<PlaylistSyncScope>([
-    "learning",
-    "learned",
-  ]);
+  const [youtubeTutorialsScope, setYoutubeTutorialsScopeState] = useState<YoutubeSyncScope>(
+    DEFAULT_YOUTUBE_SYNC_SCOPE,
+  );
+  const [youtubeDemosScope, setYoutubeDemosScopeState] = useState<YoutubeSyncScope>(
+    DEFAULT_YOUTUBE_SYNC_SCOPE,
+  );
   const [connectingProvider, setConnectingProvider] = useState<
     "spotify" | "apple" | "youtube" | null
   >(null);
@@ -305,7 +331,8 @@ export function ProfileScreen({
     loadAppleMusicStatus(userId).then(setAppleMusicStatus).catch(() => {});
     loadYoutubeStatus(userId).then(setYoutubeStatus).catch(() => {});
     loadPlaylistSyncScope(userId).then(setSyncScope).catch(() => {});
-    loadYoutubeSyncScope(userId).then(setYoutubeSyncScopeState).catch(() => {});
+    loadYoutubeSyncScope(userId, "tutorials").then(setYoutubeTutorialsScopeState).catch(() => {});
+    loadYoutubeSyncScope(userId, "demos").then(setYoutubeDemosScopeState).catch(() => {});
   };
 
   useEffect(() => {
@@ -329,6 +356,7 @@ export function ProfileScreen({
       await exchangeSpotifyCode(result.code, result.codeVerifier, result.redirectUri);
       refreshMusicAccounts();
       onMusicChanged?.();
+      onConnected?.();
     } catch (err: any) {
       showAlert("Spotify connection failed", err?.message ?? "Please try again.");
     } finally {
@@ -360,6 +388,7 @@ export function ProfileScreen({
       await connectAppleMusic(musicUserToken);
       refreshMusicAccounts();
       onMusicChanged?.();
+      onConnected?.();
     } catch (err: any) {
       showAlert("Apple Music connection failed", err?.message ?? "Please try again.");
     } finally {
@@ -407,6 +436,7 @@ export function ProfileScreen({
       await exchangeYoutubeCode(result.code, result.codeVerifier, result.redirectUri, result.platform);
       refreshMusicAccounts();
       onMusicChanged?.();
+      onConnected?.();
     } catch (err: any) {
       showAlert("YouTube connection failed", err?.message ?? "Please try again.");
     } finally {
@@ -429,10 +459,19 @@ export function ProfileScreen({
     }
   };
 
-  const handleChangeYoutubeSyncScope = async (scope: PlaylistSyncScope) => {
-    setYoutubeSyncScopeState(scope);
+  const handleChangeYoutubeTutorialsScope = async (scope: YoutubeSyncScope) => {
+    setYoutubeTutorialsScopeState(scope);
     try {
-      await setYoutubeSyncScope(userId, scope);
+      await setYoutubeSyncScope(userId, "tutorials", scope);
+    } catch (err: any) {
+      showAlert("Couldn't save that", err?.message ?? "Please try again.");
+    }
+  };
+
+  const handleChangeYoutubeDemosScope = async (scope: YoutubeSyncScope) => {
+    setYoutubeDemosScopeState(scope);
+    try {
+      await setYoutubeSyncScope(userId, "demos", scope);
     } catch (err: any) {
       showAlert("Couldn't save that", err?.message ?? "Please try again.");
     }
@@ -891,6 +930,8 @@ export function ProfileScreen({
         <SyncScopePicker
           label="SYNC MY LIST'S…"
           value={syncScope}
+          options={SCOPE_OPTIONS}
+          defaultValue={DEFAULT_SYNC_SCOPE}
           onSave={handleChangeSyncScope}
         />
       </View>
@@ -898,8 +939,9 @@ export function ProfileScreen({
       <Text style={s.section}>VIDEOS</Text>
       <View style={s.settings}>
         <Text style={s.hint}>
-          Connect YouTube to turn My List's reference videos into a real playlist —
-          sync it any time from My List. {tierAtLeast(tier, "sync") ? "" : "Grapevine unlocks this."}
+          Connect YouTube to turn My List's videos into two real playlists —
+          Tutorials and Demos — synced any time from My List.{" "}
+          {tierAtLeast(tier, "sync") ? "" : "Grapevine unlocks this."}
         </Text>
 
         <View style={s.musicRow}>
@@ -929,9 +971,19 @@ export function ProfileScreen({
         </View>
 
         <SyncScopePicker
-          label="SYNC REFERENCE VIDEOS FOR…"
-          value={youtubeSyncScope}
-          onSave={handleChangeYoutubeSyncScope}
+          label="TUTORIALS — SYNC…"
+          value={youtubeTutorialsScope}
+          options={YOUTUBE_SCOPE_OPTIONS}
+          defaultValue={DEFAULT_YOUTUBE_SYNC_SCOPE}
+          onSave={handleChangeYoutubeTutorialsScope}
+        />
+
+        <SyncScopePicker
+          label="DEMOS — SYNC…"
+          value={youtubeDemosScope}
+          options={YOUTUBE_SCOPE_OPTIONS}
+          defaultValue={DEFAULT_YOUTUBE_SYNC_SCOPE}
+          onSave={handleChangeYoutubeDemosScope}
         />
       </View>
 

@@ -9,6 +9,7 @@ export type PlaylistSyncProvider = "spotify" | "apple" | "youtube";
 export function PlaylistSyncModal({
   visible,
   provider,
+  label,
   danceNames,
   onKeep,
   onRemove,
@@ -16,6 +17,10 @@ export function PlaylistSyncModal({
 }: {
   visible: boolean;
   provider: PlaylistSyncProvider;
+  // Override for the display name below — used when there's more than
+  // one playlist per provider (YouTube's Learning/Learned split) and
+  // "YouTube" alone wouldn't say which one.
+  label?: string;
   // One name per candidate track — a track can map to more than one dance
   // (two choreographies, same song), so this is already flattened/deduped
   // by the caller.
@@ -25,7 +30,7 @@ export function PlaylistSyncModal({
   onClose: () => void;
 }) {
   const providerName =
-    provider === "spotify" ? "Spotify" : provider === "apple" ? "Apple Music" : "YouTube";
+    label ?? (provider === "spotify" ? "Spotify" : provider === "apple" ? "Apple Music" : "YouTube");
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
