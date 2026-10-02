@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
+import { TabIcon, TabIconName } from "./TabIcon";
 export type AppTab = "Home" | "My List" | "Venues" | "Friends" | "Profile";
 export function BottomTabs({
   activeTab,
@@ -12,17 +13,18 @@ export function BottomTabs({
   onChange: (tab: AppTab) => void;
   badges?: Partial<Record<AppTab, number>>;
 }) {
-  const tabs: { name: AppTab; icon: string }[] = [
-    { name: "Home", icon: "⌂" },
-    { name: "My List", icon: "≣" },
-    { name: "Venues", icon: "📍" },
-    { name: "Friends", icon: "👥" },
-    { name: "Profile", icon: "☻" },
+  const tabs: { name: AppTab; icon: TabIconName }[] = [
+    { name: "Home", icon: "home" },
+    { name: "My List", icon: "list" },
+    { name: "Venues", icon: "pin" },
+    { name: "Friends", icon: "people" },
+    { name: "Profile", icon: "person" },
   ];
   return (
     <View style={s.tabs}>
       {tabs.map((tab) => {
         const badge = badges?.[tab.name] ?? 0;
+        const active = activeTab === tab.name;
         return (
           <Pressable
             key={tab.name}
@@ -30,18 +32,14 @@ export function BottomTabs({
             onPress={() => onChange(tab.name)}
           >
             <View style={s.iconBox}>
-              <Text style={[s.icon, activeTab === tab.name && s.active]}>
-                {tab.icon}
-              </Text>
+              <TabIcon name={tab.icon} color={active ? colors.gold : colors.muted} size={22} />
               {badge > 0 && (
                 <View style={s.badge}>
                   <Text style={s.badgeText}>{badge > 9 ? "9+" : badge}</Text>
                 </View>
               )}
             </View>
-            <Text style={[s.label, activeTab === tab.name && s.active]}>
-              {tab.name}
-            </Text>
+            <Text style={[s.label, active && s.active]}>{tab.name}</Text>
           </Pressable>
         );
       })}
@@ -62,15 +60,11 @@ const s = StyleSheet.create({
     paddingBottom: 20,
   },
   tab: { flex: 1, alignItems: "center" },
-  // Fixed-height, centered box for every icon — plain Unicode symbols
-  // (⌂, ≣, ☻) and real emoji (📍, 👥) have different natural vertical
-  // metrics within their own glyph box even at the same fontSize, so
-  // without this some sit visibly higher/lower than their neighbors.
-  // Forcing them all into an identical centered box fixes the whole
-  // class of misalignment at once, rather than nudging one icon by a
-  // magic-number offset that could drift again on a font/OS update.
+  // Every icon is now an SVG (see TabIcon.tsx) drawn into the same 24x24
+  // box, so centering this box centers the icon exactly — no font/glyph
+  // metrics involved, unlike the Unicode-symbol-plus-emoji mix this
+  // replaced.
   iconBox: { height: 24, alignItems: "center", justifyContent: "center" },
-  icon: { fontSize: 22, color: colors.muted, lineHeight: 24 },
   label: { fontSize: 10, color: colors.muted, marginTop: 3 },
   active: { color: colors.gold },
   badge: {
