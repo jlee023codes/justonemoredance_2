@@ -15,6 +15,7 @@ import { colors } from "../styles";
 import { SearchInput } from "./SearchInput";
 import {
   findOrCreateGlobalVenue,
+  findOrCreateGlobalVenueFromPlace,
   findVenueByName,
   searchGlobalVenues,
   searchMyVenues,
@@ -23,6 +24,8 @@ import {
   VenueOption,
   voteVenue,
 } from "../services/venues";
+import { getPlaceDetails, newSessionToken, PlaceSuggestion, searchPlaces } from "../lib/placesSearch";
+import { VenueScheduleModal } from "./VenueScheduleModal";
 
 /** Searchable "find or add a venue" picker, backed by the shared `venues`
  *  table. Two modes:
@@ -85,6 +88,21 @@ export function VenuePicker({
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addressDraft, setAddressDraft] = useState("");
   const [savingAddress, setSavingAddress] = useState(false);
+  // Google Places suggestions, shown alongside the local-only results
+  // above. A session token bounds one search-to-selection sequence as a
+  // single billed request — regenerated whenever the sheet opens and
+  // again after each place actually gets picked (multi mode keeps the
+  // sheet open for more than one selection, so each pick closes out its
+  // own session rather than one giant session for the whole visit).
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placesLoading, setPlacesLoading] = useState(false);
+  const [addingPlaceId, setAddingPlaceId] = useState<string | null>(null);
+  // A venue just created (not matched to an existing one) in single-select
+  // mode — prompts for a starting schedule before actually selecting it
+  // and closing. See VenueScheduleModal; skipped in multi mode, where
+  // "select" just means "add to the picked set," not "done."
+  const [scheduleVenue, setScheduleVenue] = useState<VenueOption | null>(null);
+  const sessionToken = useRef(newSessionToken());
   const requestId = useRef(0);
 
   useEffect(() => {
@@ -96,6 +114,8 @@ export function VenuePicker({
       setPicked(new Map(initialSelected.map((v) => [v.id, v])));
       setEditingAddressId(null);
       setAddressDraft("");
+      setPlaceSuggestions([]);
+      sessionToken.current = newSessionToken();
     }
     // initialSelected identity churns; only re-seed when the sheet opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,6 +145,27 @@ export function VenuePicker({
           if (requestId.current !== id) return;
           setLoading(false);
           setError(err.message ?? "Could not load venues.");
+        });
+
+      // Independent of the local search above — a Places outage (or a
+      // billing/key problem) shouldn't block adding venues the old way.
+      const trimmed = query.trim();
+      if (!trimmed) {
+        setPlaceSuggestions([]);
+        return;
+      }
+      setPlacesLoading(true);
+      searchPlaces(trimmed, sessionToken.current)
+        .then((suggestions) => {
+          if (requestId.current !== id) return;
+          setPlaceSuggestions(suggestions);
+        })
+        .catch(() => {
+          if (requestId.current !== id) return;
+          setPlaceSuggestions([]);
+        })
+        .finally(() => {
+          if (requestId.current === id) setPlacesLoading(false);
         });
     }, 300);
     return () => clearTimeout(timer);
@@ -241,10 +282,12 @@ export function VenuePicker({
       // already exists in the shared catalog — findOrCreateGlobalVenue
       // just attaches to that existing row instead of duplicating it. The
       // `globalMatch` note above already told them what that means.
-      const venue = await findOrCreateGlobalVenue(trimmedQuery);
+      const { venue, isNew } = await findOrCreateGlobalVenue(trimmedQuery, userId);
       if (multi) {
         setPicked((cur) => new Map(cur).set(venue.id, venue));
         setQuery("");
+      } else if (isNew && userId) {
+        setScheduleVenue(venue);
       } else {
         onSelect?.(venue);
       }
@@ -255,7 +298,44 @@ export function VenuePicker({
     }
   };
 
+  const handleSelectPlace = async (suggestion: PlaceSuggestion) => {
+    setAddingPlaceId(suggestion.placeId);
+    setError("");
+    try {
+      const details = await getPlaceDetails(suggestion.placeId, sessionToken.current);
+      sessionToken.current = newSessionToken(); // this session is spent either way
+      const name = details.name || suggestion.description;
+      const { venue, isNew } =
+        details.latitude != null && details.longitude != null
+          ? await findOrCreateGlobalVenueFromPlace(
+              {
+                name,
+                placeId: suggestion.placeId,
+                latitude: details.latitude,
+                longitude: details.longitude,
+                formattedAddress: details.formattedAddress,
+              },
+              userId,
+            )
+          : await findOrCreateGlobalVenue(name, userId); // rare: Google had no coordinates for this place
+      if (multi) {
+        setPicked((cur) => new Map(cur).set(venue.id, venue));
+        setQuery("");
+        setPlaceSuggestions([]);
+      } else if (isNew && userId) {
+        setScheduleVenue(venue);
+      } else {
+        onSelect?.(venue);
+      }
+    } catch (err: any) {
+      setError(err.message ?? "Could not add that venue.");
+    } finally {
+      setAddingPlaceId(null);
+    }
+  };
+
   return (
+    <>
     <Modal
       visible={visible}
       transparent
@@ -402,6 +482,30 @@ export function VenuePicker({
               </Text>
             )}
 
+            {trimmedQuery.length > 0 && (placesLoading || placeSuggestions.length > 0) && (
+              <>
+                <Text style={s.placesLabel}>FROM GOOGLE MAPS</Text>
+                {placesLoading && !placeSuggestions.length && (
+                  <ActivityIndicator color={colors.gold} style={s.loader} />
+                )}
+                {placeSuggestions.map((suggestion) => (
+                  <Pressable
+                    key={suggestion.placeId}
+                    style={s.placeOption}
+                    onPress={() => handleSelectPlace(suggestion)}
+                    disabled={addingPlaceId === suggestion.placeId}
+                  >
+                    <Text style={s.placeOptionText} numberOfLines={2}>
+                      📍 {suggestion.description}
+                    </Text>
+                    {addingPlaceId === suggestion.placeId && (
+                      <ActivityIndicator color={colors.gold} size="small" />
+                    )}
+                  </Pressable>
+                ))}
+              </>
+            )}
+
             {!loading && trimmedQuery.length > 0 && !exactMatch && (
               <Pressable
                 style={s.addOption}
@@ -440,6 +544,15 @@ export function VenuePicker({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+    <VenueScheduleModal
+      venue={scheduleVenue}
+      onClose={() => {
+        const venue = scheduleVenue;
+        setScheduleVenue(null);
+        if (venue) onSelect?.(venue);
+      }}
+    />
+    </>
   );
 }
 
@@ -568,6 +681,24 @@ const s = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 20,
   },
+  placesLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  placeOption: {
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  placeOptionText: { color: colors.ink, fontSize: 14, flex: 1 },
   addOption: { paddingVertical: 17, marginTop: 6 },
   addText: { color: colors.pink, fontSize: 16, fontWeight: "800" },
   error: { color: "#ff8080", fontSize: 13, marginTop: 10 },

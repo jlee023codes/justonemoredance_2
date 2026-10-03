@@ -25,3 +25,17 @@ export function reachedDanceLimit(
 export const DANCE_LIMIT_TITLE = "Your list is full";
 export const DANCE_LIMIT_MESSAGE =
   "Upgrade your plan or remove dances from your list to add more.";
+
+// Venues are free for everyone — this just caps how many of a venue's
+// reported dances a free account sees in "What's Playing" (already
+// ordered most-reported-first, so the cap keeps the most relevant ones).
+const VENUE_DANCE_LIMITS: Record<Tier, number> = {
+  free: 20,
+  sync: Infinity,
+  friends: Infinity,
+  pro: Infinity,
+};
+
+export function topDancesPerVenueFor(tier: Tier): number {
+  return VENUE_DANCE_LIMITS[tier];
+}

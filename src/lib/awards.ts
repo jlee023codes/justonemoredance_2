@@ -28,3 +28,27 @@ export function currentAward(learnedCount: number): Award | null {
   }
   return current;
 }
+
+// Same ladder shape as AWARDS above, keyed off how many venues someone's
+// added (see ProfileScreen's VENUE MILESTONES section) — a separate axis
+// from dances learned, scaled down since venues are physically rarer to
+// accumulate than individual dances.
+export const VENUE_AWARDS = [
+  { count: 1, icon: "🏠", title: "Home Body", note: "Added 1 venue" },
+  { count: 3, icon: "🚗", title: "Regular", note: "Added 3 venues" },
+  { count: 5, icon: "🗺️", title: "Floor Traveler", note: "Added 5 venues" },
+  { count: 10, icon: "🧭", title: "Scene Explorer", note: "Added 10 venues" },
+  { count: 20, icon: "🌎", title: "Circuit Rider", note: "Added 20 venues" },
+];
+
+export type VenueAward = (typeof VENUE_AWARDS)[number];
+
+/** Same scan as currentAward, for the venue ladder. */
+export function currentVenueAward(visitedCount: number): VenueAward | null {
+  let current: VenueAward | null = null;
+  for (const award of VENUE_AWARDS) {
+    if (visitedCount < award.count) break;
+    current = award;
+  }
+  return current;
+}

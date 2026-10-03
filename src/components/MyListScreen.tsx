@@ -24,7 +24,7 @@ import { MyListToolsModal } from "./MyListToolsModal";
 import { SearchInput } from "./SearchInput";
 import { VenuePicker } from "./VenuePicker";
 import {
-  loadUserVenues,
+  loadDancedVenues,
   loadVenueLinks,
   saveVenueDance,
   VenueOption,
@@ -183,7 +183,7 @@ export function MyListScreen({
   useEffect(() => {
     setLoading(true);
     setError("");
-    Promise.all([loadUserVenues(userId), loadVenueLinks(userId)])
+    Promise.all([loadDancedVenues(userId), loadVenueLinks(userId)])
       .then(([venues, links]) => {
         setUserVenues(venues);
         setVenueLinks(links);
@@ -413,6 +413,39 @@ export function MyListScreen({
     return [...new Set(trackIds.flatMap((id) => names.get(id) ?? [id]))];
   }
 
+  // YouTube-specific version of the above — removal candidates are, by
+  // definition, usually no longer on My List at all (that's exactly why
+  // they're being proposed for removal), so looking them up in `cfg.rows`
+  // (today's scoped rows) alone was hitting the function's "no match
+  // found" fallback and showing the raw video id instead of a name. Two
+  // fallback passes instead: first every current My List row regardless
+  // of status/scope (catches a dance that just moved out of this kind's
+  // scope, not removed outright), then catalogCache (every dance this
+  // session has ever resolved, whether still on My List or not) matched
+  // against that kind's own catalog video field — teachVideoUrl for
+  // Tutorials, demoVideoUrl for Demos. That catalog field is BootStepper's
+  // default, not necessarily the exact progress.link a user may have since
+  // customized on a now-removed Tutorials dance, but it's far better than
+  // a bare id in the overwhelmingly common case.
+  function youtubeDanceNamesForTrackIds(
+    kind: YoutubePlaylistKind,
+    trackIds: string[],
+  ): string[] {
+    const names = new Map<string, string[]>();
+    for (const r of rows) {
+      const id = youtubeVideoIdFromUrl(youtubeVideoUrlFor(kind, r));
+      if (!id) continue;
+      names.set(id, [...(names.get(id) ?? []), r.dance.name]);
+    }
+    for (const dance of Object.values(catalogCache)) {
+      const url = kind === "tutorials" ? dance.teachVideoUrl : dance.demoVideoUrl;
+      const id = youtubeVideoIdFromUrl(url);
+      if (!id || names.has(id)) continue;
+      names.set(id, [dance.name]);
+    }
+    return [...new Set(trackIds.flatMap((id) => names.get(id) ?? [id]))];
+  }
+
   // Everything that differs between Spotify and Apple Music, keyed once so
   // handlePlaylistSync/resolvePendingRemoval read the same shape regardless
   // of which one is running. `apply` is typed loosely (both are
@@ -563,7 +596,6 @@ export function MyListScreen({
   // state round-trip those use.
   const youtubeTargetConfig = (kind: YoutubePlaylistKind) => {
     const kindStatus = youtubeStatus?.[kind] ?? { playlistId: null, playlistUrl: null };
-    const kindRows = kind === "tutorials" ? youtubeTutorialsRows : youtubeDemosRows;
     return {
       status: youtubeStatus
         ? {
@@ -574,8 +606,6 @@ export function MyListScreen({
         : null,
       trackIds: kind === "tutorials" ? youtubeTutorialsTrackIds : youtubeDemosTrackIds,
       unmatched: kind === "tutorials" ? youtubeTutorialsUnmatched : youtubeDemosUnmatched,
-      rows: kindRows,
-      byTrackId: (r: (typeof rows)[number]) => youtubeVideoIdFromUrl(youtubeVideoUrlFor(kind, r)),
       create: async (videoIds: string[]) => {
         const result = await createYoutubePlaylist(kind, videoIds);
         return { playlistId: result.playlistId, playlistUrl: result.playlistUrl, trackCount: result.videoCount };
@@ -643,11 +673,7 @@ export function MyListScreen({
         let removeIds: string[] = [];
         let keepIds: string[] = [];
         if (plan.toRemoveCandidateTrackIds.length) {
-          const danceNames = danceNamesForTrackIds(
-            plan.toRemoveCandidateTrackIds,
-            cfg.byTrackId,
-            cfg.rows,
-          );
+          const danceNames = youtubeDanceNamesForTrackIds(kind, plan.toRemoveCandidateTrackIds);
           const decision = await askYoutubeKeepOrRemove(kind, danceNames);
           if (decision === null) continue; // deferred — skip this kind entirely this run
           if (decision) keepIds = plan.toRemoveCandidateTrackIds;
@@ -944,7 +970,6 @@ export function MyListScreen({
             : `Add ${selectedIds.size} dance${selectedIds.size === 1 ? "" : "s"} to a venue`
         }
         userId={userId}
-        restrictToMine={!tierAtLeast(tier, "pro")}
         onSelect={handleAddSelectedToVenue}
         onClose={() => setVenuePickerOpen(false)}
       />

@@ -966,7 +966,6 @@ function AppRoot() {
               onImportHandled={() => setOpenImportOnProfile(false)}
               onOpenOfflineList={() => setOfflineOpen(true)}
               onSignOut={() => void supabase.auth.signOut()}
-              onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
               tier={tier}
               musicRefreshKey={musicRefreshKey}
               onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
@@ -989,28 +988,17 @@ function AppRoot() {
             onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
           />
         ) : tab === "Venues" ? (
-          tierAtLeast(tier, "pro") ? (
-            <VenuesScreen
-              userId={session.user.id}
-              progress={progress}
-              catalogCache={catalogCache}
-              onOpenDance={openDance}
-              onQuickStatusAtVenue={handleQuickStatusAtVenue}
-              onCacheDances={mergeIntoCache}
-              refreshKey={venuesRefreshKey}
-              scrollRef={activeScrollRef}
-            />
-          ) : (
-            <PaywallScreen
-              title="Venues"
-              bullets={[
-                "Browse every venue in the shared catalog",
-                "See which dances people report dancing there",
-                "Set a home bar, pinned to the top everywhere",
-                "Endorse a venue so others know it's the real deal",
-              ]}
-            />
-          )
+          <VenuesScreen
+            userId={session.user.id}
+            tier={tier}
+            progress={progress}
+            catalogCache={catalogCache}
+            onOpenDance={openDance}
+            onQuickStatusAtVenue={handleQuickStatusAtVenue}
+            onCacheDances={mergeIntoCache}
+            refreshKey={venuesRefreshKey}
+            scrollRef={activeScrollRef}
+          />
         ) : tab === "Friends" ? (
           tierAtLeast(tier, "friends") ? (
             <FriendsScreen
@@ -1094,7 +1082,6 @@ function AppRoot() {
           onProgressChange={handleProgressChange}
           onRemoved={handleRemoved}
           onVenuesChanged={() => setVenuesRefreshKey((k) => k + 1)}
-          tier={tier}
           atDanceLimit={
             selected ? reachedDanceLimit(progress, tier) : false
           }

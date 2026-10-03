@@ -1,32 +1,44 @@
-import { Ref, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Ref, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
-import { DanceCard, QuickStatus } from "./DanceCard";
+import { Tier } from "../lib/tier";
+import { QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
-import { VenuePicker } from "./VenuePicker";
+import { VenueCard } from "./VenueCard";
+import { VenueDancesModal } from "./VenueDancesModal";
+import { VenueRevisionModal } from "./VenueRevisionModal";
+import { VenueScheduleModal } from "./VenueScheduleModal";
 import { SearchInput } from "./SearchInput";
-import { getDancesByIds, searchTeachVideoUrl, mapWithConcurrency } from "../lib/bootstepper";
+import { getPlaceDetails, newSessionToken, PlaceSuggestion, searchPlaces } from "../lib/placesSearch";
 import {
+  attachNights,
+  attachRepStatus,
+  DAY_LABEL,
+  DAY_ORDER,
+  DayOfWeek,
+  findOrCreateGlobalVenue,
+  findOrCreateGlobalVenueFromPlace,
+  homeFirst,
+  isUserAdmin,
+  loadDancedVenues,
   loadHomeVenueId,
-  loadVenueById,
-  loadVenueDanceReports,
   searchGlobalVenues,
-  VenueDanceReport,
   VenueOption,
 } from "../services/venues";
 
-/** Browse every venue in the shared catalog — not just your own — and see
- *  which dances people report dancing there, aggregated across everyone.
- *  Defaults to your home bar. */
+const DEFAULT_LIMIT = 20;
+
+/** Browse every venue in the shared catalog as a scrollable list of
+ *  cards — name/address, directions, line dancing nights, cover + age,
+ *  and a "What's Playing" button opening the dances reported there.
+ *  Free for everyone; free accounts just see a capped dance list per
+ *  venue (see VenueDancesModal). The search bar doubles as "add a
+ *  venue" — when a search doesn't match anything locally, Google
+ *  results appear inline instead of a separate picker. */
 export function VenuesScreen({
   userId,
+  tier,
   progress,
   catalogCache,
   onOpenDance,
@@ -36,6 +48,7 @@ export function VenuesScreen({
   scrollRef,
 }: {
   userId: string;
+  tier: Tier;
   progress: Record<string, DanceProgress>;
   catalogCache: Record<string, Dance>;
   onOpenDance: (dance: Dance) => void;
@@ -47,146 +60,213 @@ export function VenuesScreen({
     venueId: string,
   ) => void;
   onCacheDances: (dances: Dance[]) => void;
-  // Bumped by the parent whenever a venue tie changes elsewhere, so the
-  // "reported by" counts here stay current.
+  // Bumped by the parent whenever a venue tie changes elsewhere, so
+  // whichever "What's Playing" modal is open stays current.
   refreshKey: number;
   scrollRef?: Ref<BackToTopHandle>;
 }) {
-  const [venue, setVenue] = useState<VenueOption | null>(null);
   const [homeVenueId, setHomeVenueId] = useState<string | null>(null);
-  const [loadingVenue, setLoadingVenue] = useState(true);
-  const [pickerOpen, setPickerOpen] = useState(false);
-
-  const [reports, setReports] = useState<VenueDanceReport[]>([]);
-  const [loadingDances, setLoadingDances] = useState(false);
-  const [danceQuery, setDanceQuery] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [query, setQuery] = useState("");
+  const [dayFilter, setDayFilter] = useState<DayOfWeek | null>(null);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [dancedOnly, setDancedOnly] = useState(false);
+  const [dancedVenueIds, setDancedVenueIds] = useState<Set<string>>(new Set());
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [results, setResults] = useState<VenueOption[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [dancesVenue, setDancesVenue] = useState<VenueOption | null>(null);
+  const [scheduleVenue, setScheduleVenue] = useState<VenueOption | null>(null);
+  const [notifyModal, setNotifyModal] = useState<
+    { venue: VenueOption; kind: "revision" | "rep_request" } | null
+  >(null);
 
-  // Default selection: the user's home bar, falling back to the
-  // most-endorsed venue in the whole catalog if they haven't set one. Runs
-  // once per sign-in — later home-bar changes elsewhere don't yank the
-  // venue out from under someone actively browsing.
+  // Inline "add via Google" — same pieces as VenuePicker.tsx, ported
+  // here so the main search bar doubles as the add flow instead of
+  // opening a separate modal.
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placesLoading, setPlacesLoading] = useState(false);
+  const [addingPlaceId, setAddingPlaceId] = useState<string | null>(null);
+  const [addingFreeText, setAddingFreeText] = useState(false);
+  const sessionToken = useRef(newSessionToken());
+
+  useEffect(() => {
+    loadHomeVenueId(userId).then(setHomeVenueId).catch(() => {});
+    isUserAdmin(userId).then(setIsAdmin).catch(() => {});
+    loadDancedVenues(userId)
+      .then((venues) => setDancedVenueIds(new Set(venues.map((v) => v.id))))
+      .catch(() => {});
+  }, [userId, refreshKey]);
+
   useEffect(() => {
     let cancelled = false;
-    setLoadingVenue(true);
+    setLoading(true);
     setError("");
-    (async () => {
-      const home = await loadHomeVenueId(userId).catch(() => null);
-      if (cancelled) return;
-      setHomeVenueId(home);
-      if (home) {
-        const named = await loadVenueById(home, userId).catch(() => null);
-        if (cancelled) return;
-        if (named) {
-          setVenue(named);
-          return;
-        }
-      }
-      // Note: the DB query is limited *before* the votes sort, so ask for a
-      // real page (default limit) rather than limit:1 — otherwise "top" is
-      // just whatever's alphabetically first, not most-endorsed.
-      const top = await searchGlobalVenues("", userId).catch(() => []);
-      if (!cancelled) setVenue(top[0] ?? null);
-    })()
-      .catch((err: any) =>
-        setError(err?.message ?? "Could not load venues."),
-      )
-      .finally(() => {
-        if (!cancelled) setLoadingVenue(false);
-      });
+    const timer = setTimeout(() => {
+      searchGlobalVenues(query, userId, limit, dayFilter ?? undefined)
+        .then((venues) => attachRepStatus(venues, userId, isAdmin))
+        .then((venues) => {
+          if (!cancelled) setResults(venues);
+        })
+        .catch((err: any) => {
+          if (!cancelled) setError(err?.message ?? "Could not load venues.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 300);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [userId]);
+  }, [query, limit, dayFilter, userId, isAdmin]);
 
-  // The dances reported at whichever venue is currently selected.
+  // Independent of the local search above — kicked off in parallel so
+  // there's no extra delay once local comes back empty. Only shown
+  // (below) once local results are actually empty for this query.
   useEffect(() => {
-    if (!venue) {
-      setReports([]);
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setPlaceSuggestions([]);
       return;
     }
-    setLoadingDances(true);
-    setError("");
-    loadVenueDanceReports(venue.id)
-      .then(setReports)
-      .catch((err: any) =>
-        setError(err?.message ?? "Could not load dances for this venue."),
-      )
-      .finally(() => setLoadingDances(false));
-  }, [venue?.id, refreshKey]);
-
-  // Resolve full BootStepper details (choreographer, counts, …) for
-  // whatever's still a bare snapshot — same self-healing pattern as
-  // App.tsx's own resolver: only mark an id "done" on success, so a
-  // transient BootStepper hiccup doesn't leave a card bare forever.
-  const resolvedRef = useRef<Set<string>>(new Set());
-  const retryRef = useRef(0);
-  const [retryTick, setRetryTick] = useState(0);
-  useEffect(() => {
-    const needIds = reports
-      .map((r) => r.dance.id)
-      .filter((id) => {
-        if (resolvedRef.current.has(id)) return false;
-        const cached = catalogCache[id];
-        return !cached || cached.snapshot;
-      });
-    if (!needIds.length) return;
     let cancelled = false;
-    getDancesByIds(needIds)
-      .then((dances) => {
-        if (cancelled) return;
-        needIds.forEach((id) => resolvedRef.current.add(id));
-        retryRef.current = 0;
-        onCacheDances(dances);
-        // getDancesByIds never carries a teach video (see
-        // searchTeachVideoUrl's own comment) — best-effort, separate
-        // lookup so a dance you haven't added yet still gets to show
-        // BootStepper's video here, not just once you've searched for it
-        // on Home.
-        mapWithConcurrency(
-          dances.filter((d) => !d.teachVideoUrl),
-          8,
-          (d): Promise<Dance | null> =>
-            searchTeachVideoUrl(d.id, d.name)
-              .then((teachVideoUrl): Dance | null =>
-                teachVideoUrl ? { ...d, teachVideoUrl } : null,
-              )
-              .catch(() => null),
-        ).then((withVideos) => {
-          if (cancelled) return;
-          const found = withVideos.filter((d): d is Dance => d !== null);
-          if (found.length) onCacheDances(found);
+    setPlacesLoading(true);
+    const timer = setTimeout(() => {
+      searchPlaces(trimmed, sessionToken.current)
+        .then((suggestions) => {
+          if (!cancelled) setPlaceSuggestions(suggestions);
+        })
+        .catch(() => {
+          if (!cancelled) setPlaceSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setPlacesLoading(false);
         });
-      })
-      .catch(() => {
-        if (cancelled || retryRef.current >= 4) return;
-        retryRef.current += 1;
-        setTimeout(() => setRetryTick((n) => n + 1), 15000);
-      });
+    }, 300);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reports, retryTick]);
+  }, [query]);
 
-  const visible = useMemo(() => {
-    const merged = reports.map((r) => ({
-      ...r,
-      dance: catalogCache[r.dance.id] ?? r.dance,
-    }));
-    const needle = danceQuery.trim().toLowerCase();
-    if (!needle) return merged;
-    return merged.filter(({ dance }) =>
-      [dance.name, dance.defaultSong].join(" ").toLowerCase().includes(needle),
+  const handleQueryChange = (text: string) => {
+    setQuery(text);
+    setLimit(DEFAULT_LIMIT);
+  };
+
+  const handleDayFilter = (day: DayOfWeek) => {
+    setDayFilter((cur) => (cur === day ? null : day));
+    setLimit(DEFAULT_LIMIT);
+  };
+
+  const setNightsLocally = (venueId: string, nights: { day: DayOfWeek; details: string }[]) => {
+    setResults((prev) => prev.map((v) => (v.id === venueId ? { ...v, nights } : v)));
+  };
+
+  const setFavoritedLocally = (venueId: string, favorited: boolean) => {
+    setResults((prev) => prev.map((v) => (v.id === venueId ? { ...v, favorited } : v)));
+  };
+
+  const markRepRequested = (venueId: string) => {
+    setResults((prev) =>
+      prev.map((v) => (v.id === venueId ? { ...v, repStatus: "pending" } : v)),
     );
-  }, [reports, catalogCache, danceQuery]);
+  };
 
-  const isHome = venue && venue.id === homeVenueId;
-  // Only blank the list for the very first load of a venue. A background
-  // refresh (e.g. after tying a venue from the dance modal) updates the
-  // list in place instead of flashing a spinner over cards already on
-  // screen.
-  const initialLoading = loadingDances && reports.length === 0;
+  // Enriches and merges a just-found/created venue into the visible
+  // list, prompting for a starting schedule if it's genuinely new.
+  const mergeVenue = (venue: VenueOption, isNew: boolean) => {
+    attachNights([venue])
+      .then((withNights) => attachRepStatus(withNights, userId, isAdmin))
+      .then(([enriched]) => {
+        setResults((prev) =>
+          prev.some((v) => v.id === enriched.id)
+            ? prev.map((v) => (v.id === enriched.id ? enriched : v))
+            : [enriched, ...prev],
+        );
+        if (isNew) setScheduleVenue(enriched);
+      });
+  };
+
+  const handleSelectPlace = async (suggestion: PlaceSuggestion) => {
+    setAddingPlaceId(suggestion.placeId);
+    setError("");
+    try {
+      const details = await getPlaceDetails(suggestion.placeId, sessionToken.current);
+      sessionToken.current = newSessionToken();
+      const name = details.name || suggestion.description;
+      const { venue, isNew } =
+        details.latitude != null && details.longitude != null
+          ? await findOrCreateGlobalVenueFromPlace(
+              {
+                name,
+                placeId: suggestion.placeId,
+                latitude: details.latitude,
+                longitude: details.longitude,
+                formattedAddress: details.formattedAddress,
+              },
+              userId,
+            )
+          : await findOrCreateGlobalVenue(name, userId);
+      mergeVenue(venue, isNew);
+      setQuery("");
+      setPlaceSuggestions([]);
+    } catch (err: any) {
+      setError(err.message ?? "Could not add that venue.");
+    } finally {
+      setAddingPlaceId(null);
+    }
+  };
+
+  const handleAddFreeText = async () => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setAddingFreeText(true);
+    setError("");
+    try {
+      const { venue, isNew } = await findOrCreateGlobalVenue(trimmed, userId);
+      mergeVenue(venue, isNew);
+      setQuery("");
+      setPlaceSuggestions([]);
+    } catch (err: any) {
+      setError(err.message ?? "Could not add that venue.");
+    } finally {
+      setAddingFreeText(false);
+    }
+  };
+
+  const ordered = homeFirst(results, homeVenueId).filter(
+    (v) => (!favoritesOnly || v.favorited) && (!dancedOnly || dancedVenueIds.has(v.id)),
+  );
+  const initialLoading = loading && !results.length;
+  const trimmedQuery = query.trim();
+  const showGoogleResults = trimmedQuery.length > 0 && !loading && results.length === 0;
+
+  // favoritesOnly/dancedOnly filter client-side after the fetch, so "no
+  // matches" can mean either "nothing in the DB" (results empty) or
+  // "nothing matching the filter among what's there" (results
+  // non-empty, ordered empty) — worth distinguishing so the message is
+  // actually useful.
+  let emptyMessage: string | null = null;
+  if (!ordered.length) {
+    if (favoritesOnly) {
+      emptyMessage = trimmedQuery
+        ? `No favorites match "${query}".`
+        : "No favorites yet — tap ♥ on a venue to save it here.";
+    } else if (dancedOnly) {
+      emptyMessage = trimmedQuery
+        ? `No danced venues match "${query}".`
+        : "Nowhere yet — tag a dance to a venue to see it here.";
+    } else if (!trimmedQuery) {
+      emptyMessage = dayFilter
+        ? `No venues have ${DAY_LABEL[dayFilter]} dancing reported yet.`
+        : "No venues yet — be the first to add one.";
+    }
+    // else: a search with zero local matches falls through to the
+    // Google results section below instead of this empty message.
+  }
 
   return (
     <>
@@ -197,103 +277,137 @@ export function VenuesScreen({
       >
         <Text style={s.heading}>Venues</Text>
         <Text style={s.hint}>
-          Browse every venue in the shared catalog and see which dances
-          people report dancing there.
+          Browse every venue in the shared catalog — nights, cover, age,
+          and what's been danced there.
         </Text>
 
-        {loadingVenue ? (
-          <ActivityIndicator color={colors.gold} style={s.loader} />
-        ) : (
-          <Pressable style={s.venueCard} onPress={() => setPickerOpen(true)}>
-            <View style={s.venueCardCopy}>
-              <Text style={s.venueCardName} numberOfLines={1}>
-                {venue ? `${isHome ? "🏠 " : ""}${venue.name}` : "Choose a venue"}
+        <SearchInput
+          value={query}
+          onChangeText={handleQueryChange}
+          placeholder="Search or add a venue"
+          style={s.search}
+        />
+
+        <Text style={s.filterLabel}>FILTER BY NIGHT</Text>
+        <View style={s.dayRow}>
+          {DAY_ORDER.map((d) => (
+            <Pressable
+              key={d}
+              style={[s.dayChip, dayFilter === d && s.dayChipOn]}
+              onPress={() => handleDayFilter(d)}
+            >
+              <Text style={[s.dayChipText, dayFilter === d && s.dayChipTextOn]}>
+                {DAY_LABEL[d]}
               </Text>
-              {venue && (
-                <Text style={s.venueCardMeta}>
-                  {venue.address ? `${venue.address} · ` : ""}
-                  ★ {venue.votes ?? 0} endorsement
-                  {(venue.votes ?? 0) === 1 ? "" : "s"}
-                  {isHome ? " · your home bar" : ""}
-                </Text>
-              )}
-            </View>
-            <Text style={s.venueCardChange}>
-              {venue ? "Change ▾" : "Browse ▾"}
+            </Pressable>
+          ))}
+          <Pressable
+            style={[s.dayChip, favoritesOnly && s.dayChipOn]}
+            onPress={() => setFavoritesOnly((v) => !v)}
+          >
+            <Text style={[s.dayChipText, favoritesOnly && s.dayChipTextOn]}>
+              ♥ Favorites
             </Text>
           </Pressable>
-        )}
+          <Pressable
+            style={[s.dayChip, dancedOnly && s.dayChipOn]}
+            onPress={() => setDancedOnly((v) => !v)}
+          >
+            <Text style={[s.dayChipText, dancedOnly && s.dayChipTextOn]}>
+              📍 Danced Here
+            </Text>
+          </Pressable>
+        </View>
 
         {error ? <Text style={s.error}>{error}</Text> : null}
 
-        {venue && (
+        {initialLoading && (
+          <ActivityIndicator color={colors.gold} style={s.loader} />
+        )}
+
+        {!initialLoading &&
+          ordered.map((venue) => (
+            <VenueCard
+              key={venue.id}
+              venue={venue}
+              userId={userId}
+              isHome={venue.id === homeVenueId}
+              onOpenDances={() => setDancesVenue(venue)}
+              onSubmitRevision={() => setNotifyModal({ venue, kind: "revision" })}
+              onRequestRep={() => setNotifyModal({ venue, kind: "rep_request" })}
+              onNightsChanged={(nights) => setNightsLocally(venue.id, nights)}
+              onFavoriteToggled={(favorited) => setFavoritedLocally(venue.id, favorited)}
+              onHomeChanged={setHomeVenueId}
+            />
+          ))}
+
+        {!initialLoading && !error && emptyMessage && (
+          <Text style={s.empty}>{emptyMessage}</Text>
+        )}
+
+        {showGoogleResults && (
           <>
-            <View style={s.listHead}>
-              <Text style={s.section}>DANCES REPORTED HERE</Text>
-              {!initialLoading && (
-                <Text style={s.listHeadCount}>
-                  {reports.length} {reports.length === 1 ? "dance" : "dances"}
-                </Text>
-              )}
-            </View>
-
-            {reports.length > 0 && (
-              <SearchInput
-                value={danceQuery}
-                onChangeText={setDanceQuery}
-                placeholder="Search dances"
-                style={s.danceSearch}
-              />
-            )}
-
-            {initialLoading && (
+            <Text style={s.filterLabel}>FROM GOOGLE MAPS</Text>
+            {placesLoading && !placeSuggestions.length && (
               <ActivityIndicator color={colors.gold} style={s.loader} />
             )}
-
-            {!initialLoading &&
-              visible.map(({ dance, reportedBy }) => (
-                <DanceCard
-                  key={dance.id}
-                  dance={dance}
-                  song={dance.defaultSong}
-                  progress={progress[dance.id]}
-                  note={`👥 ${reportedBy} dancer${
-                    reportedBy === 1 ? "" : "s"
-                  } report this here`}
-                  onPress={() => onOpenDance(dance)}
-                  onQuickStatus={(status) =>
-                    onQuickStatusAtVenue(dance, status, venue.id)
-                  }
-                />
-              ))}
-
-            {!initialLoading && !reports.length && !error && (
-              <Text style={s.empty}>
-                No dances reported at {venue.name} yet — tag one to a venue
-                from its details to be the first.
-              </Text>
-            )}
-            {!initialLoading && reports.length > 0 && !visible.length && (
-              <Text style={s.empty}>No dances match “{danceQuery}”.</Text>
+            {placeSuggestions.map((suggestion) => (
+              <Pressable
+                key={suggestion.placeId}
+                style={s.placeOption}
+                onPress={() => handleSelectPlace(suggestion)}
+                disabled={addingPlaceId === suggestion.placeId}
+              >
+                <Text style={s.placeOptionText} numberOfLines={2}>
+                  📍 {suggestion.description}
+                </Text>
+                {addingPlaceId === suggestion.placeId && (
+                  <ActivityIndicator color={colors.gold} size="small" />
+                )}
+              </Pressable>
+            ))}
+            {!placesLoading && (
+              <Pressable
+                style={s.addFreeText}
+                onPress={handleAddFreeText}
+                disabled={addingFreeText}
+              >
+                <Text style={s.addFreeTextLabel}>
+                  {addingFreeText ? "Adding…" : `＋ Add "${trimmedQuery}" as a new venue`}
+                </Text>
+              </Pressable>
             )}
           </>
         )}
+
+        {!loading && !trimmedQuery && results.length >= limit && results.length > 0 && (
+          <Pressable style={s.loadMore} onPress={() => setLimit((n) => n + DEFAULT_LIMIT)}>
+            <Text style={s.loadMoreText}>Load more venues</Text>
+          </Pressable>
+        )}
       </BackToTopScrollView>
 
-      <VenuePicker
-        visible={pickerOpen}
-        title="Browse a venue"
-        userId={userId}
-        homeVenueId={homeVenueId}
-        showAddress
-        selectedVenueId={venue?.id}
-        onSelect={(picked) => {
-          setVenue(picked);
-          setDanceQuery("");
-          setPickerOpen(false);
-        }}
-        onClose={() => setPickerOpen(false)}
+      <VenueDancesModal
+        venue={dancesVenue}
+        tier={tier}
+        progress={progress}
+        catalogCache={catalogCache}
+        onOpenDance={onOpenDance}
+        onQuickStatusAtVenue={onQuickStatusAtVenue}
+        onCacheDances={onCacheDances}
+        refreshKey={refreshKey}
+        onClose={() => setDancesVenue(null)}
       />
+
+      <VenueRevisionModal
+        venue={notifyModal?.venue ?? null}
+        userId={userId}
+        kind={notifyModal?.kind ?? "revision"}
+        onClose={() => setNotifyModal(null)}
+        onRequested={() => notifyModal && markRepRequested(notifyModal.venue.id)}
+      />
+
+      <VenueScheduleModal venue={scheduleVenue} onClose={() => setScheduleVenue(null)} />
     </>
   );
 }
@@ -307,36 +421,26 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   hint: { color: colors.muted, fontSize: 13, lineHeight: 18 },
-  loader: { marginTop: 20 },
-  venueCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 14,
-    padding: 16,
-    marginTop: 16,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  venueCardCopy: { flex: 1 },
-  venueCardName: { color: colors.ink, fontSize: 18, fontWeight: "900" },
-  venueCardMeta: { color: colors.gold, fontSize: 12, fontWeight: "700", marginTop: 4 },
-  venueCardChange: { color: colors.pink, fontSize: 13, fontWeight: "800" },
-  listHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 26,
+  filterLabel: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    marginTop: 18,
     marginBottom: 8,
   },
-  section: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.4,
+  dayRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  dayChip: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 11,
   },
-  listHeadCount: { color: colors.muted, fontSize: 12, fontWeight: "500" },
-  danceSearch: {
+  dayChipOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
+  dayChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
+  dayChipTextOn: { color: colors.pink },
+  search: {
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
@@ -344,8 +448,31 @@ const s = StyleSheet.create({
     color: colors.ink,
     padding: 13,
     fontSize: 15,
-    marginBottom: 10,
+    marginTop: 16,
   },
+  placeOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  placeOptionText: { flex: 1, color: colors.ink, fontSize: 14 },
+  addFreeText: { paddingVertical: 14, paddingHorizontal: 4 },
+  addFreeTextLabel: { color: colors.pink, fontSize: 13, fontWeight: "800" },
+  loader: { marginTop: 20 },
   empty: { color: colors.muted, fontSize: 14, marginTop: 14, lineHeight: 20 },
   error: { color: "#ff8080", fontSize: 13, marginTop: 10 },
+  loadMore: {
+    alignSelf: "center",
+    marginTop: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+  },
+  loadMoreText: { color: colors.muted, fontSize: 13, fontWeight: "700" },
 });

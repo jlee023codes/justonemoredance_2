@@ -22,15 +22,12 @@ import {
 } from "../lib/entitlements";
 import { deleteAccount } from "../lib/account";
 import { NotesImportModal } from "./NotesImportModal";
-import { VenuePicker } from "./VenuePicker";
 import { countPendingImport } from "../services/notesImport";
 import {
-  addUserVenue,
-  homeFirst,
+  loadDancedVenues,
   loadHomeVenueId,
-  loadUserVenues,
-  removeUserVenue,
-  setHomeVenue,
+  loadMostDancedVenue,
+  loadVenueById,
   VenueOption,
 } from "../services/venues";
 import {
@@ -42,7 +39,7 @@ import {
 } from "../services/friends";
 import { Avatar } from "./Avatar";
 import { AvatarPickerModal } from "./AvatarPickerModal";
-import { AWARDS as awards } from "../lib/awards";
+import { AWARDS as awards, VENUE_AWARDS } from "../lib/awards";
 import { Dance, DanceProgress, LearningStatus } from "../types";
 import {
   DEFAULT_SYNC_SCOPE,
@@ -190,7 +187,6 @@ export function ProfileScreen({
   onSignOut,
   onProgressChange,
   onCacheDances,
-  onVenuesChanged,
   openImport,
   onImportHandled,
   onOpenOfflineList,
@@ -210,8 +206,6 @@ export function ProfileScreen({
   onProgressChange: (danceId: string, next: DanceProgress | null) => void;
   /** Lets an imported dance render with full BootStepper details at once. */
   onCacheDances: (dances: Dance[]) => void;
-  // Lets My List re-read its venue filter after a venue is added/removed here.
-  onVenuesChanged?: () => void;
   // Set true right after an offline import is queued — opens the matcher.
   openImport?: boolean;
   onImportHandled?: () => void;
@@ -281,25 +275,34 @@ export function ProfileScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openImport]);
 
-  // My venues — the list of venues that show up as a filter in My List.
-  const [myVenues, setMyVenues] = useState<VenueOption[]>([]);
+  // Venues — derived from dances actually tagged (user_venue_dances),
+  // not a manually curated add/remove list anymore. Setting the home
+  // bar itself now happens on the Venues page (VenueCard's 🏠 toggle);
+  // this just displays the result.
+  const [dancedVenues, setDancedVenues] = useState<VenueOption[]>([]);
   const [homeVenueId, setHomeVenueId] = useState<string | null>(null);
-  const [venuesLoading, setVenuesLoading] = useState(true);
-  const [venuesError, setVenuesError] = useState("");
-  const [venuePickerOpen, setVenuePickerOpen] = useState(false);
-  const [venuesExpanded, setVenuesExpanded] = useState(false);
+  const [homeVenueName, setHomeVenueName] = useState<string | null>(null);
+  const [milestonesTab, setMilestonesTab] = useState<"dances" | "venues">("dances");
+  const [mostDancedVenue, setMostDancedVenue] = useState<VenueOption | null>(null);
   const refreshVenues = () => {
-    setVenuesLoading(true);
-    Promise.all([loadUserVenues(userId), loadHomeVenueId(userId)])
+    Promise.all([loadDancedVenues(userId), loadHomeVenueId(userId)])
       .then(([venues, homeId]) => {
-        setMyVenues(venues);
+        setDancedVenues(venues);
         setHomeVenueId(homeId);
       })
-      .catch((err: any) =>
-        setVenuesError(err?.message ?? "Could not load your venues."),
-      )
-      .finally(() => setVenuesLoading(false));
+      .catch(() => {});
+    loadMostDancedVenue(userId).then(setMostDancedVenue).catch(() => {});
   };
+
+  useEffect(() => {
+    if (!homeVenueId) {
+      setHomeVenueName(null);
+      return;
+    }
+    loadVenueById(homeVenueId)
+      .then((v) => setHomeVenueName(v?.name ?? null))
+      .catch(() => {});
+  }, [homeVenueId]);
 
   useEffect(() => {
     refreshPendingImport();
@@ -531,7 +534,6 @@ export function ProfileScreen({
     }
   };
 
-  const homeBarName = myVenues.find((v) => v.id === homeVenueId)?.name ?? null;
 
   const renderFact = (
     which: FactKey,
@@ -567,59 +569,6 @@ export function ProfileScreen({
     </View>
   );
 
-  const handleSetHome = async (venueId: string | null) => {
-    setHomeVenueId(venueId); // optimistic
-    try {
-      await setHomeVenue(userId, venueId);
-      onVenuesChanged?.();
-    } catch (err: any) {
-      setVenuesError(err?.message ?? "Could not save your home bar.");
-      loadHomeVenueId(userId).then(setHomeVenueId).catch(() => {});
-    }
-  };
-
-  const handleAddVenue = async (venue: VenueOption) => {
-    setVenuePickerOpen(false);
-    setVenuesError("");
-    try {
-      await addUserVenue(userId, venue.id);
-      // addUserVenue also records an endorsement — reflect that locally.
-      const endorsed: VenueOption = {
-        ...venue,
-        votes: (venue.votes ?? 0) + (venue.votedByMe ? 0 : 1),
-        votedByMe: true,
-      };
-      setMyVenues((current) =>
-        current.some((v) => v.id === venue.id)
-          ? current
-          : [...current, endorsed].sort((a, b) =>
-              a.name.localeCompare(b.name),
-            ),
-      );
-      onVenuesChanged?.();
-    } catch (err: any) {
-      setVenuesError(err?.message ?? "Could not add that venue.");
-    }
-  };
-
-  const handleRemoveVenue = async (venue: VenueOption) => {
-    const ok = await confirmAction(
-      "Remove venue?",
-      `Remove ${venue.name} from your venues? Dances you tagged there stay in your list — they just won't be filterable by ${venue.name} anymore.`,
-      "Remove",
-      true,
-    );
-    if (!ok) return;
-    try {
-      await removeUserVenue(userId, venue.id);
-      setMyVenues((current) => current.filter((v) => v.id !== venue.id));
-      // Can't be your home bar if it's not in your list anymore.
-      if (homeVenueId === venue.id) await handleSetHome(null);
-      onVenuesChanged?.();
-    } catch (err: any) {
-      setVenuesError(err?.message ?? "Could not remove that venue.");
-    }
-  };
 
   const handleChangePassword = async () => {
     setPasswordError("");
@@ -770,99 +719,77 @@ export function ProfileScreen({
         <View style={s.factSection}>
           <Text style={s.settingLabel}>HOME BAR</Text>
           <Text style={s.factValue}>
-            {homeBarName ?? "Set one in My Venues below"}
+            {homeVenueName ?? "Tap 🏠 on a venue in Venues to set one"}
+          </Text>
+        </View>
+        <View style={s.factSection}>
+          <Text style={s.settingLabel}>MOST DANCED AT</Text>
+          <Text style={s.factValue}>
+            {mostDancedVenue?.name ?? "Tag a dance to a venue to find out"}
           </Text>
         </View>
       </View>
 
-      <Text style={s.section}>AWARDS</Text>
-      {awards.map((award) => {
-        const unlocked = learnedCount >= award.count;
-        return (
-          <View
-            key={award.title}
-            style={[s.award, unlocked && s.awardUnlocked]}
-          >
-            <Text style={s.awardIcon}>{award.icon}</Text>
-            <View style={s.awardCopy}>
-              <Text style={[s.awardTitle, unlocked && s.unlockedText]}>
-                {award.title}
-              </Text>
-              <Text style={s.awardNote}>{award.note}</Text>
-            </View>
-            <Text style={s.status}>
-              {unlocked ? "UNLOCKED" : `${learnedCount}/${award.count}`}
-            </Text>
-          </View>
-        );
-      })}
-
-      <Text style={s.section}>MY VENUES</Text>
-      <View style={s.settings}>
-        <Text style={s.hint}>
-          Venues you add here become a filter in My List — tag a dance to a
-          venue from its details, then filter your list by where you dance it.
-          Tap 🏠 to set your home bar; it stays pinned to the top everywhere.
-        </Text>
-        {venuesError ? <Text style={s.error}>{venuesError}</Text> : null}
-        {venuesLoading && !myVenues.length ? (
-          <ActivityIndicator color={colors.gold} style={s.inlineLoader} />
-        ) : null}
-        {!venuesLoading && !myVenues.length ? (
-          <Text style={[s.hint, s.venuesEmpty]}>No venues added yet.</Text>
-        ) : null}
-        {(() => {
-          const ordered = homeFirst(myVenues, homeVenueId);
-          const visible = venuesExpanded ? ordered : ordered.slice(0, 1);
-          const hiddenCount = ordered.length - visible.length;
-          return (
-            <>
-              {visible.map((venue) => {
-                const isHome = venue.id === homeVenueId;
-                return (
-                  <View key={venue.id} style={s.venueRow}>
-                    <Pressable
-                      onPress={() => handleSetHome(isHome ? null : venue.id)}
-                      hitSlop={8}
-                    >
-                      <Text style={[s.venueHome, isHome && s.venueHomeOn]}>
-                        {isHome ? "🏠" : "⌂"}
-                      </Text>
-                    </Pressable>
-                    <Text style={s.venueName} numberOfLines={1}>
-                      {venue.name}
-                      {isHome ? <Text style={s.venueHomeTag}>  home bar</Text> : null}
-                    </Text>
-                    <Text style={s.venueVotes}>★ {venue.votes ?? 1}</Text>
-                    <Pressable onPress={() => handleRemoveVenue(venue)} hitSlop={8}>
-                      <Text style={s.venueRemove}>✕</Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-              {ordered.length > 1 ? (
-                <Pressable
-                  onPress={() => setVenuesExpanded((v) => !v)}
-                  hitSlop={8}
-                  style={s.venuesToggle}
-                >
-                  <Text style={s.venuesToggleText}>
-                    {venuesExpanded
-                      ? "Show less ▴"
-                      : `Show ${hiddenCount} more venue${hiddenCount === 1 ? "" : "s"} ▾`}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </>
-          );
-        })()}
+      <Text style={s.section}>MILESTONES</Text>
+      <View style={s.milestonesTabs}>
         <Pressable
-          style={s.addVenueButton}
-          onPress={() => setVenuePickerOpen(true)}
+          style={[s.milestonesTab, milestonesTab === "dances" && s.milestonesTabOn]}
+          onPress={() => setMilestonesTab("dances")}
         >
-          <Text style={s.addVenueText}>＋ Add a venue</Text>
+          <Text style={[s.milestonesTabText, milestonesTab === "dances" && s.milestonesTabTextOn]}>
+            Dance Progress
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[s.milestonesTab, milestonesTab === "venues" && s.milestonesTabOn]}
+          onPress={() => setMilestonesTab("venues")}
+        >
+          <Text style={[s.milestonesTabText, milestonesTab === "venues" && s.milestonesTabTextOn]}>
+            Venues
+          </Text>
         </Pressable>
       </View>
+      {milestonesTab === "dances"
+        ? awards.map((award) => {
+            const unlocked = learnedCount >= award.count;
+            return (
+              <View
+                key={award.title}
+                style={[s.award, unlocked && s.awardUnlocked]}
+              >
+                <Text style={s.awardIcon}>{award.icon}</Text>
+                <View style={s.awardCopy}>
+                  <Text style={[s.awardTitle, unlocked && s.unlockedText]}>
+                    {award.title}
+                  </Text>
+                  <Text style={s.awardNote}>{award.note}</Text>
+                </View>
+                <Text style={s.status}>
+                  {unlocked ? "UNLOCKED" : `${learnedCount}/${award.count}`}
+                </Text>
+              </View>
+            );
+          })
+        : VENUE_AWARDS.map((award) => {
+            const unlocked = dancedVenues.length >= award.count;
+            return (
+              <View
+                key={award.title}
+                style={[s.award, unlocked && s.awardUnlocked]}
+              >
+                <Text style={s.awardIcon}>{award.icon}</Text>
+                <View style={s.awardCopy}>
+                  <Text style={[s.awardTitle, unlocked && s.unlockedText]}>
+                    {award.title}
+                  </Text>
+                  <Text style={s.awardNote}>{award.note}</Text>
+                </View>
+                <Text style={s.status}>
+                  {unlocked ? "UNLOCKED" : `${dancedVenues.length}/${award.count}`}
+                </Text>
+              </View>
+            );
+          })}
 
       <Text style={s.section}>MUSIC</Text>
       <View style={s.settings}>
@@ -1116,17 +1043,6 @@ export function ProfileScreen({
         }}
       />
 
-      <VenuePicker
-        visible={venuePickerOpen}
-        title="Add a venue"
-        userId={userId}
-        homeVenueId={homeVenueId}
-        restrictToMine={!tierAtLeast(tier, "pro")}
-        alreadyAddedVenueIds={myVenues.map((v) => v.id)}
-        onSelect={handleAddVenue}
-        onClose={() => setVenuePickerOpen(false)}
-      />
-
       <AvatarPickerModal
         visible={avatarPickerOpen}
         userId={userId}
@@ -1208,6 +1124,18 @@ const s = StyleSheet.create({
     marginTop: 25,
     marginBottom: 8,
   },
+  milestonesTabs: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  milestonesTab: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  milestonesTabOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
+  milestonesTabText: { color: colors.muted, fontSize: 13, fontWeight: "700" },
+  milestonesTabTextOn: { color: colors.pink },
   award: {
     backgroundColor: colors.card,
     borderRadius: 14,
@@ -1249,38 +1177,10 @@ const s = StyleSheet.create({
   },
   offlineNotepadText: { color: colors.gold, fontWeight: "800", fontSize: 12 },
   hint: { color: colors.muted, fontSize: 14, lineHeight: 17 },
-  inlineLoader: { alignSelf: "flex-start", marginTop: 6 },
   disabled: { opacity: 0.4 },
   inputBad: { borderColor: "#ff8080" },
   error: { color: "#ff8080", fontSize: 12, marginTop: 8, lineHeight: 17 },
   settings: { backgroundColor: colors.card, borderRadius: 14, padding: 16 },
-  venuesEmpty: { marginTop: 12 },
-  venueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    marginTop: 12,
-  },
-  venueHome: {
-    fontSize: 15,
-    color: colors.muted,
-    width: 24,
-    marginRight: 6,
-  },
-  venueHomeOn: { color: colors.gold },
-  venueHomeTag: { color: colors.gold, fontSize: 11, fontWeight: "800" },
-  venueName: { color: colors.ink, fontSize: 15, flex: 1, fontWeight: "700" },
-  venueVotes: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: "800",
-    marginRight: 4,
-  },
-  venueRemove: { color: colors.muted, fontSize: 14, paddingHorizontal: 6 },
-  venuesToggle: { paddingVertical: 10 },
-  venuesToggleText: { color: colors.pink, fontSize: 13, fontWeight: "800" },
   musicRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1323,15 +1223,6 @@ const s = StyleSheet.create({
     marginTop: 10,
   },
   scopeSaveText: { color: "#fff", fontWeight: "800", fontSize: 13 },
-  addVenueButton: {
-    marginTop: 14,
-    borderWidth: 1,
-    borderColor: colors.pink,
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-  },
-  addVenueText: { color: colors.pink, fontWeight: "800", fontSize: 13 },
   email: { color: colors.ink, fontSize: 15, marginTop: 5 },
   factSection: {
     marginTop: 17,
