@@ -20,9 +20,9 @@ import {
   DANCE_LIMIT_MESSAGE,
 } from "../lib/planLimits";
 import { Tier } from "../lib/entitlements";
-import { DanceCard } from "./DanceCard";
+import { DanceCard, QuickStatus } from "./DanceCard";
 import { searchDances } from "../lib/bootstepper";
-import { saveProgress, setDanceLink } from "../services/progress";
+import { removeDancesEverywhere, saveProgress, setDanceLink } from "../services/progress";
 import {
   ImportItem,
   clearFinishedImport,
@@ -54,7 +54,7 @@ Line dances (Numbered - needs #. format)
 3. TATLO - https://youtube.com
 4. Stetson | https://youtube.com`;
 
-type Phase = "loading" | "paste" | "bulk" | "match" | "done";
+type Phase = "loading" | "paste" | "bulk" | "match" | "review" | "done";
 
 export function NotesImportModal({
   visible,
@@ -79,7 +79,7 @@ export function NotesImportModal({
   const [phase, setPhase] = useState<Phase>("loading");
   const [pasteText, setPasteText] = useState("");
   const [queueing, setQueueing] = useState(false);
-  const [autoAcceptTop, setAutoAcceptTop] = useState(false);
+  const [autoAcceptTop, setAutoAcceptTop] = useState(true);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   // Bulk import runs as one long async loop after the modal has already
   // moved past "paste" — closing the modal mid-run shouldn't make its
@@ -88,6 +88,24 @@ export function NotesImportModal({
 
   const [items, setItems] = useState<ImportItem[]>([]);
   const [index, setIndex] = useState(0);
+
+  // Dances auto-imported by the last bulk-accept run, shown in the
+  // post-import review phase for status edits / swaps. Cleared whenever
+  // a fresh run starts.
+  const [reviewItems, setReviewItems] = useState<
+    { dance: Dance; progress: DanceProgress }[]
+  >([]);
+  // Which review row (if any) currently has its "swap" search open —
+  // one row at a time, reusing the match-phase's own search+results UI
+  // rather than a second nested modal.
+  const [swappingIndex, setSwappingIndex] = useState<number | null>(null);
+  const [swapQuery, setSwapQuery] = useState("");
+  const [swapResults, setSwapResults] = useState<Dance[]>([]);
+  const [swapSearching, setSwapSearching] = useState(false);
+  // Set once review is dismissed, so it knows what to do next —
+  // mirrors what handleBulkAccept would have gone to directly before
+  // review was interposed.
+  const [afterReview, setAfterReview] = useState<Phase>("done");
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"want" | "learned">("want");
@@ -105,9 +123,11 @@ export function NotesImportModal({
     bulkCancelled.current = false;
     setPhase("loading");
     setPasteText("");
-    setAutoAcceptTop(false);
+    setAutoAcceptTop(true);
     setItems([]);
     setIndex(0);
+    setReviewItems([]);
+    setSwappingIndex(null);
     loadPendingImport(userId)
       .then((pending) => {
         if (pending.length) {
@@ -149,6 +169,26 @@ export function NotesImportModal({
     }, 300);
     return () => clearTimeout(timer);
   }, [query, phase]);
+
+  // Debounced BootStepper search for whichever review row is being
+  // swapped, if any.
+  useEffect(() => {
+    if (swappingIndex === null || !swapQuery.trim()) {
+      setSwapResults([]);
+      setSwapSearching(false);
+      return;
+    }
+    setSwapSearching(true);
+    const timer = setTimeout(() => {
+      searchDances(swapQuery)
+        .then((found) => {
+          setSwapResults(found.slice(0, 12));
+          setSwapSearching(false);
+        })
+        .catch(() => setSwapSearching(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [swapQuery, swappingIndex]);
 
   const close = async () => {
     bulkCancelled.current = true;
@@ -208,6 +248,7 @@ export function NotesImportModal({
       // two different pasted lines can resolve to the same BootStepper
       // dance, and that duplicate needs catching too.
       const addedThisRun = new Set(Object.keys(progress));
+      const importedThisRun: { dance: Dance; progress: DanceProgress }[] = [];
       let imported = 0;
       let duplicates = 0;
       let limitHit = false;
@@ -241,6 +282,7 @@ export function NotesImportModal({
             onCacheDances([dance]);
             onProgressChange(dance.id, next);
             addedThisRun.add(dance.id);
+            importedThisRun.push({ dance, progress: next });
             await saveProgress(userId, next, dance);
             if (item.rawLink) {
               await setDanceLink(userId, dance.id, item.rawLink, "user").catch(() => {});
@@ -283,7 +325,14 @@ export function NotesImportModal({
       }
       showAlert(imported ? "Import complete" : "Nothing new to import", parts.join(" "));
 
-      setPhase(remaining.length ? "match" : "done");
+      const nextPhase: Phase = remaining.length ? "match" : "done";
+      if (importedThisRun.length) {
+        setReviewItems(importedThisRun);
+        setAfterReview(nextPhase);
+        setPhase("review");
+      } else {
+        setPhase(nextPhase);
+      }
     } catch (err: any) {
       showError(err, "Could not start the import.");
       setPhase("paste");
@@ -358,6 +407,80 @@ export function NotesImportModal({
         `"${dance.name}" didn't save — it's still in your import.`,
       );
     }
+  };
+
+  // Review phase: change a just-imported dance's status in place.
+  const handleReviewStatus = async (
+    reviewIndex: number,
+    newStatus: "want" | "learning" | "learned",
+  ) => {
+    const row = reviewItems[reviewIndex];
+    if (!row) return;
+    const next: DanceProgress = {
+      ...row.progress,
+      status: newStatus,
+      updatedAt: new Date().toISOString(),
+    };
+    setReviewItems((current) =>
+      current.map((r, i) => (i === reviewIndex ? { ...r, progress: next } : r)),
+    );
+    onProgressChange(row.dance.id, next);
+    try {
+      await saveProgress(userId, next, row.dance, undefined, { overwrite: true });
+    } catch (err: any) {
+      showError(err, `Could not update "${row.dance.name}".`);
+    }
+  };
+
+  // Review phase: swap the matched dance for a different BootStepper
+  // result — removes the old progress row and adds a new one for the
+  // picked dance, same remove-then-add shape handleChoose's own
+  // rollback already uses on error, just applied deliberately here.
+  const handleReviewSwap = async (reviewIndex: number, dance: Dance) => {
+    const row = reviewItems[reviewIndex];
+    if (!row) return;
+    if (dance.id === row.dance.id) {
+      setSwappingIndex(null);
+      return;
+    }
+    const existing = progress[dance.id];
+    if (existing) {
+      showAlert(
+        "Already in your list",
+        `You already have "${existing.danceName ?? dance.name}".`,
+      );
+      return;
+    }
+    const now = new Date().toISOString();
+    const next: DanceProgress = {
+      danceId: dance.id,
+      status: row.progress.status,
+      danceName: dance.name,
+      danceSong: dance.defaultSong,
+      danceDifficulty: dance.difficulty,
+      createdAt: now,
+      updatedAt: now,
+    };
+    onCacheDances([dance]);
+    onProgressChange(row.dance.id, null);
+    onProgressChange(dance.id, next);
+    setReviewItems((current) =>
+      current.map((r, i) => (i === reviewIndex ? { dance, progress: next } : r)),
+    );
+    setSwappingIndex(null);
+    setSwapQuery("");
+    try {
+      await removeDancesEverywhere(userId, [row.dance.id]);
+      await saveProgress(userId, next, dance, undefined, { overwrite: true });
+    } catch (err: any) {
+      showError(err, `Could not swap in "${dance.name}".`);
+    }
+  };
+
+  const closeReview = () => {
+    setReviewItems([]);
+    setSwappingIndex(null);
+    setPhase(afterReview);
   };
 
   return (
@@ -577,6 +700,88 @@ export function NotesImportModal({
             </ScrollView>
           )}
 
+          {phase === "review" && (
+            <ScrollView
+              contentContainerStyle={s.sheet}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={s.title}>Check your imports</Text>
+              <Text style={s.subtitle}>
+                {reviewItems.length} dance{reviewItems.length === 1 ? "" : "s"}{" "}
+                auto-matched from your list. Adjust the status or swap in a
+                different match below.
+              </Text>
+
+              {reviewItems.map((row, i) => (
+                <View key={row.dance.id}>
+                  <DanceCard
+                    dance={row.dance}
+                    song={row.dance.defaultSong}
+                    progress={row.progress}
+                    onPress={() => {}}
+                    onQuickStatus={(s: QuickStatus) => handleReviewStatus(i, s)}
+                  />
+                  <Pressable
+                    style={s.swapButton}
+                    onPress={() => {
+                      if (swappingIndex === i) {
+                        setSwappingIndex(null);
+                      } else {
+                        setSwappingIndex(i);
+                        setSwapQuery(row.dance.name);
+                      }
+                    }}
+                  >
+                    <Text style={s.swapButtonText}>
+                      {swappingIndex === i ? "Cancel swap" : "🔁 Swap this match"}
+                    </Text>
+                  </Pressable>
+
+                  {swappingIndex === i && (
+                    <View style={s.swapBox}>
+                      <TextInput
+                        value={swapQuery}
+                        onChangeText={setSwapQuery}
+                        placeholder="Search for a different dance"
+                        placeholderTextColor={colors.muted}
+                        style={s.search}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      {swapSearching && !swapResults.length && (
+                        <ActivityIndicator color={colors.gold} style={s.loader} />
+                      )}
+                      {swapResults.map((dance) => (
+                        <DanceCard
+                          key={dance.id}
+                          dance={dance}
+                          song={dance.defaultSong}
+                          note={
+                            dance.id === row.dance.id
+                              ? "Current match"
+                              : progress[dance.id]
+                                ? "Already in your list"
+                                : undefined
+                          }
+                          onPress={() => handleReviewSwap(i, dance)}
+                        />
+                      ))}
+                      {!swapSearching && !swapResults.length && swapQuery.trim() && (
+                        <Text style={s.empty}>
+                          No matches for “{swapQuery.trim()}”.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              ))}
+
+              <Pressable style={s.primary} onPress={closeReview}>
+                <Text style={s.primaryText}>Done reviewing</Text>
+              </Pressable>
+            </ScrollView>
+          )}
+
           {phase === "done" && (
             <View style={s.sheet}>
               <Text style={s.title}>All caught up 🎉</Text>
@@ -773,4 +978,20 @@ const s = StyleSheet.create({
   skipText: { color: colors.muted, fontWeight: "800", fontSize: 13 },
   later: { padding: 10, alignItems: "center" },
   laterText: { color: colors.gold, fontWeight: "800", fontSize: 13 },
+  swapButton: {
+    alignSelf: "flex-start",
+    marginTop: -4,
+    marginBottom: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  swapButtonText: { color: colors.pink, fontWeight: "800", fontSize: 12.5 },
+  swapBox: {
+    marginBottom: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    backgroundColor: colors.bg,
+  },
 });

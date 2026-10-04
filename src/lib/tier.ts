@@ -3,17 +3,16 @@
 // than entitlements.ts, which imports from both of those and would
 // create a circular import otherwise).
 //
-// Each tier's RevenueCat product is attached to every entitlement at or
-// below its own level (Line Up's product carries both "sync" and
-// "friends"; Floor Boss's carries all three) — see
-// REVENUECAT_SETUP.md / the App Store Connect subscription group for the
-// actual product-to-entitlement wiring. That stacking is what makes a
-// single tierAtLeast() check correct: checking for "sync" is true for
-// anyone on Grapevine, Line Up, or Floor Boss, with no extra OR logic
-// needed here.
-export type Tier = "free" | "sync" | "friends" | "pro";
+// Two paid tiers: Grapevine (100+ dance tracking, Apple Music/YouTube
+// sync) and Floor Boss (everything in Grapevine, plus unlimited dance
+// tracking and Friends). Floor Boss's RevenueCat product must carry
+// BOTH the grapevine (sync) entitlement and its own pro entitlement —
+// see REVENUECAT_SETUP.md — so a single tierAtLeast() check is correct
+// with no extra OR logic needed here: checking for "sync" is true for
+// anyone on Grapevine or Floor Boss.
+export type Tier = "free" | "sync" | "pro";
 
-const TIER_RANK: Record<Tier, number> = { free: 0, sync: 1, friends: 2, pro: 3 };
+const TIER_RANK: Record<Tier, number> = { free: 0, sync: 1, pro: 2 };
 
 export function tierAtLeast(tier: Tier, min: Tier): boolean {
   return TIER_RANK[tier] >= TIER_RANK[min];
@@ -28,6 +27,5 @@ export function maxTier(a: Tier, b: Tier): Tier {
 export const TIER_LABELS: Record<Tier, string> = {
   free: "Free",
   sync: "Grapevine",
-  friends: "Line Up",
   pro: "Floor Boss",
 };

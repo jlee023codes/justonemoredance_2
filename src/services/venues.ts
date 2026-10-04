@@ -9,9 +9,6 @@ export type VenueOption = {
   // loaded (e.g. a bare snapshot).
   votes?: number;
   votedByMe?: boolean;
-  // A private personal "save this one" star/heart — unlike votes, not
-  // visible to anyone else. See attachFavorites, migration_venue_favorites.sql.
-  favorited?: boolean;
   // Crowdsourced "city, state" — null until someone fills it in. See
   // migration_venue_address.sql.
   address?: string | null;
@@ -50,6 +47,9 @@ export type VenueOption = {
   // days are already filled in, even for an approved rep. See
   // migration_venue_reps.sql.
   detailsLocked?: boolean;
+  // Distinct check-ins (migration_venue_checkins.sql) — see
+  // attachCheckinCounts and VERIFIED_THRESHOLD above.
+  checkinCount?: number;
 };
 
 export type DayOfWeek = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
@@ -66,6 +66,13 @@ export const DAY_LABEL: Record<DayOfWeek, string> = {
   fri: "Fri",
   sat: "Sat",
 };
+
+// A venue's check-in Verified badge (see VenueCard.tsx) unlocks at this
+// many distinct check-ins — a plain constant, same spirit as
+// awards.ts's ladders, so it's tunable without a migration. NEW signal,
+// separate from addressVerified above (the existing admin-only manual
+// stamp — don't conflate them). See migration_venue_checkins.sql.
+export const VERIFIED_THRESHOLD = 3;
 
 const VENUE_SELECT = "id,name,address,addressVerified:address_verified,latitude,longitude,googlePlaceId:google_place_id,createdBy:created_by,detailsLocked:details_locked";
 
@@ -240,43 +247,6 @@ async function attachVotes(
   }));
 }
 
-// Fetches which of these venues the user has favorited — same shape as
-// attachVotes, but scoped to just their own rows (no cross-user count).
-export async function attachFavorites(
-  venues: VenueOption[],
-  userId?: string,
-): Promise<VenueOption[]> {
-  if (!venues.length || !userId) return venues.map((v) => ({ ...v, favorited: false }));
-  const ids = venues.map((v) => v.id);
-  const { data, error } = await supabase
-    .from("user_venue_favorites")
-    .select("venue_id")
-    .eq("user_id", userId)
-    .in("venue_id", ids);
-  if (error) return venues.map((v) => ({ ...v, favorited: false }));
-  const favorited = new Set((data ?? []).map((r: any) => r.venue_id as string));
-  return venues.map((v) => ({ ...v, favorited: favorited.has(v.id) }));
-}
-
-export async function favoriteVenue(userId: string, venueId: string) {
-  const { error } = await supabase
-    .from("user_venue_favorites")
-    .upsert(
-      { user_id: userId, venue_id: venueId },
-      { onConflict: "user_id,venue_id", ignoreDuplicates: true },
-    );
-  if (error) throw error;
-}
-
-export async function unfavoriteVenue(userId: string, venueId: string) {
-  const { error } = await supabase
-    .from("user_venue_favorites")
-    .delete()
-    .eq("user_id", userId)
-    .eq("venue_id", venueId);
-  if (error) throw error;
-}
-
 /** The venue this user has tagged the most dances at, or null if they
  *  haven't tagged any yet. Counts client-side (same house style as
  *  attachVotes/attachNights) rather than a DB-side group-by — fine at
@@ -306,7 +276,7 @@ export async function searchGlobalVenues(
   query: string,
   userId?: string,
   limit = 20,
-  day?: DayOfWeek,
+  days?: DayOfWeek[],
 ): Promise<VenueOption[]> {
   const trimmed = query.trim();
   let request = supabase.from("venues").select(VENUE_SELECT).order("name");
@@ -316,18 +286,19 @@ export async function searchGlobalVenues(
   // well-endorsed venue just for sorting late in the alphabet (e.g. "The
   // Grizzly Rose"); fetch everything and cap after the real ranking below.
   if (trimmed) request = request.ilike("name", `%${trimmed}%`).limit(limit);
-  // Filtering to venues dancing a given day is a small separate lookup
-  // against venue_nights (a handful of rows at this app's scale) rather
-  // than an embedded-resource join, to keep the main query's select
-  // string a stable literal (see VENUE_SELECT — Supabase's type
-  // inference needs that to stay one literal, not built dynamically).
-  if (day) {
+  // Filtering to venues dancing ANY of the given days (multi-select) is a
+  // small separate lookup against venue_nights (a handful of rows at
+  // this app's scale) rather than an embedded-resource join, to keep
+  // the main query's select string a stable literal (see VENUE_SELECT —
+  // Supabase's type inference needs that to stay one literal, not built
+  // dynamically).
+  if (days?.length) {
     const { data: dayRows, error: dayError } = await supabase
       .from("venue_nights")
       .select("venue_id")
-      .eq("day_of_week", day);
+      .in("day_of_week", days);
     if (dayError) throw dayError;
-    const ids = (dayRows ?? []).map((r) => r.venue_id as string);
+    const ids = [...new Set((dayRows ?? []).map((r) => r.venue_id as string))];
     if (!ids.length) return [];
     request = request.in("id", ids);
   }
@@ -335,10 +306,10 @@ export async function searchGlobalVenues(
   if (error) throw error;
   const withVotes = await attachVotes((data ?? []) as VenueOption[], userId);
   const withNights = await attachNights(withVotes);
-  const withFavorites = await attachFavorites(withNights, userId);
+  const withCheckins = await attachCheckinCounts(withNights);
   // Best-endorsed first, then alphabetical — helps a real venue outrank a
   // typo'd duplicate that slipped in before name_key existed.
-  const ranked = withFavorites.sort(
+  const ranked = withCheckins.sort(
     (a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.name.localeCompare(b.name),
   );
   return trimmed ? ranked : ranked.slice(0, limit);
@@ -688,6 +659,42 @@ export async function loadDancedVenues(userId: string): Promise<VenueOption[]> {
   if (venuesError) throw venuesError;
   const withVotes = await attachVotes((venues ?? []) as VenueOption[], userId);
   return withVotes.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+
+/** Venues that have crossed the check-in Verified threshold — see
+ *  geoCheckin.ts's VERIFIED_THRESHOLD and migration_venue_checkins.sql's
+ *  venue_checkin_counts view. */
+export async function loadVerifiedVenues(): Promise<VenueOption[]> {
+  const { data: counts, error: countsError } = await supabase
+    .from("venue_checkin_counts")
+    .select("venue_id,checkin_count")
+    .gte("checkin_count", VERIFIED_THRESHOLD);
+  if (countsError) throw countsError;
+  const ids = (counts ?? []).map((r: any) => r.venue_id as string);
+  if (!ids.length) return [];
+  const { data: venues, error: venuesError } = await supabase
+    .from("venues")
+    .select(VENUE_SELECT)
+    .in("id", ids);
+  if (venuesError) throw venuesError;
+  return (venues ?? []) as VenueOption[];
+}
+
+// Fetches venue_checkin_counts for a set of venues and folds it in —
+// same shape as attachVotes/attachNights.
+export async function attachCheckinCounts(venues: VenueOption[]): Promise<VenueOption[]> {
+  if (!venues.length) return venues;
+  const ids = venues.map((v) => v.id);
+  const { data, error } = await supabase
+    .from("venue_checkin_counts")
+    .select("venue_id,checkin_count")
+    .in("venue_id", ids);
+  if (error) return venues.map((v) => ({ ...v, checkinCount: 0 }));
+  const counts = new Map(
+    (data ?? []).map((r: any) => [r.venue_id as string, r.checkin_count as number]),
+  );
+  return venues.map((v) => ({ ...v, checkinCount: counts.get(v.id) ?? 0 }));
 }
 
 export async function addUserVenue(userId: string, venueId: string) {

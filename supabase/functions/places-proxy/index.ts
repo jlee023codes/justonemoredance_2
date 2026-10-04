@@ -14,11 +14,11 @@
 // Set the key (never commit this):
 //   supabase secrets set GOOGLE_PLACES_API_KEY=your-key-here
 //
-// Only autocomplete + place-details are needed for the shipped feature
-// (Places search when adding a venue). A `nearby` action (Places Nearby
-// Search, for reverse-looking-up "what's at this GPS point") belongs to
-// the deferred check-in feature — see the venue-checkin-deferred memory
-// note — not built here.
+// autocomplete/place-details back venue search when adding a venue.
+// `nearby` (Places Nearby Search) backs the check-in feature — reverse-
+// looking-up real named businesses near a GPS point, for "is this the
+// place?" confirmation (plain reverse geocoding only returns a street
+// address, not a business name).
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -67,6 +67,8 @@ Deno.serve(async (req: Request) => {
         return json(await autocomplete(apiKey, body as { input: string; sessionToken: string }));
       case "place-details":
         return json(await placeDetails(apiKey, body as { placeId: string; sessionToken: string }));
+      case "nearby":
+        return json(await nearby(apiKey, body as { latitude: number; longitude: number }));
       default:
         return json({ error: `Unknown action: ${body.action}` }, 400);
     }
@@ -130,6 +132,54 @@ async function placeDetails(
     latitude: data.location?.latitude ?? null,
     longitude: data.location?.longitude ?? null,
   };
+}
+
+export type NearbyPlace = {
+  placeId: string;
+  name: string;
+  formattedAddress: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+async function nearby(
+  apiKey: string,
+  args: { latitude: number; longitude: number },
+): Promise<{ places: NearbyPlace[] }> {
+  if (typeof args.latitude !== "number" || typeof args.longitude !== "number") {
+    return { places: [] };
+  }
+  const res = await fetch(`${PLACES_BASE}/places:searchNearby`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      // Field mask is required by the New Places API — only ask for
+      // what's actually used.
+      "X-Goog-FieldMask":
+        "places.id,places.displayName,places.formattedAddress,places.location",
+    },
+    body: JSON.stringify({
+      locationRestriction: {
+        circle: {
+          center: { latitude: args.latitude, longitude: args.longitude },
+          radius: 150, // meters — matches the client's check-in proximity radius
+        },
+      },
+      maxResultCount: 10,
+    }),
+  });
+  if (!res.ok) throw new Error(`Google Places Nearby Search failed: ${await res.text()}`);
+  const data = await res.json();
+
+  const places: NearbyPlace[] = (data.places ?? []).map((p: any) => ({
+    placeId: p.id as string,
+    name: (p.displayName?.text as string) ?? "",
+    formattedAddress: p.formattedAddress ?? null,
+    latitude: p.location?.latitude ?? null,
+    longitude: p.location?.longitude ?? null,
+  }));
+  return { places };
 }
 
 function json(body: unknown, status = 200) {

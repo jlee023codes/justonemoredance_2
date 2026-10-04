@@ -18,7 +18,6 @@ import { Tier } from "./tier";
 // Platform.OS check of their own.
 
 export const SYNC_ENTITLEMENT_ID = "grapevine";
-export const FRIENDS_ENTITLEMENT_ID = "line-up";
 export const PRO_ENTITLEMENT_ID = "just_one_more_dance_pro";
 export const PACKAGE_IDS = {
   monthly: "monthly",
@@ -87,7 +86,6 @@ export async function logoutPurchases(): Promise<void> {
 function tierFor(info: CustomerInfo): Tier {
   const active = info.entitlements.active;
   if (active[PRO_ENTITLEMENT_ID]) return "pro";
-  if (active[FRIENDS_ENTITLEMENT_ID]) return "friends";
   if (active[SYNC_ENTITLEMENT_ID]) return "sync";
   return "free";
 }

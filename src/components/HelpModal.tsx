@@ -4,19 +4,19 @@ import { openExternalLink } from "../lib/openExternalLink";
 
 const FEATURE_ROWS: { icon: string; label: string; note: string }[] = [
   {
-    icon: "⌂",
-    label: "Home",
-    note: "Search the full dance catalog and add anything you find to your list.",
-  },
-  {
     icon: "≣",
     label: "My List",
-    note: "Everything you've saved — Want to Learn, Learning Now, and Learned. Search, filter, and sort it here. Connect Apple Music or Spotify in Profile to sync it into a real playlist — the Create/Sync Playlist button shows up here once you're connected.",
+    note: "Everything you've saved — Want to Learn, Learning Now, and Learned. Search here to find a dance already on your list, or type something new to pull it straight from the full BootStepper catalog and add it. Connect Apple Music or Spotify in Profile to sync it into a real playlist — the Create/Sync Playlist button shows up here once you're connected.",
   },
   {
     icon: "📍",
     label: "Venues",
-    note: "Browse the shared venue catalog and see what dances people report at each one. Premium.",
+    note: "Browse the shared venue catalog, see what dances people report at each one, and check in when you're there to start tracking a night out. Free for everyone.",
+  },
+  {
+    icon: "📊",
+    label: "Stats",
+    note: "Your check-in history — how long you were out, how many dances you logged each night, and a difficulty breakdown. Tap a session's dance count to see the full list.",
   },
   {
     icon: "👥",
@@ -26,7 +26,7 @@ const FEATURE_ROWS: { icon: string; label: string; note: string }[] = [
   {
     icon: "☻",
     label: "Profile",
-    note: "Your account, My Venues, and subscription settings.",
+    note: "Your account, home bar, and subscription settings.",
   },
 ];
 

@@ -3,7 +3,10 @@ import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { openExternalLink } from "../lib/openExternalLink";
 
-const DIFFICULTY_COLOR: Record<Dance["difficulty"], string> = {
+// Shared across every place a difficulty badge/legend shows up
+// (DancingSessionScreen's search results, StatsScreen's dance list,
+// DifficultyPieChart) — one palette, defined once.
+export const DIFFICULTY_COLOR: Record<Dance["difficulty"], string> = {
   Beginner: colors.green,
   Improver: colors.gold,
   Intermediate: colors.pink,
@@ -76,30 +79,21 @@ export function DanceCard({
 
   return (
     <View style={[s.card, dimmed && s.dimmed]}>
+      <View
+        style={[s.badge, s.badgeCorner, { borderColor: DIFFICULTY_COLOR[dance.difficulty] }]}
+      >
+        <Text style={[s.badgeText, { color: DIFFICULTY_COLOR[dance.difficulty] }]}>
+          {dance.difficulty}
+        </Text>
+      </View>
+
       <View style={s.mainRow}>
         <Pressable style={s.main} onPress={onPress}>
           <Text style={s.icon}>{icon}</Text>
           <View style={s.copy}>
-            <View style={s.titleRow}>
-              <Text style={s.title} numberOfLines={1}>
-                {dance.name}
-              </Text>
-              <View
-                style={[
-                  s.badge,
-                  { borderColor: DIFFICULTY_COLOR[dance.difficulty] },
-                ]}
-              >
-                <Text
-                  style={[
-                    s.badgeText,
-                    { color: DIFFICULTY_COLOR[dance.difficulty] },
-                  ]}
-                >
-                  {dance.difficulty}
-                </Text>
-              </View>
-            </View>
+            <Text style={s.title} numberOfLines={1}>
+              {dance.name}
+            </Text>
 
             {choreographer && (
               <Text style={s.choreographer} numberOfLines={1}>
@@ -184,23 +178,23 @@ const s = StyleSheet.create({
     borderRadius: 14,
     padding: 13,
     marginBottom: 9,
+    position: "relative",
   },
   mainRow: { flexDirection: "row", alignItems: "center" },
   main: { flex: 1, flexDirection: "row", alignItems: "center" },
   icon: { fontSize: 23, width: 38 },
-  copy: { flex: 1 },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  title: { color: colors.ink, fontSize: 16, fontWeight: "800", flexShrink: 1 },
+  copy: { flex: 1, paddingRight: 54 },
+  title: { color: colors.ink, fontSize: 16, fontWeight: "800" },
   badge: {
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 7,
     paddingVertical: 2,
-    marginLeft: 8,
   },
+  // Fixed top-right corner regardless of title length — a structural
+  // anchor rather than floating inline next to a (possibly truncated)
+  // title.
+  badgeCorner: { position: "absolute", top: 13, right: 13 },
   badgeText: { fontSize: 10, fontWeight: "800" },
   choreographer: {
     color: colors.muted,

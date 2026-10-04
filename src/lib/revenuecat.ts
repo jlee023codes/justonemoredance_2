@@ -15,12 +15,11 @@ import { Tier } from "./tier";
 // Requires a development build (Expo Go can't load native modules) — see
 // REVENUECAT_SETUP.md.
 
-// Three tiers, three entitlement identifiers — each tier's product in
-// RevenueCat is attached to every entitlement at or below its own level
-// (Grapevine → sync; Line Up → sync + friends; Floor Boss/"pro" → all
-// three), so tierFor() below just needs to check from the top down.
+// Two paid tiers, two entitlement identifiers — Floor Boss's product in
+// RevenueCat must be attached to BOTH entitlements (it includes
+// everything Grapevine does, plus unlimited tracking and Friends), so
+// tierFor() below just needs to check from the top down.
 export const SYNC_ENTITLEMENT_ID = "grapevine";
-export const FRIENDS_ENTITLEMENT_ID = "line-up";
 export const PRO_ENTITLEMENT_ID = "just_one_more_dance_pro";
 
 // The package identifiers as configured on the Offering in the RevenueCat
@@ -86,7 +85,6 @@ export async function logoutPurchases(): Promise<void> {
 function tierFor(info: CustomerInfo): Tier {
   const active = info.entitlements.active;
   if (active[PRO_ENTITLEMENT_ID]) return "pro";
-  if (active[FRIENDS_ENTITLEMENT_ID]) return "friends";
   if (active[SYNC_ENTITLEMENT_ID]) return "sync";
   return "free";
 }

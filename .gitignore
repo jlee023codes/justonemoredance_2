@@ -23,6 +23,7 @@ secrets/
 # misc build scratch
 work/
 outputs/
+appstore_screenshots/
 
 # macOS
 .DS_Store

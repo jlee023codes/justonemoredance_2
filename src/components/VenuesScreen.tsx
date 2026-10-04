@@ -1,21 +1,24 @@
 import { Ref, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import * as Location from "expo-location";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
 import { Tier } from "../lib/tier";
+import { haversineDistanceMeters, NEAR_ME_METERS } from "../lib/geoCheckin";
 import { QuickStatus } from "./DanceCard";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { VenueCard } from "./VenueCard";
 import { VenueDancesModal } from "./VenueDancesModal";
 import { VenueRevisionModal } from "./VenueRevisionModal";
 import { VenueScheduleModal } from "./VenueScheduleModal";
+import { DayFilterModal } from "./DayFilterModal";
 import { SearchInput } from "./SearchInput";
 import { getPlaceDetails, newSessionToken, PlaceSuggestion, searchPlaces } from "../lib/placesSearch";
 import {
+  attachCheckinCounts,
   attachNights,
   attachRepStatus,
   DAY_LABEL,
-  DAY_ORDER,
   DayOfWeek,
   findOrCreateGlobalVenue,
   findOrCreateGlobalVenueFromPlace,
@@ -28,6 +31,12 @@ import {
 } from "../services/venues";
 
 const DEFAULT_LIMIT = 20;
+// When "Near Me" is on, fetch the whole catalog rather than just the
+// top-N-by-votes — searchGlobalVenues("") already skips a DB-level cap
+// and only slices to `limit` at the very end, so bumping limit this
+// high is enough to see every venue for distance filtering, not just
+// the usual page.
+const NEAR_ME_FETCH_LIMIT = 2000;
 
 /** Browse every venue in the shared catalog as a scrollable list of
  *  cards — name/address, directions, line dancing nights, cover + age,
@@ -68,10 +77,13 @@ export function VenuesScreen({
   const [homeVenueId, setHomeVenueId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [query, setQuery] = useState("");
-  const [dayFilter, setDayFilter] = useState<DayOfWeek | null>(null);
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [dayFilters, setDayFilters] = useState<DayOfWeek[]>([]);
+  const [dayFilterOpen, setDayFilterOpen] = useState(false);
   const [dancedOnly, setDancedOnly] = useState(false);
   const [dancedVenueIds, setDancedVenueIds] = useState<Set<string>>(new Set());
+  const [nearMeOnly, setNearMeOnly] = useState(false);
+  const [nearMePosition, setNearMePosition] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [nearMeLoading, setNearMeLoading] = useState(false);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [results, setResults] = useState<VenueOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +99,7 @@ export function VenuesScreen({
   // opening a separate modal.
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
   const [placesLoading, setPlacesLoading] = useState(false);
+  const [placesError, setPlacesError] = useState("");
   const [addingPlaceId, setAddingPlaceId] = useState<string | null>(null);
   const [addingFreeText, setAddingFreeText] = useState(false);
   const sessionToken = useRef(newSessionToken());
@@ -103,8 +116,9 @@ export function VenuesScreen({
     let cancelled = false;
     setLoading(true);
     setError("");
+    const effectiveLimit = nearMeOnly ? NEAR_ME_FETCH_LIMIT : limit;
     const timer = setTimeout(() => {
-      searchGlobalVenues(query, userId, limit, dayFilter ?? undefined)
+      searchGlobalVenues(query, userId, effectiveLimit, dayFilters)
         .then((venues) => attachRepStatus(venues, userId, isAdmin))
         .then((venues) => {
           if (!cancelled) setResults(venues);
@@ -120,7 +134,11 @@ export function VenuesScreen({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, limit, dayFilter, userId, isAdmin]);
+    // dayFilters.join(",") rather than the array itself — a new array
+    // reference every render would otherwise re-fire this effect even
+    // when the actual selected days haven't changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, limit, dayFilters.join(","), userId, isAdmin, nearMeOnly]);
 
   // Independent of the local search above — kicked off in parallel so
   // there's no extra delay once local comes back empty. Only shown
@@ -129,17 +147,24 @@ export function VenuesScreen({
     const trimmed = query.trim();
     if (!trimmed) {
       setPlaceSuggestions([]);
+      setPlacesError("");
       return;
     }
     let cancelled = false;
     setPlacesLoading(true);
+    setPlacesError("");
     const timer = setTimeout(() => {
       searchPlaces(trimmed, sessionToken.current)
         .then((suggestions) => {
           if (!cancelled) setPlaceSuggestions(suggestions);
         })
-        .catch(() => {
-          if (!cancelled) setPlaceSuggestions([]);
+        .catch((err: any) => {
+          if (cancelled) return;
+          setPlaceSuggestions([]);
+          // Previously swallowed entirely — a Places lookup failure
+          // (bad/expired key, quota, auth) looked identical to "no
+          // results," with no way to tell them apart. Surface it.
+          setPlacesError(err?.message ?? "Could not search Google Maps.");
         })
         .finally(() => {
           if (!cancelled) setPlacesLoading(false);
@@ -156,17 +181,35 @@ export function VenuesScreen({
     setLimit(DEFAULT_LIMIT);
   };
 
-  const handleDayFilter = (day: DayOfWeek) => {
-    setDayFilter((cur) => (cur === day ? null : day));
+  const handleDayFiltersChange = (next: DayOfWeek[]) => {
+    setDayFilters(next);
     setLimit(DEFAULT_LIMIT);
+  };
+
+  const handleToggleNearMe = async () => {
+    if (nearMeOnly) {
+      setNearMeOnly(false);
+      return;
+    }
+    setNearMeLoading(true);
+    setError("");
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Location access is needed to find venues near you — enable it in Settings.");
+      }
+      const loc = await Location.getCurrentPositionAsync({});
+      setNearMePosition({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      setNearMeOnly(true);
+    } catch (err: any) {
+      setError(err?.message ?? "Could not get your location.");
+    } finally {
+      setNearMeLoading(false);
+    }
   };
 
   const setNightsLocally = (venueId: string, nights: { day: DayOfWeek; details: string }[]) => {
     setResults((prev) => prev.map((v) => (v.id === venueId ? { ...v, nights } : v)));
-  };
-
-  const setFavoritedLocally = (venueId: string, favorited: boolean) => {
-    setResults((prev) => prev.map((v) => (v.id === venueId ? { ...v, favorited } : v)));
   };
 
   const markRepRequested = (venueId: string) => {
@@ -180,6 +223,7 @@ export function VenuesScreen({
   const mergeVenue = (venue: VenueOption, isNew: boolean) => {
     attachNights([venue])
       .then((withNights) => attachRepStatus(withNights, userId, isAdmin))
+      .then((withRep) => attachCheckinCounts(withRep))
       .then(([enriched]) => {
         setResults((prev) =>
           prev.some((v) => v.id === enriched.id)
@@ -237,31 +281,47 @@ export function VenuesScreen({
     }
   };
 
-  const ordered = homeFirst(results, homeVenueId).filter(
-    (v) => (!favoritesOnly || v.favorited) && (!dancedOnly || dancedVenueIds.has(v.id)),
+  // Near Me: keep only venues with coords within NEAR_ME_METERS, and
+  // sort nearest-first — distance beats the usual votes-then-name
+  // ranking while this filter's active, same way day/danced narrow
+  // the list without changing how it's fetched.
+  const withDistance = nearMeOnly && nearMePosition
+    ? results
+        .map((v) => ({
+          venue: v,
+          distance:
+            v.latitude != null && v.longitude != null
+              ? haversineDistanceMeters(nearMePosition.latitude, nearMePosition.longitude, v.latitude, v.longitude)
+              : null,
+        }))
+        .filter((r) => r.distance != null && r.distance <= NEAR_ME_METERS)
+        .sort((a, b) => a.distance! - b.distance!)
+        .map((r) => r.venue)
+    : results;
+
+  const ordered = homeFirst(withDistance, homeVenueId).filter(
+    (v) => !dancedOnly || dancedVenueIds.has(v.id),
   );
   const initialLoading = loading && !results.length;
   const trimmedQuery = query.trim();
   const showGoogleResults = trimmedQuery.length > 0 && !loading && results.length === 0;
 
-  // favoritesOnly/dancedOnly filter client-side after the fetch, so "no
+  // dancedOnly/nearMeOnly filter client-side after the fetch, so "no
   // matches" can mean either "nothing in the DB" (results empty) or
   // "nothing matching the filter among what's there" (results
   // non-empty, ordered empty) — worth distinguishing so the message is
   // actually useful.
   let emptyMessage: string | null = null;
   if (!ordered.length) {
-    if (favoritesOnly) {
-      emptyMessage = trimmedQuery
-        ? `No favorites match "${query}".`
-        : "No favorites yet — tap ♥ on a venue to save it here.";
+    if (nearMeOnly) {
+      emptyMessage = "No reported line dancing bars within 30 miles of you yet.";
     } else if (dancedOnly) {
       emptyMessage = trimmedQuery
         ? `No danced venues match "${query}".`
         : "Nowhere yet — tag a dance to a venue to see it here.";
     } else if (!trimmedQuery) {
-      emptyMessage = dayFilter
-        ? `No venues have ${DAY_LABEL[dayFilter]} dancing reported yet.`
+      emptyMessage = dayFilters.length
+        ? `No venues have ${dayFilters.map((d) => DAY_LABEL[d]).join("/")} dancing reported yet.`
         : "No venues yet — be the first to add one.";
     }
     // else: a search with zero local matches falls through to the
@@ -288,25 +348,15 @@ export function VenuesScreen({
           style={s.search}
         />
 
-        <Text style={s.filterLabel}>FILTER BY NIGHT</Text>
         <View style={s.dayRow}>
-          {DAY_ORDER.map((d) => (
-            <Pressable
-              key={d}
-              style={[s.dayChip, dayFilter === d && s.dayChipOn]}
-              onPress={() => handleDayFilter(d)}
-            >
-              <Text style={[s.dayChipText, dayFilter === d && s.dayChipTextOn]}>
-                {DAY_LABEL[d]}
-              </Text>
-            </Pressable>
-          ))}
           <Pressable
-            style={[s.dayChip, favoritesOnly && s.dayChipOn]}
-            onPress={() => setFavoritesOnly((v) => !v)}
+            style={[s.dayChip, dayFilters.length > 0 && s.dayChipOn]}
+            onPress={() => setDayFilterOpen(true)}
           >
-            <Text style={[s.dayChipText, favoritesOnly && s.dayChipTextOn]}>
-              ♥ Favorites
+            <Text style={[s.dayChipText, dayFilters.length > 0 && s.dayChipTextOn]}>
+              {dayFilters.length
+                ? `${dayFilters.map((d) => DAY_LABEL[d]).join(", ")} ▾`
+                : "Filter by night ▾"}
             </Text>
           </Pressable>
           <Pressable
@@ -317,7 +367,26 @@ export function VenuesScreen({
               📍 Danced Here
             </Text>
           </Pressable>
+          <Pressable
+            style={[s.dayChip, nearMeOnly && s.dayChipOn]}
+            onPress={handleToggleNearMe}
+            disabled={nearMeLoading}
+          >
+            {nearMeLoading ? (
+              <ActivityIndicator color={colors.muted} size="small" />
+            ) : (
+              <Text style={[s.dayChipText, nearMeOnly && s.dayChipTextOn]}>
+                🧭 Near Me
+              </Text>
+            )}
+          </Pressable>
         </View>
+
+        {nearMeOnly && (
+          <Text style={s.nearMeHint}>
+            Reported line dancing bars within 30 miles of you.
+          </Text>
+        )}
 
         {error ? <Text style={s.error}>{error}</Text> : null}
 
@@ -336,7 +405,6 @@ export function VenuesScreen({
               onSubmitRevision={() => setNotifyModal({ venue, kind: "revision" })}
               onRequestRep={() => setNotifyModal({ venue, kind: "rep_request" })}
               onNightsChanged={(nights) => setNightsLocally(venue.id, nights)}
-              onFavoriteToggled={(favorited) => setFavoritedLocally(venue.id, favorited)}
               onHomeChanged={setHomeVenueId}
             />
           ))}
@@ -348,6 +416,7 @@ export function VenuesScreen({
         {showGoogleResults && (
           <>
             <Text style={s.filterLabel}>FROM GOOGLE MAPS</Text>
+            {placesError ? <Text style={s.error}>{placesError}</Text> : null}
             {placesLoading && !placeSuggestions.length && (
               <ActivityIndicator color={colors.gold} style={s.loader} />
             )}
@@ -408,6 +477,13 @@ export function VenuesScreen({
       />
 
       <VenueScheduleModal venue={scheduleVenue} onClose={() => setScheduleVenue(null)} />
+
+      <DayFilterModal
+        visible={dayFilterOpen}
+        selected={dayFilters}
+        onChange={handleDayFiltersChange}
+        onClose={() => setDayFilterOpen(false)}
+      />
     </>
   );
 }
@@ -429,7 +505,7 @@ const s = StyleSheet.create({
     marginTop: 18,
     marginBottom: 8,
   },
-  dayRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  dayRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
   dayChip: {
     borderWidth: 1,
     borderColor: colors.line,
@@ -440,6 +516,7 @@ const s = StyleSheet.create({
   dayChipOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
   dayChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
   dayChipTextOn: { color: colors.pink },
+  nearMeHint: { color: colors.muted, fontSize: 12, marginBottom: 10 },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -449,6 +526,7 @@ const s = StyleSheet.create({
     padding: 13,
     fontSize: 15,
     marginTop: 16,
+    marginBottom: 14,
   },
   placeOption: {
     flexDirection: "row",

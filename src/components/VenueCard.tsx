@@ -9,11 +9,10 @@ import {
   DAY_ORDER,
   DayOfWeek,
   deleteVenueNight,
-  favoriteVenue,
   setHomeVenue,
-  unfavoriteVenue,
   updateVenueNight,
   VenueOption,
+  VERIFIED_THRESHOLD,
 } from "../services/venues";
 
 /** One venue in the Venues tab's card list. Nights can only be added or
@@ -28,7 +27,6 @@ export function VenueCard({
   onSubmitRevision,
   onRequestRep,
   onNightsChanged,
-  onFavoriteToggled,
   onHomeChanged,
 }: {
   venue: VenueOption;
@@ -38,7 +36,6 @@ export function VenueCard({
   onSubmitRevision: () => void;
   onRequestRep: () => void;
   onNightsChanged: (nights: { day: DayOfWeek; details: string }[]) => void;
-  onFavoriteToggled: (favorited: boolean) => void;
   // Called with the new home-venue id (or null if unset) after a
   // successful toggle — the parent tracks homeVenueId across the whole
   // list, since setting one venue as home unsets whichever was home
@@ -52,23 +49,7 @@ export function VenueCard({
   const [editDraft, setEditDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState("");
-  const [favoriting, setFavoriting] = useState(false);
   const [settingHome, setSettingHome] = useState(false);
-
-  const handleToggleFavorite = async () => {
-    if (favoriting) return;
-    const next = !venue.favorited;
-    setFavoriting(true);
-    onFavoriteToggled(next); // optimistic
-    try {
-      await (next ? favoriteVenue(userId, venue.id) : unfavoriteVenue(userId, venue.id));
-    } catch (err: any) {
-      onFavoriteToggled(!next); // roll back
-      showError(err, "Could not save that.");
-    } finally {
-      setFavoriting(false);
-    }
-  };
 
   const handleToggleHome = async () => {
     if (settingHome) return;
@@ -145,16 +126,23 @@ export function VenueCard({
       <View style={s.headRow}>
         <Text style={s.name} numberOfLines={2}>
           {venue.name}
+          {(venue.checkinCount ?? 0) >= VERIFIED_THRESHOLD && (
+            <Text style={s.verifiedMark}> ✓</Text>
+          )}
         </Text>
-        <Pressable onPress={handleToggleHome} hitSlop={6} accessibilityLabel="Set as home bar">
+        <Pressable
+          style={s.iconBox}
+          onPress={handleToggleHome}
+          hitSlop={6}
+          accessibilityLabel="Set as home bar"
+        >
           <Text style={[s.home, isHome && s.homeOn]}>{isHome ? "🏠" : "⌂"}</Text>
         </Pressable>
-        <Pressable onPress={handleToggleFavorite} hitSlop={6}>
-          <Text style={s.favorite}>{venue.favorited ? "♥" : "♡"}</Text>
-        </Pressable>
-        <Text style={s.votes}>
-          {venue.votedByMe ? "★" : "☆"} {venue.votes ?? 0}
-        </Text>
+        <View style={s.iconBox}>
+          <Text style={s.votes}>
+            {venue.votedByMe ? "★" : "☆"} {venue.votes ?? 0}
+          </Text>
+        </View>
       </View>
       {venue.address && <Text style={s.address}>{venue.address}</Text>}
 
@@ -275,7 +263,7 @@ export function VenueCard({
             <Text style={s.repPending}>Rep request pending</Text>
           ) : !venue.canManageNights && venue.repStatus !== "denied" ? (
             <Pressable onPress={onRequestRep} hitSlop={6}>
-              <Text style={s.revisionLink}>🤝 Become this venue's rep</Text>
+              <Text style={s.revisionLink}>🤝 Rep This Venue</Text>
             </Pressable>
           ) : null}
           <Pressable onPress={onSubmitRevision} hitSlop={6}>
@@ -296,11 +284,16 @@ const s = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
   },
-  headRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  headRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   name: { flex: 1, color: colors.ink, fontSize: 18, fontWeight: "900" },
+  // Fixed-height box per icon so differing glyph/emoji vertical metrics
+  // (🏠 vs ★13) can't throw off centering against each other — same
+  // reasoning as TabIcon.tsx, just a plain box instead of SVG since
+  // these are single icons, not a whole icon set.
+  iconBox: { height: 24, alignItems: "center", justifyContent: "center" },
   votes: { color: colors.gold, fontSize: 13, fontWeight: "800" },
-  favorite: { color: colors.pink, fontSize: 18 },
   home: { color: colors.muted, fontSize: 18 },
+  verifiedMark: { color: colors.gold, fontWeight: "900" },
   homeOn: { color: colors.gold },
   address: { color: colors.muted, fontSize: 12, marginTop: 4 },
   directionsButton: { alignSelf: "flex-start", marginTop: 10 },

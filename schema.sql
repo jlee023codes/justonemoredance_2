@@ -98,12 +98,9 @@ create table user_venue_dances (
 -- user_venue_dances below — that's the point: the underlying rows stay
 -- private, only this aggregate is public.
 --
--- Only premium users' tags count. This is what makes "enroll in premium"
--- meaningful: the moment profiles.comped_premium flips true for someone, their
--- existing tags start counting here automatically (it's a live query, no
--- backfill needed) — they've added their known venue dances to the bigger
--- list, and Premium is what unlocks reading this view in the first place
--- (see the Venues tab's paywall gate).
+-- Every tag counts, regardless of tier — see
+-- migration_venue_dance_reports_ungated.sql. Venues is free for
+-- everyone now, and so is contributing to it.
 create or replace view venue_dance_reports as
 select
   d.venue_id,
@@ -113,7 +110,6 @@ select
   max(d.dance_difficulty) as dance_difficulty,
   count(distinct d.user_id)::int as reported_by
 from user_venue_dances d
-join profiles p on p.id = d.user_id and p.comped_premium
 group by d.venue_id, d.dance_id;
 
 create table shared_lists (

@@ -12,7 +12,6 @@ export type { Tier } from "./tier";
 export { tierAtLeast, TIER_LABELS } from "./tier";
 
 export const SYNC_ENTITLEMENT_ID = RC.SYNC_ENTITLEMENT_ID;
-export const FRIENDS_ENTITLEMENT_ID = RC.FRIENDS_ENTITLEMENT_ID;
 export const PRO_ENTITLEMENT_ID = RC.PRO_ENTITLEMENT_ID;
 export const PACKAGE_IDS = RC.PACKAGE_IDS;
 export type PlanKey = RC.PlanKey;
@@ -41,7 +40,7 @@ export const redeemOfferCode = RC.redeemOfferCode;
  *    update profiles set comped_premium = true where id = '<their user id>';
  *  Deliberately not tier-granular — a comp always means "everything"
  *  (pro), same as before the tier system existed; there's been no need
- *  yet for comping someone at just Grapevine or Line Up specifically.
+ *  yet for comping someone at just Grapevine specifically.
  *  IMPORTANT: this is a stand-in for what should eventually be a
  *  RevenueCat webhook (Edge Function) flipping this same column on
  *  purchase/renewal/expiration, so venue_dance_reports' "premium users'

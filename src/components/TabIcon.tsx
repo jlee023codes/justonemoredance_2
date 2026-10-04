@@ -9,7 +9,7 @@ import Svg, { Circle, Line, Path } from "react-native-svg";
 // same reasoning as AvatarPresetIcon — so centering the box centers the
 // icon, guaranteed, on every platform.
 
-export type TabIconName = "home" | "list" | "pin" | "people" | "person";
+export type TabIconName = "home" | "list" | "pin" | "stats" | "people" | "person";
 
 export function TabIcon({
   name,
@@ -51,6 +51,14 @@ export function TabIcon({
             fill="none"
           />
           <Circle cx={12} cy={9.5} r={2.3} fill={color} />
+        </>
+      )}
+
+      {name === "stats" && (
+        <>
+          <Line x1={7} y1={16} x2={7} y2={19} stroke={color} strokeWidth={2} strokeLinecap="round" />
+          <Line x1={12} y1={11} x2={12} y2={19} stroke={color} strokeWidth={2} strokeLinecap="round" />
+          <Line x1={17} y1={6} x2={17} y2={19} stroke={color} strokeWidth={2} strokeLinecap="round" />
         </>
       )}
 

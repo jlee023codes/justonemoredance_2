@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AppState,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -10,18 +11,17 @@ import {
   View,
 } from "react-native";
 import * as Linking from "expo-linking";
+import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import { Dance, DanceProgress } from "./src/types";
 import { AppTab, BottomTabs } from "./src/components/BottomTabs";
-import {
-  BackToTopHandle,
-  BackToTopScrollView,
-} from "./src/components/BackToTopScrollView";
-import { DanceCard } from "./src/components/DanceCard";
-import { SearchInput } from "./src/components/SearchInput";
+import { BackToTopHandle } from "./src/components/BackToTopScrollView";
 import { DanceDetailsModal } from "./src/components/DanceDetailsModal";
 import { MyListScreen } from "./src/components/MyListScreen";
 import { VenuesScreen } from "./src/components/VenuesScreen";
+import { CheckInModal } from "./src/components/CheckInModal";
+import { DancingSessionScreen } from "./src/components/DancingSessionScreen";
+import { StatsScreen } from "./src/components/StatsScreen";
 import { FriendsScreen } from "./src/components/FriendsScreen";
 import { PaywallScreen } from "./src/components/PaywallScreen";
 import { StatusLegendModal } from "./src/components/StatusLegendModal";
@@ -34,6 +34,22 @@ import { ProfileScreen } from "./src/components/ProfileScreen";
 import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
 import { confirmAction, showAlert } from "./src/lib/alerts";
+import {
+  findNearestCandidate,
+  isOnCooldown,
+  loadCheckinCandidates,
+  stampCooldown,
+} from "./src/lib/geoCheckin";
+import {
+  ActiveSession,
+  distanceFromVenueMeters,
+  elapsedSeconds,
+  endSession,
+  GEOFENCE_EXIT_METERS,
+  loadActiveSession,
+  queryStepCount,
+  startSession,
+} from "./src/lib/checkinSession";
 import {
   reachedDanceLimit,
   DANCE_LIMIT_TITLE,
@@ -87,13 +103,23 @@ import {
   saveCachedCatalog,
 } from "./src/services/catalogCache";
 import {
-  searchDances,
   getDancesByIds,
   searchVideoUrls,
   mapWithConcurrency,
 } from "./src/lib/bootstepper";
 import { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+
+// `tick` isn't read directly — it's just what forces this to
+// re-evaluate every second while headerTick increments (see the
+// ticking effect in AppRoot). elapsedSeconds reads the real clock.
+function formatHeaderElapsed(tick: number, activeSession: ActiveSession): string {
+  void tick;
+  const seconds = elapsedSeconds(activeSession);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
 
 export default function App() {
   return (
@@ -104,18 +130,23 @@ export default function App() {
 }
 
 function AppRoot() {
-  const [tab, setTab] = useState<AppTab>("Home"),
-    [query, setQuery] = useState(""),
+  const [tab, setTab] = useState<AppTab>("My List"),
     [progress, setProgress] = useState<Record<string, DanceProgress>>({}),
     [selected, setSelected] = useState<Dance | null>(null),
-    [message, setMessage] = useState(""),
     [session, setSession] = useState<Session | null>(null),
     [authLoading, setAuthLoading] = useState(true),
-    // Search results shown on the Home tab, straight from BootStepper —
-    // Home always searches the full catalog ("everywhere"), with no venue
-    // filter. Venue association happens per-dance, in the details modal.
-    [searchResults, setSearchResults] = useState<Dance[]>([]),
-    [searchLoading, setSearchLoading] = useState(true),
+    [checkInOpen, setCheckInOpen] = useState(false),
+    // The in-progress "dancing" session, if any — null when idle.
+    // Hydrated from AsyncStorage on mount so a kill/restart mid-session
+    // doesn't lose it (see checkinSession.ts's loadActiveSession).
+    [activeSession, setActiveSession] = useState<ActiveSession | null>(null),
+    [sessionScreenOpen, setSessionScreenOpen] = useState(false),
+    // Bumped whenever a session ends, so the Stats tab picks up the new entry.
+    [statsRefreshKey, setStatsRefreshKey] = useState(0),
+    // Ticks every second purely to force the header's elapsed-time
+    // label to re-render while a session is active — see the effect
+    // right below activeScrollRef.
+    [headerTick, setHeaderTick] = useState(0),
     // Every Dance object we've seen from any source (search, direct fetch by
     // id, received/friend dances) — lets Want/Learned resolve a full Dance
     // even when it's not in the current Home search results.
@@ -146,9 +177,10 @@ function AppRoot() {
     // Set when an offline import has been queued, so the Profile tab opens
     // straight into the matcher.
     [openImportOnProfile, setOpenImportOnProfile] = useState(false),
-    // Gates Venues ("pro"), Friends ("friends"+), and playlist sync
-    // ("sync"+) — a real RevenueCat entitlement OR a manual server comp
-    // (profiles.comped_premium, always "pro"). See src/lib/entitlements.ts.
+    // Gates Friends ("pro") and playlist sync ("sync"+) — Venues is free
+    // for everyone, no gate. A real RevenueCat entitlement OR a manual
+    // server comp (profiles.comped_premium, always "pro"). See
+    // src/lib/entitlements.ts.
     [tier, setTier] = useState<Tier>("free"),
     // True once the initial getSession() call has been hanging for a
     // while — almost always a weak/no signal, since a merely-expired
@@ -173,6 +205,22 @@ function AppRoot() {
   // BackToTopScrollView is currently on screen (and goes null on Profile,
   // where tapping the logo is then just a no-op).
   const activeScrollRef = useRef<BackToTopHandle>(null);
+
+  // Restore an in-progress session after an app restart/kill — this is
+  // what makes "phone died mid-session" recoverable rather than losing
+  // the venue/start-time entirely.
+  useEffect(() => {
+    loadActiveSession().then(setActiveSession).catch(() => {});
+  }, []);
+
+  // Only runs while there's something to tick for — no interval at all
+  // when idle, same "don't pay for a timer nobody's watching" instinct
+  // as DancingSessionScreen's own ticker.
+  useEffect(() => {
+    if (!activeSession) return;
+    const timer = setInterval(() => setHeaderTick((t) => t + 1), 1000);
+    return () => clearInterval(timer);
+  }, [activeSession?.checkinId]);
 
   // Read once on mount — this is what Offline Mode falls back to; it only
   // ever needs to have been written during some earlier, successful
@@ -248,6 +296,109 @@ function AppRoot() {
   useEffect(() => {
     if (session && forcedOffline) setForcedOffline(false);
   }, [session, forcedOffline]);
+
+  // Read inside the effect below via a ref rather than a dependency —
+  // the AppState subscription shouldn't tear down and re-subscribe
+  // every time a session starts/ends, just skip its own prompt while
+  // one's already active.
+  const activeSessionRef = useRef<ActiveSession | null>(null);
+  activeSessionRef.current = activeSession;
+
+  // Foreground-only venue check-in prompt — checks location on launch
+  // and whenever the app returns to the foreground, not full background
+  // geofencing (see the venue-checkin-deferred memory note for why).
+  // Entirely best-effort: never blocks app usage over a location
+  // hiccup, and requestForegroundPermissionsAsync only ever shows the
+  // OS's own prompt once — a prior "don't allow" just resolves
+  // ungranted here with no repeat UI, so this adapts to whatever
+  // permission level is actually granted rather than forcing one.
+  useEffect(() => {
+    if (!session) return;
+    const userId = session.user.id;
+
+    const checkNearby = async () => {
+      try {
+        // Already dancing somewhere — don't prompt to check in elsewhere.
+        if (activeSessionRef.current) return;
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) return;
+        const loc = await Location.getCurrentPositionAsync({});
+        const candidates = await loadCheckinCandidates(userId);
+        const nearest = findNearestCandidate(
+          { latitude: loc.coords.latitude, longitude: loc.coords.longitude },
+          candidates,
+        );
+        if (!nearest || (await isOnCooldown(nearest.id))) return;
+        const checkedIn = await confirmAction(
+          `You're near ${nearest.name}`,
+          "Check in?",
+          "Check In",
+        );
+        await stampCooldown(nearest.id);
+        if (checkedIn) {
+          const started = await startSession(userId, nearest, {
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          setActiveSession(started);
+          setVenuesRefreshKey((k) => k + 1);
+        }
+      } catch {
+        // Best-effort — a location hiccup shouldn't be user-visible.
+      }
+    };
+
+    checkNearby();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") checkNearby();
+    });
+    return () => subscription.remove();
+  }, [session?.user.id]);
+
+  // Geofence auto-end — foreground-only, same AppState shape as the
+  // proximity effect above. While a session is active (and not
+  // paused), check distance from the checked-in venue on every
+  // foreground transition; drifting past GEOFENCE_EXIT_METERS ends it
+  // automatically. Reads activeSession via the same ref so this
+  // doesn't need its own separate subscription lifecycle concerns.
+  useEffect(() => {
+    if (!session) return;
+
+    const checkGeofence = async () => {
+      const current = activeSessionRef.current;
+      if (!current) return;
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) return;
+        const loc = await Location.getCurrentPositionAsync({});
+        const distance = distanceFromVenueMeters(current, {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+        if (distance <= GEOFENCE_EXIT_METERS) return;
+        const stepCount = await queryStepCount(current);
+        const summary = await endSession(current, "geofence", stepCount);
+        setActiveSession(null);
+        setSessionScreenOpen(false);
+        setStatsRefreshKey((k) => k + 1);
+        showAlert(
+          "Session ended",
+          `Looks like you left ${current.venueName} — we ended your dancing session automatically.${
+            summary.durationSeconds > 0
+              ? ` You were there for ${Math.round(summary.durationSeconds / 60)} min.`
+              : ""
+          }`,
+        );
+      } catch {
+        // Best-effort — never auto-end over a location hiccup.
+      }
+    };
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") checkGeofence();
+    });
+    return () => subscription.remove();
+  }, [session?.user.id]);
 
   // Native side of the password-reset flow. On web, supabase-js handles
   // the URL itself; on iOS/Android the deep link arrives here instead and
@@ -366,7 +517,7 @@ function AppRoot() {
         ),
       )
       .catch((err: any) =>
-        setMessage(`Could not load your saved dances: ${err.message}`),
+        showAlert("Could not load your saved dances", err.message),
       );
   }, [userId, sessionEpoch]);
 
@@ -476,32 +627,6 @@ function AppRoot() {
       return next;
     });
   };
-
-  // Debounced search against BootStepper. An empty query asks for their
-  // default/relevance ordering, so Home always shows something.
-  const searchRequestId = useRef(0);
-  useEffect(() => {
-    if (!session) return;
-    const requestId = ++searchRequestId.current;
-    setSearchLoading(true);
-    const timer = setTimeout(() => {
-      searchDances(query)
-        .then((results) => {
-          if (searchRequestId.current !== requestId) return; // stale
-          setSearchResults(results);
-          mergeIntoCache(results);
-          setSearchLoading(false);
-        })
-        .catch((error) => {
-          if (searchRequestId.current !== requestId) return;
-          setSearchLoading(false);
-          setMessage(
-            `Could not load dances from BootStepper: ${error.message}`,
-          );
-        });
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [query, session]);
 
   // Resolve dance ids saved in progress that we only have a snapshot for —
   // covers opening straight to "Want to learn" / "Learned" without having
@@ -827,7 +952,7 @@ function AppRoot() {
       }
       handleProgressChange(dance.id, next);
     } catch (err: any) {
-      setMessage(`Could not update ${dance.name}: ${err.message}`);
+      showAlert("Could not update", `${dance.name}: ${err.message}`);
     }
   };
 
@@ -909,12 +1034,23 @@ function AppRoot() {
         <StatusBar style="light" />
         <View style={s.header}>
           <Pressable
-            style={s.infoButton}
-            onPress={() => setLegendOpen(true)}
+            style={s.checkInButton}
+            onPress={() =>
+              activeSession ? setSessionScreenOpen(true) : setCheckInOpen(true)
+            }
             hitSlop={10}
-            accessibilityLabel="What the dance card icons mean"
+            accessibilityLabel={activeSession ? "Dancing in progress" : "Let's Dance"}
           >
-            <Text style={s.infoIcon}>ⓘ</Text>
+            {activeSession ? (
+              <>
+                <Text style={s.checkInIcon}>🔴</Text>
+                <Text style={s.checkInLabel} numberOfLines={1}>
+                  {formatHeaderElapsed(headerTick, activeSession)}
+                </Text>
+              </>
+            ) : (
+              <Text style={s.checkInLabel}>Let's Dance</Text>
+            )}
           </Pressable>
           <Pressable
             onPress={() => activeScrollRef.current?.scrollToTop()}
@@ -927,15 +1063,58 @@ function AppRoot() {
               resizeMode="contain"
             />
           </Pressable>
-          <Pressable
-            style={s.infoButton}
-            onPress={() => setHelpOpen(true)}
-            hitSlop={10}
-            accessibilityLabel="Where to find things"
-          >
-            <Text style={s.infoIcon}>?</Text>
-          </Pressable>
+          <View style={s.headerRight}>
+            <Pressable
+              style={s.infoButton}
+              onPress={() => setLegendOpen(true)}
+              hitSlop={10}
+              accessibilityLabel="What the dance card icons mean"
+            >
+              <Text style={s.infoIcon}>ⓘ</Text>
+            </Pressable>
+            <Pressable
+              style={s.infoButton}
+              onPress={() => setHelpOpen(true)}
+              hitSlop={10}
+              accessibilityLabel="Where to find things"
+            >
+              <Text style={s.infoIcon}>?</Text>
+            </Pressable>
+          </View>
         </View>
+        <CheckInModal
+          userId={session.user.id}
+          visible={checkInOpen}
+          onClose={() => setCheckInOpen(false)}
+          onCheckedIn={(started) => {
+            setActiveSession(started);
+            setCheckInOpen(false);
+            setSessionScreenOpen(true);
+          }}
+        />
+        {activeSession && sessionScreenOpen && (
+          <DancingSessionScreen
+            userId={session.user.id}
+            session={activeSession}
+            progress={progress}
+            catalogCache={catalogCache}
+            onSessionChange={setActiveSession}
+            onAddToMyList={(dance) => handleQuickStatus(dance, "want")}
+            onClose={() => setSessionScreenOpen(false)}
+            onEnd={async (summary) => {
+              setActiveSession(null);
+              setSessionScreenOpen(false);
+              setVenuesRefreshKey((k) => k + 1);
+              setStatsRefreshKey((k) => k + 1);
+              showAlert(
+                "Nice dancing! 🎉",
+                `${Math.round(summary.durationSeconds / 60)} min · ${summary.danceCount} ${
+                  summary.danceCount === 1 ? "dance" : "dances"
+                }${summary.stepCount != null ? ` · ${summary.stepCount.toLocaleString()} steps` : ""}`,
+              );
+            }}
+          />
+        )}
         <OfflineBanner
           online={online}
           pendingCount={offlineCount}
@@ -999,63 +1178,33 @@ function AppRoot() {
             refreshKey={venuesRefreshKey}
             scrollRef={activeScrollRef}
           />
-        ) : tab === "Friends" ? (
-          tierAtLeast(tier, "friends") ? (
-            <FriendsScreen
-              userId={session.user.id}
-              email={session.user.is_anonymous ? undefined : session.user.email}
-              progress={progress}
-              onProgressChange={handleProgressChange}
-              onOpenDance={openDance}
-              onPendingRequestCountChange={setPendingRequestCount}
-              tier={tier}
-              scrollRef={activeScrollRef}
-            />
-          ) : (
-            <PaywallScreen
-              title="Friends"
-              bullets={[
-                "See what your friends just learned or added",
-                "Get notified when a friend adds a new venue",
-                "Plan a night out — make an event, everyone RSVPs",
-                "Import dances straight from a friend's list",
-              ]}
-            />
-          )
+        ) : tab === "Stats" ? (
+          <StatsScreen
+            userId={session.user.id}
+            refreshKey={statsRefreshKey}
+            scrollRef={activeScrollRef}
+          />
+        ) : tierAtLeast(tier, "pro") ? (
+          <FriendsScreen
+            userId={session.user.id}
+            email={session.user.is_anonymous ? undefined : session.user.email}
+            progress={progress}
+            onProgressChange={handleProgressChange}
+            onOpenDance={openDance}
+            onPendingRequestCountChange={setPendingRequestCount}
+            tier={tier}
+            scrollRef={activeScrollRef}
+          />
         ) : (
-          <BackToTopScrollView
-            ref={activeScrollRef}
-            contentContainerStyle={s.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={s.greeting}>Find your next favorite step ✨</Text>
-            <SearchInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search dances or songs"
-              style={s.search}
-            />
-            <Text style={s.section}>DANCES</Text>
-            {searchLoading && !searchResults.length && (
-              <Text style={s.empty}>Loading dances…</Text>
-            )}
-            {searchResults.map((d) => (
-              <DanceCard
-                key={d.id}
-                dance={d}
-                song={d.defaultSong}
-                progress={progress[d.id]}
-                onPress={() => openDance(d)}
-                onQuickStatus={(status) => handleQuickStatus(d, status)}
-              />
-            ))}
-            {!searchLoading && !searchResults.length && (
-              <Text style={s.empty}>
-                No dances found — try a different search.
-              </Text>
-            )}
-            {message ? <Text style={s.message}>{message}</Text> : null}
-          </BackToTopScrollView>
+          <PaywallScreen
+            title="Friends"
+            bullets={[
+              "See what your friends just learned or added",
+              "Get notified when a friend adds a new venue",
+              "Plan a night out — make an event, everyone RSVPs",
+              "Import dances straight from a friend's list",
+            ]}
+          />
         )}
         </KeyboardAvoidingView>
         <BottomTabs
@@ -1158,39 +1307,21 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   infoIcon: { color: colors.gold, fontSize: 20, fontWeight: "700" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 4 },
+  checkInButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.gold,
+  },
+  checkInIcon: { fontSize: 14 },
+  checkInLabel: { color: colors.gold, fontSize: 11, fontWeight: "800" },
   logo: {
     width: 96,
     height: 64,
-  },
-  content: { padding: 20, paddingBottom: 110 },
-  greeting: {
-    color: colors.ink,
-    fontSize: 21,
-    fontWeight: "700",
-    marginBottom: 18,
-  },
-  search: {
-    backgroundColor: colors.card,
-    color: colors.ink,
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  section: {
-    color: colors.gold,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    marginTop: 24,
-    marginBottom: 8,
-  },
-  empty: { color: colors.muted, fontSize: 15, marginTop: 10 },
-  message: {
-    color: colors.green,
-    textAlign: "center",
-    marginTop: 15,
-    fontWeight: "700",
   },
 });

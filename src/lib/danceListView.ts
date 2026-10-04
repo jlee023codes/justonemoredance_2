@@ -90,8 +90,20 @@ export function activeFilterCount(f: MyListFilters): number {
 }
 
 // Strip everything but letters/numbers so "TGIF" matches "T.G.I.F." and
-// "bar song" matches "A Bar Song".
-const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+// "bar song" matches "A Bar Song". Exported for other dance-name search
+// UIs (e.g. DancingSessionScreen's session-log search) that want the
+// same partial/punctuation-insensitive matching without pulling in the
+// rest of buildMyList's filtering machinery.
+export const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+/** Does `name` match `query`, ignoring case and punctuation/spacing? */
+export function matchesDanceName(name: string, query: string): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  if (name.toLowerCase().includes(q.toLowerCase())) return true;
+  const squashedQuery = squash(q);
+  return squashedQuery.length > 0 && squash(name).includes(squashedQuery);
+}
 
 function matchesSearch(dance: Dance, needle: string): boolean {
   if (!needle) return true;

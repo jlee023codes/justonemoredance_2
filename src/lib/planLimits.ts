@@ -5,8 +5,7 @@ import { Tier } from "./tier";
 // blocks genuinely *new* additions.
 const DANCE_LIMITS: Record<Tier, number> = {
   free: 50,
-  sync: 75,
-  friends: 150,
+  sync: 100,
   pro: Infinity,
 };
 
@@ -32,7 +31,6 @@ export const DANCE_LIMIT_MESSAGE =
 const VENUE_DANCE_LIMITS: Record<Tier, number> = {
   free: 20,
   sync: Infinity,
-  friends: Infinity,
   pro: Infinity,
 };
 

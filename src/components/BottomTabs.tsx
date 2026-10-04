@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
 import { TabIcon, TabIconName } from "./TabIcon";
-export type AppTab = "Home" | "My List" | "Venues" | "Friends" | "Profile";
+export type AppTab = "My List" | "Venues" | "Stats" | "Friends" | "Profile";
 export function BottomTabs({
   activeTab,
   onChange,
@@ -14,9 +14,9 @@ export function BottomTabs({
   badges?: Partial<Record<AppTab, number>>;
 }) {
   const tabs: { name: AppTab; icon: TabIconName }[] = [
-    { name: "Home", icon: "home" },
     { name: "My List", icon: "list" },
     { name: "Venues", icon: "pin" },
+    { name: "Stats", icon: "stats" },
     { name: "Friends", icon: "people" },
     { name: "Profile", icon: "person" },
   ];

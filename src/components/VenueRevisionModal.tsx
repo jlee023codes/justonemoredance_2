@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { colors } from "../styles";
 import { showError } from "../lib/alerts";
 import { notifyVenueRepRequest, submitVenueRevision } from "../lib/venueRevision";
@@ -13,7 +23,15 @@ const MAX_LENGTH = 1000;
  *     reps (migration_venue_reps.sql).
  *   - "rep_request": inserts a pending venue_representatives row for
  *     this venue, then emails the owner to review it.
- *  See supabase/functions/venue-revision/index.ts. */
+ *  See supabase/functions/venue-revision/index.ts.
+ *
+ *  Keyboard-safe: a fixed close button (reachable regardless of scroll
+ *  or keyboard), a scrollable body for the (multiline, growing)
+ *  TextInput, and a sticky footer for the actual Send/Cancel actions
+ *  outside that scroll area — same shape as NotesImportModal's
+ *  stickyFooter, since this previously had neither KeyboardAvoidingView
+ *  nor a reachable close button and the keyboard could cover the only
+ *  way out on a real device. */
 export function VenueRevisionModal({
   venue,
   userId,
@@ -63,58 +81,75 @@ export function VenueRevisionModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.card}>
-          <Text style={s.title}>
-            {isRevision ? "Submit a revision" : "Become this venue's rep"}
-          </Text>
-          <Text style={s.subtitle}>{venue.name}</Text>
+          <Pressable style={s.closeButton} onPress={onClose} hitSlop={10}>
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
 
-          {already ? (
-            <Text style={s.sent}>You've already requested this venue.</Text>
-          ) : sent ? (
-            <Text style={s.sent}>
-              {isRevision ? "Thanks — sent!" : "Request sent — we'll review it soon."}
+          <ScrollView
+            style={s.body}
+            contentContainerStyle={s.bodyContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <Text style={s.title}>
+              {isRevision ? "Submit a revision" : "Rep This Venue"}
             </Text>
-          ) : (
-            <>
-              {!isRevision && (
-                <Text style={s.hint}>
-                  Once approved, you'll be able to add and edit this venue's
-                  nights directly.
-                </Text>
-              )}
-              <TextInput
-                value={note}
-                onChangeText={(t) => setNote(t.slice(0, MAX_LENGTH))}
-                placeholder={
-                  isRevision
-                    ? "What should we fix about this venue? (e.g. the cover is actually $15, they moved nights to Tuesdays)"
-                    : "Optional — how are you connected to this venue?"
-                }
-                placeholderTextColor={colors.muted}
-                style={s.input}
-                multiline
-                autoFocus
-              />
-              <View style={s.actions}>
-                <Pressable
-                  style={[s.sendButton, (isRevision && !note.trim()) || sending ? s.disabled : null]}
-                  onPress={handleSend}
-                  disabled={(isRevision && !note.trim()) || sending}
-                >
-                  <Text style={s.sendText}>
-                    {sending ? "Sending…" : isRevision ? "Send" : "Request"}
+            <Text style={s.subtitle}>{venue.name}</Text>
+
+            {already ? (
+              <Text style={s.sent}>You've already requested this venue.</Text>
+            ) : sent ? (
+              <Text style={s.sent}>
+                {isRevision ? "Thanks — sent!" : "Request sent — we'll review it soon."}
+              </Text>
+            ) : (
+              <>
+                {!isRevision && (
+                  <Text style={s.hint}>
+                    Once approved, you'll be able to add and edit this venue's
+                    nights directly.
                   </Text>
-                </Pressable>
-                <Pressable onPress={onClose} disabled={sending} hitSlop={6}>
-                  <Text style={s.cancel}>Cancel</Text>
-                </Pressable>
-              </View>
-            </>
+                )}
+                <TextInput
+                  value={note}
+                  onChangeText={(t) => setNote(t.slice(0, MAX_LENGTH))}
+                  placeholder={
+                    isRevision
+                      ? "What should we fix about this venue? (e.g. the cover is actually $15, they moved nights to Tuesdays)"
+                      : "Optional — how are you connected to this venue?"
+                  }
+                  placeholderTextColor={colors.muted}
+                  style={s.input}
+                  multiline
+                  autoFocus
+                />
+              </>
+            )}
+          </ScrollView>
+
+          {!already && !sent && (
+            <View style={s.stickyFooter}>
+              <Pressable
+                style={[s.sendButton, (isRevision && !note.trim()) || sending ? s.disabled : null]}
+                onPress={handleSend}
+                disabled={(isRevision && !note.trim()) || sending}
+              >
+                <Text style={s.sendText}>
+                  {sending ? "Sending…" : isRevision ? "Send" : "Request"}
+                </Text>
+              </Pressable>
+              <Pressable onPress={onClose} disabled={sending} hitSlop={6}>
+                <Text style={s.cancel}>Cancel</Text>
+              </Pressable>
+            </View>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -129,9 +164,25 @@ const s = StyleSheet.create({
   card: {
     backgroundColor: "#2b1f35",
     borderRadius: 28,
-    padding: 25,
+    maxHeight: "80%",
+    paddingTop: 25,
   },
-  title: { color: colors.ink, fontSize: 23, fontWeight: "900" },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  body: { flexGrow: 0 },
+  bodyContent: { paddingHorizontal: 25, paddingBottom: 10 },
+  title: { color: colors.ink, fontSize: 23, fontWeight: "900", paddingRight: 36 },
   subtitle: { color: colors.gold, fontSize: 13, fontWeight: "700", marginTop: 4, marginBottom: 18 },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: 12 },
   input: {
@@ -145,7 +196,16 @@ const s = StyleSheet.create({
     minHeight: 110,
     textAlignVertical: "top",
   },
-  actions: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 16 },
+  stickyFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 18,
+    paddingHorizontal: 25,
+    paddingTop: 14,
+    paddingBottom: 25,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
   sendButton: {
     flex: 1,
     backgroundColor: colors.pink,

@@ -1,4 +1,4 @@
-import { Ref, useEffect, useMemo, useState } from "react";
+import { Ref, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -36,6 +36,14 @@ import {
 import { loadHomeVenueId } from "../services/venues";
 import { FriendDancesModal } from "./FriendDancesModal";
 import { MakeEventModal } from "./MakeEventModal";
+import { ChallengeModal } from "./ChallengeModal";
+import { ChallengeLeaderboardModal } from "./ChallengeLeaderboardModal";
+import {
+  Challenge,
+  challengeDisplayLabel,
+  loadMyChallenges,
+  respondToChallenge,
+} from "../services/challenges";
 import { Avatar } from "./Avatar";
 import { Dance, DanceProgress } from "../types";
 import { Tier } from "../lib/entitlements";
@@ -76,6 +84,14 @@ function formatWhen(iso: string): string {
     minute: "2-digit",
   });
   return `${day} · ${time}`;
+}
+
+function formatChallengeRange(challenge: Challenge): string {
+  const fmt = (iso: string) =>
+    new Date(iso + "T00:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return challenge.startsOn === challenge.endsOn
+    ? fmt(challenge.startsOn)
+    : `${fmt(challenge.startsOn)} – ${fmt(challenge.endsOn)}`;
 }
 
 const RSVP_OPTIONS: { status: EventRsvpStatus; icon: string; label: string }[] = [
@@ -132,6 +148,10 @@ export function FriendsScreen({
   const [friendsLoading, setFriendsLoading] = useState(true);
   const [friendsError, setFriendsError] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<Friend | null>(null);
+  // Collapsed by default once the list gets long, so it doesn't push
+  // Requests/Challenges/Activity far down the page.
+  const FRIENDS_COLLAPSE_THRESHOLD = 3;
+  const [friendsExpanded, setFriendsExpanded] = useState(false);
   // Each friend's current award badge, keyed by id — just their learned
   // count, not their full list (see loadLearnedCounts).
   const [learnedCounts, setLearnedCounts] = useState<Record<string, number>>(
@@ -150,6 +170,14 @@ export function FriendsScreen({
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventsError, setEventsError] = useState("");
   const [makeEventOpen, setMakeEventOpen] = useState(false);
+
+  // Challenges — dances/steps over a date range
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [challengesLoading, setChallengesLoading] = useState(true);
+  const [challengesError, setChallengesError] = useState("");
+  const [challengeModalOpen, setChallengeModalOpen] = useState(false);
+  const [answeringChallenge, setAnsweringChallenge] = useState<string | null>(null);
+  const [viewingChallenge, setViewingChallenge] = useState<Challenge | null>(null);
 
   // Friend activity feed
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -175,11 +203,27 @@ export function FriendsScreen({
     return ids;
   }, [activity, progress]);
 
+  // Friend requests and pending challenge invites both feed the same
+  // Friends-tab badge — additive, one counter, same mechanism, no new
+  // badge concept (each publisher reports its own pending count; the
+  // tab shows the sum via these two refs).
+  const pendingRequestsCountRef = useRef(0);
+  const pendingChallengesCountRef = useRef(0);
+  const publishBadge = () =>
+    onPendingRequestCountChange?.(
+      pendingRequestsCountRef.current + pendingChallengesCountRef.current,
+    );
+
   const publishRequests = (next: FriendRequest[]) => {
     setRequests(next);
-    onPendingRequestCountChange?.(
-      next.filter((r) => r.direction === "incoming").length,
-    );
+    pendingRequestsCountRef.current = next.filter((r) => r.direction === "incoming").length;
+    publishBadge();
+  };
+
+  const publishChallenges = (next: Challenge[]) => {
+    setChallenges(next);
+    pendingChallengesCountRef.current = next.filter((c) => c.myStatus === "pending").length;
+    publishBadge();
   };
 
   const refreshFriends = () => {
@@ -210,6 +254,15 @@ export function FriendsScreen({
       .finally(() => setEventsLoading(false));
   };
 
+  const refreshChallenges = () => {
+    setChallengesLoading(true);
+    setChallengesError("");
+    loadMyChallenges(userId)
+      .then(publishChallenges)
+      .catch((err: any) => setChallengesError(err.message ?? "Could not load challenges."))
+      .finally(() => setChallengesLoading(false));
+  };
+
   useEffect(() => {
     getMyProfile(userId)
       .then(({ username, displayName }) => {
@@ -225,6 +278,7 @@ export function FriendsScreen({
       .finally(() => setProfileLoaded(true));
     refreshFriends();
     refreshEvents();
+    refreshChallenges();
     loadHomeVenueId(userId).then(setHomeVenueId).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -293,6 +347,10 @@ export function FriendsScreen({
    *  server accepts theirs and you're friends straight away. */
   const handleSendRequest = async () => {
     if (!usernameSearch.trim()) return;
+    if (!username) {
+      setAddError("Set a username first — friends need it to find and add you.");
+      return;
+    }
     setAddingFriend(true);
     setAddError("");
     setAddNotice("");
@@ -327,6 +385,10 @@ export function FriendsScreen({
   };
 
   const handleRespond = async (request: FriendRequest, accept: boolean) => {
+    if (!username) {
+      showAlert("Set a username first", "Friends need a username to find and add you.");
+      return;
+    }
     setAnswering(request.requestId);
     try {
       const friend = await respondToFriendRequest(request.requestId, accept);
@@ -359,6 +421,34 @@ export function FriendsScreen({
       );
     } finally {
       setAnswering(null);
+    }
+  };
+
+  const handleRespondChallenge = async (challenge: Challenge, accept: boolean) => {
+    if (!username) {
+      showAlert("Set a username first", "Friends need a username to challenge you.");
+      return;
+    }
+    setAnsweringChallenge(challenge.id);
+    try {
+      await respondToChallenge(challenge.id, userId, accept);
+      // Refetch rather than patch myStatus locally — the stale
+      // optimistic patch left challenge.participants showing this
+      // user's OWN row as still "pending" (participants wasn't touched
+      // at all), which is what made the "vs. {names}" line and the
+      // leaderboard look empty/wrong right after accepting without a
+      // tab switch to force a reload. A real refresh keeps everything
+      // (myStatus, participants, everyone else's status) in sync in
+      // one shot, same as the catch branch below already did on error.
+      refreshChallenges();
+    } catch (err: any) {
+      showAlert(
+        "Could not answer that challenge",
+        err.message ?? "Try again in a moment.",
+      );
+      refreshChallenges();
+    } finally {
+      setAnsweringChallenge(null);
     }
   };
 
@@ -533,15 +623,18 @@ export function FriendsScreen({
               style={s.addFriendInput}
             />
             <Pressable
-              style={[s.addFriendButton, !usernameSearch.trim() && s.disabled]}
+              style={[s.addFriendButton, (!usernameSearch.trim() || !username) && s.disabled]}
               onPress={handleSendRequest}
-              disabled={!usernameSearch.trim() || addingFriend}
+              disabled={!usernameSearch.trim() || addingFriend || !username}
             >
               <Text style={s.addFriendButtonText}>
                 {addingFriend ? "…" : "Send"}
               </Text>
             </Pressable>
           </View>
+          {!username && (
+            <Text style={s.hint}>Set a username above before adding friends.</Text>
+          )}
           {addError ? <Text style={s.error}>{addError}</Text> : null}
           {addNotice ? <Text style={s.notice}>{addNotice}</Text> : null}
 
@@ -573,17 +666,17 @@ export function FriendsScreen({
                   <Pressable
                     style={[
                       s.acceptButton,
-                      answering === request.requestId && s.disabled,
+                      (answering === request.requestId || !username) && s.disabled,
                     ]}
                     onPress={() => handleRespond(request, true)}
-                    disabled={answering === request.requestId}
+                    disabled={answering === request.requestId || !username}
                   >
                     <Text style={s.acceptText}>Accept</Text>
                   </Pressable>
                   <Pressable
                     style={s.declineButton}
                     onPress={() => handleRespond(request, false)}
-                    disabled={answering === request.requestId}
+                    disabled={answering === request.requestId || !username}
                     hitSlop={6}
                   >
                     <Text style={s.declineText}>Decline</Text>
@@ -625,7 +718,17 @@ export function FriendsScreen({
 
           {!friendsLoading && friends.length > 0 && (
             <View style={[s.friendsHeaderRow, s.addFriendLabel]}>
-              <Text style={s.settingLabel}>MY FRIENDS ({friends.length})</Text>
+              <Pressable
+                style={s.friendsHeaderToggle}
+                onPress={() => setFriendsExpanded((v) => !v)}
+                disabled={friends.length <= FRIENDS_COLLAPSE_THRESHOLD}
+                hitSlop={4}
+              >
+                <Text style={s.settingLabel}>MY FRIENDS ({friends.length})</Text>
+                {friends.length > FRIENDS_COLLAPSE_THRESHOLD && (
+                  <Text style={s.friendsChevron}>{friendsExpanded ? "▾" : "▸"}</Text>
+                )}
+              </Pressable>
               <Pressable
                 onPress={() =>
                   showAlert(
@@ -651,6 +754,7 @@ export function FriendsScreen({
             )}
 
           {!friendsLoading &&
+            (friendsExpanded || friends.length <= FRIENDS_COLLAPSE_THRESHOLD) &&
             friends.map((friend) => {
               const award = currentAward(learnedCounts[friend.id] ?? 0);
               return (
@@ -764,6 +868,102 @@ export function FriendsScreen({
 
       {friends.length > 0 && (
         <>
+          <View style={s.listHead}>
+            <Text style={s.section}>CHALLENGES</Text>
+            <View style={s.listHeadActions}>
+              <Pressable
+                style={s.refreshButton}
+                onPress={refreshChallenges}
+                disabled={challengesLoading}
+                hitSlop={8}
+              >
+                <Text style={s.refreshText}>{challengesLoading ? "…" : "⟳"}</Text>
+              </Pressable>
+              <Pressable
+                style={[s.makeEventButton, !username && s.disabled]}
+                onPress={() => setChallengeModalOpen(true)}
+                disabled={!username}
+              >
+                <Text style={s.makeEventText}>⚔️ Challenge</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {!username && (
+            <Text style={s.hint}>Set a username above before sending challenges.</Text>
+          )}
+          {challengesError ? <Text style={s.error}>{challengesError}</Text> : null}
+          {challengesLoading && !challenges.length && (
+            <ActivityIndicator color={colors.gold} style={s.inlineLoader} />
+          )}
+          {!challengesLoading && !challenges.length && !challengesError && (
+            <Text style={s.hint}>
+              No challenges yet — challenge a friend to a dances-and-steps
+              contest over a date range.
+            </Text>
+          )}
+
+          {challenges
+            .filter((c) => c.myStatus === "pending")
+            .map((challenge) => (
+              <View key={challenge.id} style={s.requestRow}>
+                <View style={s.rowAvatar}>
+                  <Avatar
+                    avatarUrl={challenge.creator.avatarUrl}
+                    label={challenge.creator.displayName}
+                    size={32}
+                  />
+                </View>
+                <Text style={s.friendName} numberOfLines={1}>
+                  {challenge.creator.displayName}
+                  <Text style={s.requestHandle}>
+                    {"  " + formatChallengeRange(challenge)}
+                    {challenge.groupName ? `  "${challenge.groupName}"` : ""}
+                  </Text>
+                </Text>
+                <Pressable
+                  style={[
+                    s.acceptButton,
+                    (answeringChallenge === challenge.id || !username) && s.disabled,
+                  ]}
+                  onPress={() => handleRespondChallenge(challenge, true)}
+                  disabled={answeringChallenge === challenge.id || !username}
+                >
+                  <Text style={s.acceptText}>Accept</Text>
+                </Pressable>
+                <Pressable
+                  style={s.declineButton}
+                  onPress={() => handleRespondChallenge(challenge, false)}
+                  disabled={answeringChallenge === challenge.id || !username}
+                  hitSlop={6}
+                >
+                  <Text style={s.declineText}>Decline</Text>
+                </Pressable>
+              </View>
+            ))}
+
+          {challenges
+            .filter((c) => c.myStatus === "accepted")
+            .map((challenge) => (
+              <Pressable
+                key={challenge.id}
+                style={s.eventCard}
+                onPress={() => setViewingChallenge(challenge)}
+              >
+                <Text style={s.eventVenue}>
+                  {challenge.groupName
+                    ? `⚔️ ${challenge.groupName}`
+                    : `⚔️ vs. ${challengeDisplayLabel(challenge, userId)}`}
+                </Text>
+                <Text style={s.eventWhen}>{formatChallengeRange(challenge)}</Text>
+                <Text style={s.eventCreator}>View leaderboard ›</Text>
+              </Pressable>
+            ))}
+        </>
+      )}
+
+      {friends.length > 0 && (
+        <>
           <Text style={s.section}>ACTIVITY</Text>
           {activityError ? <Text style={s.error}>{activityError}</Text> : null}
           {activityLoading && (
@@ -854,6 +1054,20 @@ export function FriendsScreen({
         homeVenueId={homeVenueId}
         onClose={() => setMakeEventOpen(false)}
         onCreated={refreshEvents}
+      />
+
+      <ChallengeModal
+        visible={challengeModalOpen}
+        friends={friends}
+        hasUsername={!!username}
+        onClose={() => setChallengeModalOpen(false)}
+        onCreated={refreshChallenges}
+      />
+
+      <ChallengeLeaderboardModal
+        challenge={viewingChallenge}
+        myUserId={userId}
+        onClose={() => setViewingChallenge(null)}
       />
     </BackToTopScrollView>
   );
@@ -959,8 +1173,10 @@ const s = StyleSheet.create({
   friendsHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "space-between",
   },
+  friendsHeaderToggle: { flexDirection: "row", alignItems: "center", gap: 6 },
+  friendsChevron: { color: colors.muted, fontSize: 11, fontWeight: "800" },
   friendsInfoIcon: { color: colors.gold, fontSize: 13, fontWeight: "700" },
   addFriendRow: { flexDirection: "row", alignItems: "center", marginTop: 8 },
   addFriendInput: {

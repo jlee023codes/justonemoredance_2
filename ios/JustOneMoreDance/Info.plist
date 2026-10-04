@@ -47,6 +47,10 @@
     </dict>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Choose a photo from your library to use as your profile picture.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Check in at a venue when you're there, and get prompted to check in nearby.</string>
+    <key>NSMotionUsageDescription</key>
+    <string>Count your steps while you're checked in at a venue, so your night out stats include how much you moved.</string>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>UILaunchStoryboardName</key>

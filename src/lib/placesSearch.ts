@@ -39,3 +39,27 @@ export async function getPlaceDetails(
     sessionToken,
   });
 }
+
+export type NearbyPlace = {
+  placeId: string;
+  name: string;
+  formattedAddress: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+/** Real named businesses near a GPS point — backs the check-in flow's
+ *  "is this the place?" confirmation. No session token: unlike
+ *  autocomplete/place-details, this isn't part of a type-to-select
+ *  sequence, so there's no multi-request session to bill as one. */
+export async function searchNearby(
+  latitude: number,
+  longitude: number,
+): Promise<NearbyPlace[]> {
+  const result = await invokeEdgeFunction<{ places: NearbyPlace[] }>("places-proxy", {
+    action: "nearby",
+    latitude,
+    longitude,
+  });
+  return result.places;
+}

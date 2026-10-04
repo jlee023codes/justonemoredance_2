@@ -1,4 +1,4 @@
-import { Ref, useEffect, useMemo, useState } from "react";
+import { Ref, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -18,6 +18,7 @@ import {
 } from "../lib/entitlements";
 import { danceLimitFor } from "../lib/planLimits";
 import { DanceCard, QuickStatus } from "./DanceCard";
+import { searchDances } from "../lib/bootstepper";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { BulkActionBar, SelectModeButton } from "./BulkRemoveBar";
 import { MyListToolsModal } from "./MyListToolsModal";
@@ -207,6 +208,46 @@ export function MyListScreen({
   const visible = useMemo(
     () => buildMyList(rows, { search, filters, sort }),
     [rows, search, filters, sort],
+  );
+
+  // Live BootStepper fallback — only kicks in once there's something
+  // typed. A blank search just shows your own list (today's behavior);
+  // typing a name not already in rows pulls in the wider catalog, same
+  // search Home used to run standalone. No dance ever lands here with a
+  // forced "none" status — picking Want/Learning/Learned below *is* the
+  // add, same mechanic DanceCard's onQuickStatus already provides.
+  const [bootstepperResults, setBootstepperResults] = useState<Dance[]>([]);
+  const [bootstepperLoading, setBootstepperLoading] = useState(false);
+  const searchRequestId = useRef(0);
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (!trimmed) {
+      setBootstepperResults([]);
+      setBootstepperLoading(false);
+      return;
+    }
+    const requestId = ++searchRequestId.current;
+    setBootstepperLoading(true);
+    const timer = setTimeout(() => {
+      searchDances(trimmed)
+        .then((found) => {
+          if (searchRequestId.current !== requestId) return; // stale
+          setBootstepperResults(found);
+          setBootstepperLoading(false);
+        })
+        .catch(() => {
+          if (searchRequestId.current !== requestId) return;
+          setBootstepperLoading(false);
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Only the ones not already on the list — a local match is shown
+  // once, under YOUR DANCES, not duplicated here.
+  const newBootstepperResults = useMemo(
+    () => bootstepperResults.filter((d) => !progress[d.id]),
+    [bootstepperResults, progress],
   );
 
   const toolsBadge = activeFilterCount(filters);
@@ -930,20 +971,55 @@ export function MyListScreen({
           />
         ))}
 
-        {!loading && nothingSaved && !error && (
+        {!loading && nothingSaved && !search.trim() && !error && (
           <Text style={s.empty}>
-            Nothing saved yet — find a dance on Home and mark it Want to
-            Learn, Learning Now, or Learned.
+            Nothing saved yet — search above to find a dance and mark it
+            Want to Learn, Learning Now, or Learned.
           </Text>
         )}
-        {!nothingSaved && visible.length === 0 && (
+        {!nothingSaved && visible.length === 0 && !search.trim() && (
           <View>
-            <Text style={s.empty}>No dances match your search or filters.</Text>
+            <Text style={s.empty}>No dances match your filters.</Text>
             <Pressable style={s.clearButton} onPress={clearAll}>
               <Text style={s.clearButtonText}>Clear search &amp; filters</Text>
             </Pressable>
           </View>
         )}
+
+        {search.trim().length > 0 && (
+          <View style={s.listHead}>
+            <View style={s.listHeadLeft}>
+              <Text style={s.section}>FROM BOOTSTEPPER</Text>
+              {!bootstepperLoading && (
+                <Text style={s.listHeadCount}>
+                  {newBootstepperResults.length}{" "}
+                  {newBootstepperResults.length === 1 ? "match" : "matches"}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+        {search.trim().length > 0 && bootstepperLoading && !newBootstepperResults.length && (
+          <ActivityIndicator color={colors.gold} style={s.loader} />
+        )}
+        {search.trim().length > 0 &&
+          newBootstepperResults.map((dance) => (
+            <DanceCard
+              key={dance.id}
+              dance={dance}
+              song={dance.defaultSong}
+              onPress={() => onOpenDance(dance)}
+              onQuickStatus={(status) => onQuickStatus(dance, status)}
+            />
+          ))}
+        {search.trim().length > 0 &&
+          !bootstepperLoading &&
+          !newBootstepperResults.length &&
+          visible.length === 0 && (
+            <Text style={s.empty}>
+              No dances found — try a different search.
+            </Text>
+          )}
       </BackToTopScrollView>
 
       {selectMode && (
