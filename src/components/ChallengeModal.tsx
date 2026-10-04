@@ -138,6 +138,9 @@ export function ChallengeModal({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={s.sheet}>
+          <Pressable style={s.closeButton} onPress={onClose} disabled={saving} hitSlop={10}>
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
           <Text style={s.title}>⚔️ Challenge friends</Text>
           <Text style={s.subtitle}>
             Compete on dances logged and steps taken over a date range — two
@@ -252,7 +255,20 @@ const s = StyleSheet.create({
     paddingBottom: 34,
     maxHeight: "86%",
   },
-  title: { color: colors.ink, fontSize: 22, fontWeight: "900" },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  title: { color: colors.ink, fontSize: 22, fontWeight: "900", paddingRight: 36 },
   subtitle: { color: colors.muted, fontSize: 13, marginTop: 6, marginBottom: 14, lineHeight: 18 },
   body: { flexGrow: 0 },
   fieldLabel: {

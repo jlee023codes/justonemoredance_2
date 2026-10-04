@@ -5,6 +5,8 @@ import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { DifficultyPieChart } from "./DifficultyPieChart";
 import { LoggedDanceRow } from "./LoggedDanceRow";
 import { SearchInput } from "./SearchInput";
+import { AddPastNightModal } from "./AddPastNightModal";
+import { AddDanceToSessionModal } from "./AddDanceToSessionModal";
 import { matchesDanceName } from "../lib/danceListView";
 import { loadSessionHistory, SessionHistoryEntry } from "../services/checkinSessions";
 
@@ -41,6 +43,9 @@ export function StatsScreen({
   const [error, setError] = useState("");
   const [viewingDancesFor, setViewingDancesFor] = useState<SessionHistoryEntry | null>(null);
   const [search, setSearch] = useState("");
+  const [addNightOpen, setAddNightOpen] = useState(false);
+  const [addDanceFor, setAddDanceFor] = useState<SessionHistoryEntry | null>(null);
+  const [localRefresh, setLocalRefresh] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -49,7 +54,7 @@ export function StatsScreen({
       .then(setEntries)
       .catch((err: any) => setError(err?.message ?? "Could not load your stats."))
       .finally(() => setLoading(false));
-  }, [userId, refreshKey]);
+  }, [userId, refreshKey, localRefresh]);
 
   // Search matches either the venue name, or any dance logged during
   // that session — lets "which night did I dance Tortilla Shuffle at"
@@ -70,7 +75,12 @@ export function StatsScreen({
       contentContainerStyle={s.page}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={s.heading}>Stats</Text>
+      <View style={s.headingRow}>
+        <Text style={s.heading}>Stats</Text>
+        <Pressable style={s.addNightButton} onPress={() => setAddNightOpen(true)}>
+          <Text style={s.addNightButtonText}>＋ Add a night</Text>
+        </Pressable>
+      </View>
       <Text style={s.hint}>
         Every night out you've tracked — how long you were there, how
         many dances you logged, and steps if your device counted them.
@@ -106,22 +116,32 @@ export function StatsScreen({
                   {entry.dances.length === 1 ? "dance" : "dances"}
                 </Text>
               </View>
-              {entry.stepCount != null && (
+              {entry.stepCount != null ? (
                 <View style={s.stat}>
                   <Text style={s.statValue}>{entry.stepCount.toLocaleString()}</Text>
                   <Text style={s.statLabel}>steps</Text>
                 </View>
-              )}
+              ) : entry.endReason === "backfilled" ? (
+                <View style={s.stat}>
+                  <Text style={s.statValueMuted}>N/A</Text>
+                  <Text style={s.statLabel}>not live tracked</Text>
+                </View>
+              ) : null}
             </View>
             {entry.endReason === "geofence" && (
               <Text style={s.autoEnded}>Auto-ended when you left the area</Text>
             )}
+            {entry.endReason === "backfilled" && (
+              <Text style={s.autoEnded}>Added after the fact — not tracked live</Text>
+            )}
 
             {entry.dances.length > 0 && (
-              <>
-                <View style={s.chartRow}>
-                  <DifficultyPieChart dances={entry.dances} />
-                </View>
+              <View style={s.chartRow}>
+                <DifficultyPieChart dances={entry.dances} />
+              </View>
+            )}
+            <View style={s.cardActionsRow}>
+              {entry.dances.length > 0 && (
                 <Pressable
                   style={s.viewDancesButton}
                   onPress={() => setViewingDancesFor(entry)}
@@ -130,8 +150,11 @@ export function StatsScreen({
                     View dances ({entry.dances.length}) →
                   </Text>
                 </Pressable>
-              </>
-            )}
+              )}
+              <Pressable style={s.addDanceButton} onPress={() => setAddDanceFor(entry)}>
+                <Text style={s.addDanceButtonText}>＋ Add a dance</Text>
+              </Pressable>
+            </View>
           </View>
         ))}
 
@@ -148,6 +171,19 @@ export function StatsScreen({
       <SessionDancesModal
         entry={viewingDancesFor}
         onClose={() => setViewingDancesFor(null)}
+      />
+
+      <AddPastNightModal
+        visible={addNightOpen}
+        userId={userId}
+        onClose={() => setAddNightOpen(false)}
+        onAdded={() => setLocalRefresh((k) => k + 1)}
+      />
+
+      <AddDanceToSessionModal
+        entry={addDanceFor}
+        onClose={() => setAddDanceFor(null)}
+        onAdded={() => setLocalRefresh((k) => k + 1)}
       />
     </BackToTopScrollView>
   );
@@ -212,12 +248,25 @@ function SessionDancesModal({
 
 const s = StyleSheet.create({
   page: { padding: 20, paddingBottom: 115 },
+  headingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
   heading: {
     color: colors.ink,
     fontSize: 25,
     fontWeight: "900",
-    marginBottom: 8,
   },
+  addNightButton: {
+    borderWidth: 1,
+    borderColor: colors.pink,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  addNightButtonText: { color: colors.pink, fontWeight: "800", fontSize: 12 },
   hint: { color: colors.muted, fontSize: 13, lineHeight: 18, marginBottom: 20 },
   search: {
     backgroundColor: colors.card,
@@ -250,6 +299,7 @@ const s = StyleSheet.create({
   statsRow: { flexDirection: "row", gap: 20 },
   stat: { alignItems: "flex-start" },
   statValue: { color: colors.gold, fontSize: 18, fontWeight: "900" },
+  statValueMuted: { color: colors.muted, fontSize: 14, fontWeight: "800" },
   statLabel: { color: colors.muted, fontSize: 11, marginTop: 2 },
   autoEnded: { color: colors.muted, fontSize: 11, marginTop: 10, fontStyle: "italic" },
   chartRow: {
@@ -258,8 +308,16 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
-  viewDancesButton: { marginTop: 12, alignSelf: "flex-start" },
+  cardActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  viewDancesButton: { alignSelf: "flex-start" },
   viewDancesButtonText: { color: colors.pink, fontSize: 12.5, fontWeight: "800" },
+  addDanceButton: { alignSelf: "flex-start", marginLeft: "auto" },
+  addDanceButtonText: { color: colors.gold, fontSize: 12.5, fontWeight: "800" },
   empty: { color: colors.muted, fontSize: 14, marginTop: 14, lineHeight: 20 },
   modalOverlay: {
     flex: 1,

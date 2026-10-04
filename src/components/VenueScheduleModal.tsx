@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { colors } from "../styles";
 import { showError } from "../lib/alerts";
 import { DateTimeField } from "./DateTimeField";
@@ -83,8 +93,14 @@ export function VenueScheduleModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.card}>
+          <Pressable style={s.closeButton} onPress={onClose} hitSlop={10} disabled={saving}>
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
           <Text style={s.title}>Add a schedule?</Text>
           <Text style={s.subtitle}>{venue.name}</Text>
           <Text style={s.hint}>
@@ -92,7 +108,12 @@ export function VenueScheduleModal({
             dancing. You can add more later from the venue card.
           </Text>
 
-          <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent}>
+          <ScrollView
+            style={s.scroll}
+            contentContainerStyle={s.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             {DAY_ORDER.map((d) => {
               const state = days[d];
               return (
@@ -159,7 +180,7 @@ export function VenueScheduleModal({
             </Pressable>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -177,7 +198,20 @@ const s = StyleSheet.create({
     padding: 25,
     maxHeight: "88%",
   },
-  title: { color: colors.ink, fontSize: 23, fontWeight: "900" },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  title: { color: colors.ink, fontSize: 23, fontWeight: "900", paddingRight: 36 },
   subtitle: { color: colors.gold, fontSize: 13, fontWeight: "700", marginTop: 4 },
   hint: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 8, marginBottom: 6 },
   scroll: { marginTop: 6 },

@@ -1,5 +1,7 @@
 import { supabase } from "../lib/supabase";
 import { LoggedDance } from "../lib/checkinSession";
+import { Dance } from "../types";
+import { VenueOption } from "./venues";
 
 export type SessionHistoryEntry = {
   id: string;
@@ -55,4 +57,73 @@ export async function loadSessionHistory(userId: string): Promise<SessionHistory
       stepCount: row.step_count ?? null,
     };
   });
+}
+
+function toLoggedDance(dance: {
+  id: string;
+  name: string;
+  defaultSong?: string;
+  details?: string;
+  difficulty?: Dance["difficulty"];
+}): LoggedDance {
+  return {
+    danceId: dance.id,
+    name: dance.name,
+    song: dance.defaultSong ?? "",
+    details: dance.details ?? null,
+    difficulty: dance.difficulty ?? null,
+    loggedAt: new Date().toISOString(),
+    source: "manual",
+  };
+}
+
+/** A whole night backfilled after the fact — no real check-in/GPS fix
+ *  ever happened, so the row is inserted already closed out (ended_at
+ *  set immediately) with no step count, which Stats shows as
+ *  "N/A — not live tracked" rather than hiding. `end_reason:
+ *  'backfilled'` is what tells Stats this session was never live, as
+ *  opposed to 'manual' (a live session ended normally via Done
+ *  Dancing) or 'geofence'. */
+export async function createBackfilledSession(
+  userId: string,
+  venue: VenueOption,
+  dancedOn: Date,
+  dances: { id: string; name: string; defaultSong?: string; details?: string; difficulty?: Dance["difficulty"] }[],
+): Promise<void> {
+  const loggedDances = dances.map(toLoggedDance);
+  const { error } = await supabase.from("venue_checkins").insert({
+    user_id: userId,
+    venue_id: venue.id,
+    latitude: null,
+    longitude: null,
+    checked_in_at: dancedOn.toISOString(),
+    ended_at: dancedOn.toISOString(),
+    end_reason: "backfilled",
+    step_count: null,
+    logged_dances: loggedDances,
+  });
+  if (error) throw error;
+}
+
+/** Adds a forgotten dance to a PAST (already-ended) session — reads
+ *  the row's current logged_dances and appends to it. For the
+ *  currently-active session, use logDanceToSession (src/lib/checkinSession.ts)
+ *  with source: "manual" instead; this is only for Stats history. */
+export async function addManualDanceToSession(
+  checkinId: string,
+  dance: { id: string; name: string; defaultSong?: string; details?: string; difficulty?: Dance["difficulty"] },
+): Promise<void> {
+  const { data, error: readError } = await supabase
+    .from("venue_checkins")
+    .select("logged_dances")
+    .eq("id", checkinId)
+    .single();
+  if (readError) throw readError;
+  const current = ((data?.logged_dances ?? []) as LoggedDance[]);
+  const next = [toLoggedDance(dance), ...current];
+  const { error } = await supabase
+    .from("venue_checkins")
+    .update({ logged_dances: next })
+    .eq("id", checkinId);
+  if (error) throw error;
 }

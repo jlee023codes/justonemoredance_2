@@ -188,7 +188,9 @@ export function OfflineListModal({
                 <Text style={s.cancelEdit}>Cancel edit</Text>
               </Pressable>
             ) : null}
+          </ScrollView>
 
+          <View style={s.stickyFooter}>
             {online ? (
               <Pressable
                 style={[
@@ -214,7 +216,7 @@ export function OfflineListModal({
                 to import it.
               </Text>
             )}
-          </ScrollView>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -247,7 +249,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
-  sheet: { padding: 25, paddingBottom: 32 },
+  sheet: { padding: 25, paddingBottom: 10 },
   title: { color: colors.ink, fontSize: 24, fontWeight: "900", paddingRight: 36 },
   statusPill: {
     alignSelf: "flex-start",
@@ -327,18 +329,23 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginTop: 8,
   },
+  stickyFooter: {
+    paddingHorizontal: 25,
+    paddingTop: 14,
+    paddingBottom: 25,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
   importButton: {
     backgroundColor: colors.pink,
     borderRadius: 12,
     padding: 15,
     alignItems: "center",
-    marginTop: 22,
   },
   importButtonText: { color: "#fff", fontWeight: "900", fontSize: 14 },
   offlineHint: {
     color: colors.muted,
     fontSize: 13,
     lineHeight: 18,
-    marginTop: 22,
   },
 });

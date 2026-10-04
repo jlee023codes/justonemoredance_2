@@ -23,6 +23,12 @@ export type LoggedDance = {
   details: string | null;
   loggedAt: string;
   difficulty: Dance["difficulty"] | null;
+  // "live" (default, logged during an active session with the device
+  // present) vs "manual" (added after the fact from Stats — a
+  // forgotten dance added to a past session, or part of a whole
+  // backfilled night). Manual entries never have a real step count,
+  // since there was no device tracking them — see LoggedDanceRow.
+  source?: "live" | "manual";
 };
 
 export type ActiveSession = {
@@ -98,7 +104,9 @@ export async function startSession(
 }
 
 /** Appends a dance to the session's persisted log — call this after
- *  the actual venue-tag write (saveVenueDance) succeeds. */
+ *  the actual venue-tag write (saveVenueDance) succeeds. `source`
+ *  defaults to "live"; pass "manual" when adding a forgotten dance to
+ *  the still-open session after the fact. */
 export async function logDanceToSession(
   session: ActiveSession,
   dance: {
@@ -108,6 +116,7 @@ export async function logDanceToSession(
     details?: string;
     difficulty?: Dance["difficulty"];
   },
+  source: "live" | "manual" = "live",
 ): Promise<ActiveSession> {
   const next = {
     ...session,
@@ -119,6 +128,7 @@ export async function logDanceToSession(
         details: dance.details ?? null,
         difficulty: dance.difficulty ?? null,
         loggedAt: new Date().toISOString(),
+        source,
       },
       ...session.loggedDances,
     ],

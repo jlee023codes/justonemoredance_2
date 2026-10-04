@@ -105,6 +105,9 @@ export function MakeEventModal({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={s.sheet}>
+          <Pressable style={s.closeButton} onPress={onClose} disabled={saving} hitSlop={10}>
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
           <Text style={s.title}>Make an event</Text>
           <Text style={s.subtitle}>
             Every friend of yours will see it in their Friends tab and can
@@ -194,7 +197,20 @@ const s = StyleSheet.create({
     paddingBottom: 34,
     maxHeight: "86%",
   },
-  title: { color: colors.ink, fontSize: 22, fontWeight: "900" },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
+  title: { color: colors.ink, fontSize: 22, fontWeight: "900", paddingRight: 36 },
   subtitle: { color: colors.muted, fontSize: 13, marginTop: 6, marginBottom: 14 },
   body: { flexGrow: 0 },
   fieldLabel: {

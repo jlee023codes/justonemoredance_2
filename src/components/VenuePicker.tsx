@@ -347,6 +347,9 @@ export function VenuePicker({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={s.sheet}>
+          <Pressable style={s.closeButton} onPress={onClose} hitSlop={10}>
+            <Text style={s.closeButtonText}>✕</Text>
+          </Pressable>
           <Text style={s.title}>{title}</Text>
 
           <SearchInput
@@ -570,11 +573,25 @@ const s = StyleSheet.create({
     paddingBottom: 38,
     maxHeight: "80%",
   },
+  closeButton: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    zIndex: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#00000055",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
   title: {
     color: colors.ink,
     fontSize: 23,
     fontWeight: "900",
     marginBottom: 12,
+    paddingRight: 36,
   },
   search: {
     backgroundColor: colors.card,

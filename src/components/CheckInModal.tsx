@@ -1,5 +1,16 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import * as Location from "expo-location";
 import { colors } from "../styles";
 import { NearbyPlace, searchNearby } from "../lib/placesSearch";
@@ -132,7 +143,10 @@ export function CheckInModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.overlay}>
+      <KeyboardAvoidingView
+        style={s.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.card}>
           <Pressable style={s.closeButton} onPress={onClose} hitSlop={10}>
             <Text style={s.closeButtonText}>✕</Text>
@@ -140,7 +154,11 @@ export function CheckInModal({
           <Text style={s.title}>Check In</Text>
           <Text style={s.subtitle}>Which place are you at?</Text>
 
-          <ScrollView contentContainerStyle={s.sheet}>
+          <ScrollView
+            contentContainerStyle={s.sheet}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
             {error ? <Text style={s.error}>{error}</Text> : null}
 
@@ -207,7 +225,7 @@ export function CheckInModal({
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

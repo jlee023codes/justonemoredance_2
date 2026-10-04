@@ -447,41 +447,55 @@ function SessionImportModal({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.importOverlay}>
+      <KeyboardAvoidingView
+        style={s.importOverlay}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
         <View style={s.importCard}>
           <Pressable style={s.closeButton} onPress={onClose} hitSlop={10}>
             <Text style={s.closeButtonText}>✕</Text>
           </Pressable>
-          <Text style={s.venueName}>Import tonight's list</Text>
-          <Text style={s.importHint}>
-            Paste the dances you did tonight — same format as a My List
-            import (bullet list, checklist, or numbered list).
-          </Text>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder="Raised Like That&#10;Rude Dude&#10;Stetson"
-            placeholderTextColor={colors.muted}
-            style={s.importInput}
-            multiline
-            textAlignVertical="top"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {noMatch.length > 0 && (
-            <Text style={s.importMissed}>
-              No match for: {noMatch.join(", ")}
-            </Text>
-          )}
-          <Pressable
-            style={[s.doneButton, (!text.trim() || importing) && s.disabled]}
-            onPress={handleImport}
-            disabled={!text.trim() || importing}
+
+          <ScrollView
+            style={s.importBody}
+            contentContainerStyle={s.importBodyContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
-            <Text style={s.doneButtonText}>{importing ? "Importing…" : "Import"}</Text>
-          </Pressable>
+            <Text style={s.venueName}>Import tonight's list</Text>
+            <Text style={s.importHint}>
+              Paste the dances you did tonight — same format as a My List
+              import (bullet list, checklist, or numbered list).
+            </Text>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder="Raised Like That&#10;Rude Dude&#10;Stetson"
+              placeholderTextColor={colors.muted}
+              style={s.importInput}
+              multiline
+              textAlignVertical="top"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {noMatch.length > 0 && (
+              <Text style={s.importMissed}>
+                No match for: {noMatch.join(", ")}
+              </Text>
+            )}
+          </ScrollView>
+
+          <View style={s.importStickyFooter}>
+            <Pressable
+              style={[s.doneButton, (!text.trim() || importing) && s.disabled]}
+              onPress={handleImport}
+              disabled={!text.trim() || importing}
+            >
+              <Text style={s.doneButtonText}>{importing ? "Importing…" : "Import"}</Text>
+            </Pressable>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -601,7 +615,16 @@ const s = StyleSheet.create({
   doneButtonText: { color: "#fff", fontWeight: "900", fontSize: 15 },
   disabled: { opacity: 0.5 },
   importOverlay: { flex: 1, backgroundColor: "#000000aa", justifyContent: "center", padding: 20 },
-  importCard: { backgroundColor: "#2b1f35", borderRadius: 28, padding: 25 },
+  importCard: { backgroundColor: "#2b1f35", borderRadius: 28, maxHeight: "80%", paddingTop: 25 },
+  importBody: { flexGrow: 0 },
+  importBodyContent: { paddingHorizontal: 25, paddingBottom: 10 },
+  importStickyFooter: {
+    paddingHorizontal: 25,
+    paddingTop: 14,
+    paddingBottom: 25,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
   importHint: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 8, marginBottom: 14 },
   importInput: {
     backgroundColor: colors.bg,
