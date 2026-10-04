@@ -13,6 +13,12 @@ export type SessionHistoryEntry = {
   durationSeconds: number;
   dances: LoggedDance[];
   stepCount: number | null;
+  // "You danced X of Y" snapshot, stamped once at session-end time —
+  // null for any session from before this feature shipped, or one
+  // where nobody else was ever at the venue to make the stat
+  // meaningful. See src/lib/liveSession.ts.
+  liveDancedCount: number | null;
+  liveTotalCount: number | null;
 };
 
 /** Past, closed-out check-in sessions for this user, newest first.
@@ -22,7 +28,9 @@ export type SessionHistoryEntry = {
 export async function loadSessionHistory(userId: string): Promise<SessionHistoryEntry[]> {
   const { data: checkins, error } = await supabase
     .from("venue_checkins")
-    .select("id,venue_id,checked_in_at,ended_at,end_reason,paused_seconds,step_count,logged_dances")
+    .select(
+      "id,venue_id,checked_in_at,ended_at,end_reason,paused_seconds,step_count,logged_dances,live_danced_count,live_total_count",
+    )
     .eq("user_id", userId)
     .not("ended_at", "is", null)
     .order("ended_at", { ascending: false });
@@ -55,6 +63,8 @@ export async function loadSessionHistory(userId: string): Promise<SessionHistory
       durationSeconds,
       dances: (row.logged_dances ?? []) as LoggedDance[],
       stepCount: row.step_count ?? null,
+      liveDancedCount: row.live_danced_count ?? null,
+      liveTotalCount: row.live_total_count ?? null,
     };
   });
 }

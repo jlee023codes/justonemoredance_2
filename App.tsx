@@ -1106,11 +1106,17 @@ function AppRoot() {
               setSessionScreenOpen(false);
               setVenuesRefreshKey((k) => k + 1);
               setStatsRefreshKey((k) => k + 1);
+              const livePercentLine =
+                summary.liveTotalCount != null && summary.liveTotalCount > 1
+                  ? `\n\nYou danced ${summary.liveDancedCount ?? 0} of ${summary.liveTotalCount} logged while you were there (${Math.round(
+                      ((summary.liveDancedCount ?? 0) / summary.liveTotalCount) * 100,
+                    )}%).`
+                  : "";
               showAlert(
                 "Nice dancing! 🎉",
                 `${Math.round(summary.durationSeconds / 60)} min · ${summary.danceCount} ${
                   summary.danceCount === 1 ? "dance" : "dances"
-                }${summary.stepCount != null ? ` · ${summary.stepCount.toLocaleString()} steps` : ""}`,
+                }${summary.stepCount != null ? ` · ${summary.stepCount.toLocaleString()} steps` : ""}${livePercentLine}`,
               );
             }}
           />

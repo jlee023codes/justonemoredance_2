@@ -21,6 +21,7 @@ import { parseNotesText } from "../services/notesImport";
 import { matchesDanceName, squash } from "../lib/danceListView";
 import { DIFFICULTY_COLOR } from "./DanceCard";
 import { LoggedDanceRow } from "./LoggedDanceRow";
+import { Avatar } from "./Avatar";
 import {
   ActiveSession,
   elapsedSeconds,
@@ -29,6 +30,16 @@ import {
   queryStepCount,
   SessionSummary,
 } from "../lib/checkinSession";
+import {
+  LiveDance,
+  LiveParticipant,
+  loadLiveDances,
+  loadLiveParticipants,
+  loadLivePercent,
+  logLiveDance,
+  subscribeLiveSession,
+  toggleDanced,
+} from "../lib/liveSession";
 
 function formatElapsed(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
@@ -103,10 +114,6 @@ export function DancingSessionScreen({
   onClose: () => void;
 }) {
   const [now, setNow] = useState(Date.now());
-  // Derived from the persisted session itself, not local-only state —
-  // closing and reopening this screen (or killing the app) must not
-  // lose what's already been logged tonight.
-  const logged = session.loggedDances;
   const [logging, setLogging] = useState(false);
   const [logQuery, setLogQuery] = useState("");
   const [venueDances, setVenueDances] = useState<Dance[]>([]);
@@ -115,6 +122,26 @@ export function DancingSessionScreen({
   const [searching, setSearching] = useState(false);
   const [ending, setEnding] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  // The shared, collaborative "TONIGHT" list — server-backed, visible
+  // to everyone currently checked in at this venue, refreshed by the
+  // Realtime subscription below. Always written to (solo or not), so
+  // a lone session's list is just itself with one participant — no
+  // special-case branch needed anywhere in this render path.
+  const [liveDances, setLiveDances] = useState<LiveDance[]>([]);
+  const [participants, setParticipants] = useState<LiveParticipant[]>([]);
+
+  const refreshLive = () => {
+    loadLiveDances(session.venueId, userId).then(setLiveDances).catch(() => {});
+    loadLiveParticipants(session.venueId).then(setParticipants).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshLive();
+    const unsubscribe = subscribeLiveSession(session.venueId, refreshLive);
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.venueId, userId]);
 
   // The venue's own "What's Playing" list — searched alongside My List
   // so logging a dance that's already been reported here doesn't need
@@ -222,6 +249,11 @@ export function DancingSessionScreen({
       await saveVenueDance(userId, session.venueId, full, "");
       const next = await logDanceToSession(session, full);
       onSessionChange(next);
+      // Shared live write — additive, own try/catch so a failure here
+      // never blocks the already-working local/venue-tag writes above.
+      logLiveDance(session.checkinId, session.venueId, full, userId)
+        .then(refreshLive)
+        .catch(() => {});
       setLogQuery("");
       setBootResults([]);
       setShowBootSearch(false);
@@ -230,6 +262,26 @@ export function DancingSessionScreen({
     } finally {
       setLogging(false);
     }
+  };
+
+  const handleToggleDanced = (liveDance: LiveDance) => {
+    // Optimistic local flip — the realtime subscription's own refetch
+    // will reconcile shortly after, same debounced-refetch approach
+    // used everywhere else in this screen rather than hand-patching.
+    setLiveDances((current) =>
+      current.map((d) =>
+        d.id === liveDance.id
+          ? {
+              ...d,
+              dancedByMe: !d.dancedByMe,
+              dancedCount: d.dancedCount + (d.dancedByMe ? -1 : 1),
+            }
+          : d,
+      ),
+    );
+    toggleDanced(liveDance.id, session.venueId, userId, liveDance.dancedByMe)
+      .then(refreshLive)
+      .catch(() => refreshLive());
   };
 
   const handleDoneDancing = async () => {
@@ -271,7 +323,13 @@ export function DancingSessionScreen({
       }
 
       const stepCount = await queryStepCount(session);
-      const summary = await endSession(session, "manual", stepCount);
+      const livePercent = await loadLivePercent(
+        session.venueId,
+        userId,
+        session.startedAt,
+        new Date().toISOString(),
+      ).catch(() => null);
+      const summary = await endSession(session, "manual", stepCount, livePercent);
       await onEnd(summary);
     } catch (err: any) {
       showError(err, "Could not end your session.");
@@ -311,6 +369,19 @@ export function DancingSessionScreen({
             <Text style={s.venueName} numberOfLines={1}>{session.venueName}</Text>
             <Text style={s.elapsedBadge}>🔴 {formatElapsed(elapsed)}</Text>
           </View>
+
+          {participants.length > 1 && (
+            <View style={s.participantStrip}>
+              {participants.slice(0, 6).map((p) => (
+                <View key={p.userId} style={s.participantAvatar}>
+                  <Avatar avatarUrl={p.avatarUrl} label={p.name} size={26} />
+                </View>
+              ))}
+              <Text style={s.participantText}>
+                {participants.length} dancing here now
+              </Text>
+            </View>
+          )}
 
           <TextInput
             value={logQuery}
@@ -358,12 +429,26 @@ export function DancingSessionScreen({
             <Text style={s.empty}>No BootStepper matches either.</Text>
           )}
 
-          <Text style={s.sectionLabel}>TONIGHT ({logged.length})</Text>
-          {!logged.length && (
+          <Text style={s.sectionLabel}>TONIGHT ({liveDances.length})</Text>
+          {!liveDances.length && (
             <Text style={s.empty}>Nothing logged yet — search above to add one.</Text>
           )}
-          {logged.map((d, i) => (
-            <LoggedDanceRow key={`${d.danceId}-${i}`} dance={d} />
+          {liveDances.map((d) => (
+            <LoggedDanceRow
+              key={d.id}
+              dance={{
+                danceId: d.danceId,
+                name: d.name,
+                song: d.song ?? "",
+                details: d.details,
+                loggedAt: d.loggedAt,
+                difficulty: d.difficulty,
+              }}
+              loggedByName={participants.length > 1 ? d.loggedByName : undefined}
+              dancedCount={participants.length > 1 ? d.dancedCount : undefined}
+              dancedByMe={d.dancedByMe}
+              onToggleDanced={participants.length > 1 ? () => handleToggleDanced(d) : undefined}
+            />
           ))}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -560,6 +645,13 @@ const s = StyleSheet.create({
   },
   venueName: { color: colors.ink, fontSize: 22, fontWeight: "900", flexShrink: 1, paddingRight: 10 },
   elapsedBadge: { color: colors.gold, fontSize: 15, fontWeight: "800" },
+  participantStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  participantAvatar: { marginRight: -8, borderWidth: 2, borderColor: colors.bg, borderRadius: 15 },
+  participantText: { color: colors.muted, fontSize: 12, fontWeight: "700", marginLeft: 14 },
   sectionLabel: {
     color: colors.gold,
     fontSize: 11,

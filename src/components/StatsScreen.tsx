@@ -134,6 +134,15 @@ export function StatsScreen({
             {entry.endReason === "backfilled" && (
               <Text style={s.autoEnded}>Added after the fact — not tracked live</Text>
             )}
+            {entry.liveTotalCount != null && entry.liveTotalCount > 1 && (
+              <View style={s.livePercentPill}>
+                <Text style={s.livePercentText}>
+                  ⚔️ Danced {entry.liveDancedCount ?? 0} of {entry.liveTotalCount} logged
+                  while you were there (
+                  {Math.round(((entry.liveDancedCount ?? 0) / entry.liveTotalCount) * 100)}%)
+                </Text>
+              </View>
+            )}
 
             {entry.dances.length > 0 && (
               <View style={s.chartRow}>
@@ -302,6 +311,16 @@ const s = StyleSheet.create({
   statValueMuted: { color: colors.muted, fontSize: 14, fontWeight: "800" },
   statLabel: { color: colors.muted, fontSize: 11, marginTop: 2 },
   autoEnded: { color: colors.muted, fontSize: 11, marginTop: 10, fontStyle: "italic" },
+  livePercentPill: {
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  livePercentText: { color: colors.gold, fontSize: 12, fontWeight: "700", lineHeight: 17 },
   chartRow: {
     marginTop: 14,
     paddingTop: 14,

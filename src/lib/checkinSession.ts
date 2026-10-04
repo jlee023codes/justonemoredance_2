@@ -51,6 +51,14 @@ export type SessionSummary = {
   durationSeconds: number;
   danceCount: number;
   stepCount: number | null;
+  // "You danced X of Y dances logged collaboratively while you were
+  // there" — null when there's nothing meaningful to show (solo
+  // session, or nobody else ever logged anything). See
+  // src/lib/liveSession.ts's loadLivePercent, computed by the caller
+  // and passed in since it needs venue/user context endSession
+  // doesn't otherwise have.
+  liveDancedCount: number | null;
+  liveTotalCount: number | null;
 };
 
 async function persist(session: ActiveSession | null): Promise<void> {
@@ -178,11 +186,15 @@ export function distanceFromVenueMeters(
  *  persisted active-session, whether ended manually or by the geofence.
  *  Dance count comes from the session's own persisted log, not a
  *  caller-supplied number — it's always accurate even if the session
- *  screen was closed and reopened since the last dance was logged. */
+ *  screen was closed and reopened since the last dance was logged.
+ *  `livePercent` (from loadLivePercent) is a snapshot stamped once
+ *  here, not live-recomputed later, so a Stats history card stays
+ *  stable even if the underlying live-session rows are ever pruned. */
 export async function endSession(
   session: ActiveSession,
   reason: "manual" | "geofence",
   stepCount: number | null,
+  livePercent?: { dancedCount: number; totalCount: number } | null,
 ): Promise<SessionSummary> {
   const danceCount = session.loggedDances.length;
   const durationSeconds = elapsedSeconds(session);
@@ -194,10 +206,18 @@ export async function endSession(
       end_reason: reason,
       step_count: stepCount,
       logged_dances: session.loggedDances,
+      live_danced_count: livePercent?.dancedCount ?? null,
+      live_total_count: livePercent?.totalCount ?? null,
     })
     .eq("id", session.checkinId);
   if (error) throw error;
 
   await persist(null);
-  return { durationSeconds, danceCount, stepCount };
+  return {
+    durationSeconds,
+    danceCount,
+    stepCount,
+    liveDancedCount: livePercent?.dancedCount ?? null,
+    liveTotalCount: livePercent?.totalCount ?? null,
+  };
 }

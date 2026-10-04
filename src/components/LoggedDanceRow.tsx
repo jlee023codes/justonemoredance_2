@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "../styles";
 import { DIFFICULTY_COLOR } from "./DanceCard";
 import { LoggedDance } from "../lib/checkinSession";
@@ -7,8 +7,24 @@ import { LoggedDance } from "../lib/checkinSession";
  *  shape everywhere a logged dance is shown (the active session's
  *  TONIGHT list, Stats' per-night dance view): name, song, BootStepper's
  *  details summary, and a difficulty badge pinned to the top-right
- *  corner, same structural convention as DanceCard's own badge. */
-export function LoggedDanceRow({ dance }: { dance: LoggedDance }) {
+ *  corner, same structural convention as DanceCard's own badge.
+ *
+ *  The four optional props below only render when a live session has
+ *  more than one participant — a solo session passes none of them,
+ *  so its row looks pixel-identical to before this existed. */
+export function LoggedDanceRow({
+  dance,
+  loggedByName,
+  dancedCount,
+  dancedByMe,
+  onToggleDanced,
+}: {
+  dance: LoggedDance;
+  loggedByName?: string;
+  dancedCount?: number;
+  dancedByMe?: boolean;
+  onToggleDanced?: () => void;
+}) {
   return (
     <View style={s.row}>
       {dance.difficulty && (
@@ -25,6 +41,21 @@ export function LoggedDanceRow({ dance }: { dance: LoggedDance }) {
       {dance.details ? (
         <Text style={s.details} numberOfLines={1}>{dance.details}</Text>
       ) : null}
+      {loggedByName && (
+        <Text style={s.loggedBy} numberOfLines={1}>logged by {loggedByName}</Text>
+      )}
+      {onToggleDanced && (
+        <Pressable
+          style={[s.dancedPill, dancedByMe && s.dancedPillOn]}
+          onPress={onToggleDanced}
+          hitSlop={6}
+        >
+          <Text style={[s.dancedPillText, dancedByMe && s.dancedPillTextOn]}>
+            {dancedByMe ? "✓ Danced" : "Danced?"}
+            {dancedCount ? ` (${dancedCount})` : ""}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -53,4 +84,17 @@ const s = StyleSheet.create({
   name: { color: colors.ink, fontSize: 14, fontWeight: "700" },
   song: { color: colors.muted, fontSize: 12, marginTop: 2 },
   details: { color: colors.gold, fontSize: 11, fontWeight: "700", marginTop: 3 },
+  loggedBy: { color: colors.muted, fontSize: 11, fontStyle: "italic", marginTop: 4 },
+  dancedPill: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  dancedPillOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  dancedPillText: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+  dancedPillTextOn: { color: "#fff" },
 });
