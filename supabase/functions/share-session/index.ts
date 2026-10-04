@@ -12,10 +12,11 @@
 //
 // Deploy:
 //   supabase functions deploy share-session
-// Needs SUPABASE_SERVICE_ROLE_KEY set as a function secret (never the
-// anon key — this function must bypass RLS to read someone else's
-// session by token, which the anon key alone cannot do):
-//   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+// No extra secrets to set — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
+// are auto-injected into every Edge Function (same as delete-account,
+// spotify-sync, etc.). This deliberately uses the service-role key,
+// never the anon key, since it must bypass RLS to read someone
+// else's session by token.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
