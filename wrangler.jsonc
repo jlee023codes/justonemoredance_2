@@ -2,14 +2,19 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "just-one-more-dance",
   "compatibility_date": "2026-09-11",
+  "main": "worker.ts",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "dist"
+    "directory": "dist",
+    "binding": "ASSETS"
   },
   "routes": [
     { "pattern": "justonemoredance.com", "custom_domain": true },
     { "pattern": "www.justonemoredance.com", "custom_domain": true }
-  ]
+  ],
+  "vars": {
+    "SUPABASE_URL": "https://mxmvavlvnfludsbwnvug.supabase.co"
+  }
 }

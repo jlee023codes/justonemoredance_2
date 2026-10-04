@@ -137,3 +137,33 @@ export async function addManualDanceToSession(
     .eq("id", checkinId);
   if (error) throw error;
 }
+
+function randomToken(): string {
+  // 12 chars, base36 — unguessable enough for a non-sensitive,
+  // non-revocable share link; shown in a user-facing URL, so kept
+  // short rather than a full uuid.
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
+  return Array.from({ length: 12 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+}
+
+/** Returns the public justonemoredance.com/s/<token> link for a
+ *  session, creating the token row on first share — idempotent per
+ *  checkin, reuses an existing token if "Share" was already tapped
+ *  once rather than minting a new link every time. Rendered by the
+ *  share-session Edge Function (see supabase/functions/share-session),
+ *  which reads the session with the service-role key server-side —
+ *  no RLS change needed here for anonymous reads. */
+export async function getOrCreateShareLink(checkinId: string): Promise<string> {
+  const { data: existing } = await supabase
+    .from("session_shares")
+    .select("token")
+    .eq("checkin_id", checkinId)
+    .limit(1)
+    .maybeSingle();
+  if (existing?.token) return `https://justonemoredance.com/s/${existing.token}`;
+
+  const token = randomToken();
+  const { error } = await supabase.from("session_shares").insert({ token, checkin_id: checkinId });
+  if (error) throw error;
+  return `https://justonemoredance.com/s/${token}`;
+}

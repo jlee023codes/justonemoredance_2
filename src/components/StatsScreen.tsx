@@ -10,13 +10,18 @@ import {
   View,
 } from "react-native";
 import { colors } from "../styles";
+import { showError } from "../lib/alerts";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { DifficultyPieChart } from "./DifficultyPieChart";
 import { SearchInput } from "./SearchInput";
 import { AddPastNightModal } from "./AddPastNightModal";
 import { AddDanceToSessionModal } from "./AddDanceToSessionModal";
 import { matchesDanceName } from "../lib/danceListView";
-import { loadSessionHistory, SessionHistoryEntry } from "../services/checkinSessions";
+import {
+  getOrCreateShareLink,
+  loadSessionHistory,
+  SessionHistoryEntry,
+} from "../services/checkinSessions";
 
 function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
@@ -231,11 +236,16 @@ function SessionDancesModal({
     ? entry.dances.filter((d) => matchesDanceName(d.name, trimmedQuery))
     : entry.dances;
 
-  const handleShare = () => {
+  const handleShare = async () => {
     const names = entry.dances.map((d) => d.name).join("\n");
-    Share.share({
-      message: `${entry.venueName} — ${formatDate(entry.checkedInAt)}\n${entry.dances.length} dances:\n\n${names}`,
-    }).catch(() => {});
+    try {
+      const link = await getOrCreateShareLink(entry.id);
+      await Share.share({
+        message: `${entry.venueName} — ${formatDate(entry.checkedInAt)}\n${entry.dances.length} dances:\n\n${names}\n\n${link}`,
+      });
+    } catch (err: any) {
+      showError(err, "Could not create a share link.");
+    }
   };
 
   return (
