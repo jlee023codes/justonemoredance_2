@@ -1,9 +1,17 @@
 import { Ref, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { colors } from "../styles";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { DifficultyPieChart } from "./DifficultyPieChart";
-import { LoggedDanceRow } from "./LoggedDanceRow";
 import { SearchInput } from "./SearchInput";
 import { AddPastNightModal } from "./AddPastNightModal";
 import { AddDanceToSessionModal } from "./AddDanceToSessionModal";
@@ -198,9 +206,11 @@ export function StatsScreen({
   );
 }
 
-/** Pop-out list of everything logged during one session — a plain
- *  inline expansion gets unwieldy fast (avid dancers can log 60-100+
- *  in a night), so this is its own scrollable modal instead. */
+/** Pop-out list of everything logged during one session — minimal by
+ *  design: a dense, 2-3 column grid of just dance names, so a long
+ *  night (avid dancers can log 60-100+) still fits on screen without
+ *  scrolling forever. Full-screen rather than a centered card — a
+ *  fixed-width card was clipping the venue name on longer titles. */
 function SessionDancesModal({
   entry,
   onClose,
@@ -221,35 +231,53 @@ function SessionDancesModal({
     ? entry.dances.filter((d) => matchesDanceName(d.name, trimmedQuery))
     : entry.dances;
 
+  const handleShare = () => {
+    const names = entry.dances.map((d) => d.name).join("\n");
+    Share.share({
+      message: `${entry.venueName} — ${formatDate(entry.checkedInAt)}\n${entry.dances.length} dances:\n\n${names}`,
+    }).catch(() => {});
+  };
+
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={s.modalOverlay}>
-        <View style={s.modalCard}>
-          <Pressable style={s.modalCloseButton} onPress={onClose} hitSlop={10}>
-            <Text style={s.modalCloseButtonText}>✕</Text>
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={s.gridScreen}>
+        <View style={s.gridTopRow}>
+          <Pressable style={s.gridCloseButton} onPress={onClose} hitSlop={10}>
+            <Text style={s.gridCloseButtonText}>✕</Text>
           </Pressable>
-          <Text style={s.modalTitle} numberOfLines={1}>{entry.venueName}</Text>
-          <Text style={s.modalSubtitle}>
-            {formatDate(entry.checkedInAt)} · {entry.dances.length}{" "}
-            {entry.dances.length === 1 ? "dance" : "dances"}
-          </Text>
-          {entry.dances.length > 5 && (
-            <SearchInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search tonight's dances"
-              style={s.modalSearch}
-            />
-          )}
-          <ScrollView style={s.modalList} contentContainerStyle={s.modalListContent}>
-            {visibleDances.map((d, i) => (
-              <LoggedDanceRow key={`${d.danceId}-${i}`} dance={d} />
-            ))}
-            {trimmedQuery.length > 0 && !visibleDances.length && (
-              <Text style={s.empty}>No dances match "{trimmedQuery}".</Text>
-            )}
-          </ScrollView>
+          <View style={s.gridTitleCopy}>
+            <Text style={s.gridTitle} numberOfLines={2}>{entry.venueName}</Text>
+            <Text style={s.gridSubtitle}>
+              {formatDate(entry.checkedInAt)} · {entry.dances.length}{" "}
+              {entry.dances.length === 1 ? "dance" : "dances"}
+            </Text>
+          </View>
+          <Pressable style={s.gridShareButton} onPress={handleShare} hitSlop={10}>
+            <Text style={s.gridShareButtonText}>⤴︎</Text>
+          </Pressable>
         </View>
+
+        {entry.dances.length > 5 && (
+          <SearchInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search tonight's dances"
+            style={s.gridSearch}
+          />
+        )}
+
+        <ScrollView contentContainerStyle={s.gridList}>
+          <View style={s.grid}>
+            {visibleDances.map((d, i) => (
+              <View key={`${d.danceId}-${i}`} style={s.gridCell}>
+                <Text style={s.gridCellText} numberOfLines={2}>{d.name}</Text>
+              </View>
+            ))}
+          </View>
+          {trimmedQuery.length > 0 && !visibleDances.length && (
+            <Text style={s.empty}>No dances match "{trimmedQuery}".</Text>
+          )}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -338,45 +366,67 @@ const s = StyleSheet.create({
   addDanceButton: { alignSelf: "flex-start", marginLeft: "auto" },
   addDanceButtonText: { color: colors.gold, fontSize: 12.5, fontWeight: "800" },
   empty: { color: colors.muted, fontSize: 14, marginTop: 14, lineHeight: 20 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "#000000aa",
-    justifyContent: "center",
-    padding: 20,
+  gridScreen: { flex: 1, backgroundColor: colors.bg, paddingTop: 60 },
+  gridTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
   },
-  modalCard: {
-    backgroundColor: "#2b1f35",
-    borderRadius: 28,
-    maxHeight: "80%",
-    paddingTop: 25,
-    paddingHorizontal: 25,
-    paddingBottom: 20,
-  },
-  modalCloseButton: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    zIndex: 10,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#00000055",
+  gridCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
     alignItems: "center",
     justifyContent: "center",
   },
-  modalCloseButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
-  modalTitle: { color: colors.ink, fontSize: 22, fontWeight: "900", paddingRight: 36 },
-  modalSubtitle: { color: colors.muted, fontSize: 13, marginTop: 4, marginBottom: 14 },
-  modalSearch: {
-    backgroundColor: colors.bg,
+  gridCloseButtonText: { color: colors.muted, fontSize: 15, fontWeight: "800" },
+  gridTitleCopy: { flex: 1 },
+  gridTitle: { color: colors.ink, fontSize: 19, fontWeight: "900", lineHeight: 23 },
+  gridSubtitle: { color: colors.muted, fontSize: 12, marginTop: 3 },
+  gridShareButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.pink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  gridShareButtonText: { color: colors.pink, fontSize: 16, fontWeight: "800" },
+  gridSearch: {
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 10,
     color: colors.ink,
     padding: 11,
     fontSize: 14,
-    marginBottom: 12,
+    marginHorizontal: 20,
+    marginTop: 14,
   },
-  modalList: { flexGrow: 0 },
-  modalListContent: { paddingBottom: 10 },
+  gridList: { padding: 20, paddingBottom: 50 },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  gridCell: {
+    flexBasis: "31.5%",
+    flexGrow: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    minHeight: 54,
+    justifyContent: "center",
+  },
+  gridCellText: { color: colors.ink, fontSize: 12.5, fontWeight: "700", textAlign: "center" },
 });
