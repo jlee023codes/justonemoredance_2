@@ -50,6 +50,14 @@ export type VenueOption = {
   // Distinct check-ins (migration_venue_checkins.sql) — see
   // attachCheckinCounts and VERIFIED_THRESHOLD above.
   checkinCount?: number;
+  // Derived, not a DB column: true while this venue is still below
+  // VENUE_PUBLIC_THRESHOLD and the viewer isn't its creator — i.e.
+  // the one case where the viewer can see this row at all AND it's
+  // still locked to everyone else. Computed client-side by
+  // attachCheckinCounts; a venue the viewer can't see isn't in the
+  // results to begin with, so this only ever describes "my own,
+  // still-locked" venues, never someone else's.
+  locked?: boolean;
 };
 
 export type DayOfWeek = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
@@ -73,6 +81,14 @@ export const DAY_LABEL: Record<DayOfWeek, string> = {
 // separate from addressVerified above (the existing admin-only manual
 // stamp — don't conflate them). See migration_venue_checkins.sql.
 export const VERIFIED_THRESHOLD = 3;
+
+// A brand-new venue is only visible to whoever added it until this
+// many distinct users have actually checked in there — enforced
+// server-side by venues' RLS policy (migration_venue_lock.sql), using
+// the same venue_checkin_counts view VERIFIED_THRESHOLD reads. Kept
+// in sync with the SQL constant `>= 5` in that migration; change both
+// together if this ever moves.
+export const VENUE_PUBLIC_THRESHOLD = 5;
 
 const VENUE_SELECT = "id,name,address,addressVerified:address_verified,latitude,longitude,googlePlaceId:google_place_id,createdBy:created_by,detailsLocked:details_locked";
 
@@ -306,7 +322,7 @@ export async function searchGlobalVenues(
   if (error) throw error;
   const withVotes = await attachVotes((data ?? []) as VenueOption[], userId);
   const withNights = await attachNights(withVotes);
-  const withCheckins = await attachCheckinCounts(withNights);
+  const withCheckins = await attachCheckinCounts(withNights, userId);
   // Best-endorsed first, then alphabetical — helps a real venue outrank a
   // typo'd duplicate that slipped in before name_key existed.
   const ranked = withCheckins.sort(
@@ -356,6 +372,24 @@ function slugify(name: string): string {
 
 export type FoundOrCreatedVenue = { venue: VenueOption; isNew: boolean };
 
+/** Looks up a venue's id regardless of lock state (via the
+ *  SECURITY DEFINER find_venue_id RPC — see migration_venue_lock.sql),
+ *  then re-fetches full details through the normal RLS-gated select.
+ *  The id lookup never leaks a locked venue's details to someone who
+ *  can't otherwise see it; the follow-up select just returns nothing
+ *  extra in that case, same as if the row didn't exist for them. Used
+ *  by findOrCreateGlobalVenue/FromPlace so a second person adding the
+ *  same not-yet-unlocked venue attaches to (and helps unlock) the
+ *  real row instead of creating a duplicate. */
+async function findExistingVenueId(nameKey: string, googlePlaceId?: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("find_venue_id", {
+    p_name_key: nameKey,
+    p_google_place_id: googlePlaceId ?? null,
+  });
+  if (error) throw error;
+  return (data as string | null) ?? null;
+}
+
 /** Finds a venue by its normalized name, or creates one in the shared
  *  catalog. Race-safe: if someone else inserts the same normalized name
  *  between our lookup and our insert, the unique index rejects ours and we
@@ -371,11 +405,26 @@ export async function findOrCreateGlobalVenue(
   const key = venueKey(trimmed);
   if (!key) throw new Error("A venue name needs at least one letter or number.");
 
-  const findByKey = () =>
-    supabase.from("venues").select(VENUE_SELECT).eq("name_key", key).maybeSingle();
+  const findExisting = async (): Promise<VenueOption | null> => {
+    const existingId = await findExistingVenueId(key);
+    if (!existingId) return null;
+    const { data, error } = await supabase
+      .from("venues")
+      .select(VENUE_SELECT)
+      .eq("id", existingId)
+      .maybeSingle();
+    if (error) throw error;
+    // null here means the venue is locked and this caller isn't its
+    // creator — the id is still real and safe to attach
+    // user_venues/venue_checkins rows to (that's how a venue actually
+    // reaches the unlock threshold), it just means this caller can't
+    // see its full card yet. A bare id+name snapshot is enough to
+    // proceed with (same shape used elsewhere in this app for
+    // not-yet-fully-loaded data).
+    return data ?? { id: existingId, name: trimmed };
+  };
 
-  const { data: existing, error: findError } = await findByKey();
-  if (findError) throw findError;
+  const existing = await findExisting();
   if (existing) return { venue: existing, isNew: false };
 
   const { data: created, error: insertError } = await supabase
@@ -389,7 +438,7 @@ export async function findOrCreateGlobalVenue(
   // collided with a different venue. Either way, the canonical row is the
   // one keyed by name_key.
   if (insertError.code === "23505") {
-    const { data: raced } = await findByKey();
+    const raced = await findExisting();
     if (raced) return { venue: raced, isNew: false };
     // id collided but name_key is free — retry with a unique id.
     const { data: retry, error: retryError } = await supabase
@@ -461,37 +510,41 @@ export async function findOrCreateGlobalVenueFromPlace(
   const key = venueKey(trimmed);
   if (!key) throw new Error("A venue name needs at least one letter or number.");
 
-  const findByPlaceId = () =>
-    supabase.from("venues").select(VENUE_SELECT).eq("google_place_id", place.placeId).maybeSingle();
-  const findByKey = () =>
-    supabase.from("venues").select(VENUE_SELECT).eq("name_key", key).maybeSingle();
-
-  const { data: byPlace, error: byPlaceError } = await findByPlaceId();
-  if (byPlaceError) throw byPlaceError;
-  if (byPlace) return { venue: byPlace, isNew: false };
-
-  const { data: byName, error: byNameError } = await findByKey();
-  if (byNameError) throw byNameError;
-  if (byName) {
-    if (byName.latitude == null) {
-      await setVenueLocation(byName.id, {
+  const findExisting = async (): Promise<VenueOption | null> => {
+    const existingId = await findExistingVenueId(key, place.placeId);
+    if (!existingId) return null;
+    const { data, error } = await supabase
+      .from("venues")
+      .select(VENUE_SELECT)
+      .eq("id", existingId)
+      .maybeSingle();
+    if (error) throw error;
+    // null here means locked + not this caller's — see the identical
+    // comment in findOrCreateGlobalVenue. Skip the "backfill missing
+    // coordinates" step below in that case: there's nothing visible
+    // to backfill onto, and the id/name snapshot already has real
+    // coordinates from this Places result if the caller wants to use
+    // them directly.
+    if (!data) return { id: existingId, name: trimmed, latitude: place.latitude, longitude: place.longitude };
+    if (data.latitude == null) {
+      await setVenueLocation(data.id, {
         latitude: place.latitude,
         longitude: place.longitude,
         googlePlaceId: place.placeId,
         address: place.formattedAddress,
       }).catch(() => {});
       return {
-        venue: {
-          ...byName,
-          latitude: place.latitude,
-          longitude: place.longitude,
-          address: byName.address ?? place.formattedAddress,
-        },
-        isNew: false,
+        ...data,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        address: data.address ?? place.formattedAddress,
       };
     }
-    return { venue: byName, isNew: false };
-  }
+    return data;
+  };
+
+  const existing = await findExisting();
+  if (existing) return { venue: existing, isNew: false };
 
   const insertRow = {
     id: slugify(trimmed) || key,
@@ -513,10 +566,8 @@ export async function findOrCreateGlobalVenueFromPlace(
   // 23505 = unique violation: lost the race on name_key or google_place_id,
   // or the readable id collided with a different venue.
   if (insertError.code === "23505") {
-    const { data: racedByPlace } = await findByPlaceId();
-    if (racedByPlace) return { venue: racedByPlace, isNew: false };
-    const { data: racedByName } = await findByKey();
-    if (racedByName) return { venue: racedByName, isNew: false };
+    const raced = await findExisting();
+    if (raced) return { venue: raced, isNew: false };
     const { data: retry, error: retryError } = await supabase
       .from("venues")
       .insert({ ...insertRow, id: `${slugify(trimmed)}-${key.slice(0, 6)}` })
@@ -682,8 +733,14 @@ export async function loadVerifiedVenues(): Promise<VenueOption[]> {
 }
 
 // Fetches venue_checkin_counts for a set of venues and folds it in —
-// same shape as attachVotes/attachNights.
-export async function attachCheckinCounts(venues: VenueOption[]): Promise<VenueOption[]> {
+// same shape as attachVotes/attachNights. Also derives `locked`: true
+// only for a venue the viewer created themselves that hasn't crossed
+// VENUE_PUBLIC_THRESHOLD yet (the only case where the viewer can see
+// this row via RLS at all AND it's still locked to everyone else).
+export async function attachCheckinCounts(
+  venues: VenueOption[],
+  userId?: string,
+): Promise<VenueOption[]> {
   if (!venues.length) return venues;
   const ids = venues.map((v) => v.id);
   const { data, error } = await supabase
@@ -694,7 +751,11 @@ export async function attachCheckinCounts(venues: VenueOption[]): Promise<VenueO
   const counts = new Map(
     (data ?? []).map((r: any) => [r.venue_id as string, r.checkin_count as number]),
   );
-  return venues.map((v) => ({ ...v, checkinCount: counts.get(v.id) ?? 0 }));
+  return venues.map((v) => {
+    const checkinCount = counts.get(v.id) ?? 0;
+    const locked = !!userId && v.createdBy === userId && checkinCount < VENUE_PUBLIC_THRESHOLD;
+    return { ...v, checkinCount, locked };
+  });
 }
 
 export async function addUserVenue(userId: string, venueId: string) {

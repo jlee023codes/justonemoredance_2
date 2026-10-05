@@ -12,6 +12,7 @@ import {
   setHomeVenue,
   updateVenueNight,
   VenueOption,
+  VENUE_PUBLIC_THRESHOLD,
   VERIFIED_THRESHOLD,
 } from "../services/venues";
 
@@ -144,6 +145,16 @@ export function VenueCard({
           </Text>
         </View>
       </View>
+
+      {venue.locked && (
+        <Text style={s.lockedNote}>
+          🔒 Only visible to you — unlocks for everyone once{" "}
+          {VENUE_PUBLIC_THRESHOLD - (venue.checkinCount ?? 0)} more{" "}
+          {VENUE_PUBLIC_THRESHOLD - (venue.checkinCount ?? 0) === 1 ? "person checks" : "people check"}{" "}
+          in here.
+        </Text>
+      )}
+
       {venue.address && <Text style={s.address}>{venue.address}</Text>}
 
       {(venue.latitude != null || venue.address) && (
@@ -296,6 +307,7 @@ const s = StyleSheet.create({
   verifiedMark: { color: colors.gold, fontWeight: "900" },
   homeOn: { color: colors.gold },
   address: { color: colors.muted, fontSize: 12, marginTop: 4 },
+  lockedNote: { color: colors.gold, fontSize: 11.5, lineHeight: 16, marginTop: 6 },
   directionsButton: { alignSelf: "flex-start", marginTop: 10 },
   directionsButtonText: { color: colors.gold, fontSize: 12, fontWeight: "800" },
   nights: { marginTop: 10, gap: 4 },
