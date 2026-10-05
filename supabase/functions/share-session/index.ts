@@ -10,8 +10,11 @@
 // or row becomes reachable through this function, and no RLS policy
 // anywhere else in the app grants anonymous read access.
 //
-// Deploy:
-//   supabase functions deploy share-session
+// Deploy (note --no-verify-jwt — required every time, or Supabase's
+// gateway rejects every request with UNAUTHORIZED_NO_AUTH_HEADER
+// before it ever reaches this code, since a public link visitor has
+// no Supabase session/JWT to send):
+//   supabase functions deploy share-session --no-verify-jwt
 // No extra secrets to set — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY
 // are auto-injected into every Edge Function (same as delete-account,
 // spotify-sync, etc.). This deliberately uses the service-role key,
