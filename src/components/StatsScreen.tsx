@@ -9,6 +9,7 @@ import {
   Text,
   View,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { colors } from "../styles";
 import { showError } from "../lib/alerts";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
@@ -224,9 +225,13 @@ function SessionDancesModal({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (entry) setQuery("");
+    if (entry) {
+      setQuery("");
+      setCopied(false);
+    }
   }, [entry]);
 
   if (!entry) return null;
@@ -248,6 +253,17 @@ function SessionDancesModal({
     }
   };
 
+  const handleCopyLink = async () => {
+    try {
+      const link = await getOrCreateShareLink(entry.id);
+      await Clipboard.setStringAsync(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch (err: any) {
+      showError(err, "Could not create a share link.");
+    }
+  };
+
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={s.gridScreen}>
@@ -262,6 +278,9 @@ function SessionDancesModal({
               {entry.dances.length === 1 ? "dance" : "dances"}
             </Text>
           </View>
+          <Pressable style={s.gridShareButton} onPress={handleCopyLink} hitSlop={10}>
+            <Text style={s.gridShareButtonText}>{copied ? "✓" : "🔗"}</Text>
+          </Pressable>
           <Pressable style={s.gridShareButton} onPress={handleShare} hitSlop={10}>
             <Text style={s.gridShareButtonText}>⤴︎</Text>
           </Pressable>

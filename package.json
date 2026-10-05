@@ -20,6 +20,7 @@
     "@superfan-app/apple-music-auth": "^0.1.17",
     "expo": "~54.0.0",
     "expo-auth-session": "~7.0.11",
+    "expo-clipboard": "~8.0.8",
     "expo-crypto": "~15.0.9",
     "expo-dev-client": "~6.0.21",
     "expo-image-picker": "~17.0.11",
