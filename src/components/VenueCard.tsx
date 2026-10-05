@@ -194,7 +194,7 @@ export function VenueCard({
                       <Text style={s.nightActionText}>✏️</Text>
                     </Pressable>
                     <Pressable onPress={() => handleDelete(n.day)} hitSlop={6}>
-                      <Text style={s.nightActionText}>✕</Text>
+                      <Text style={[s.nightActionText, s.nightDeleteText]}>✕</Text>
                     </Pressable>
                   </View>
                 )}
@@ -304,6 +304,7 @@ const s = StyleSheet.create({
   nightDetails: { flex: 1, color: colors.ink, fontSize: 12 },
   nightActions: { flexDirection: "row", gap: 10 },
   nightActionText: { fontSize: 12 },
+  nightDeleteText: { color: colors.muted },
   addNight: { color: colors.pink, fontSize: 12, fontWeight: "700", marginTop: 12 },
   editBox: { marginTop: 10, gap: 8 },
   dayPicker: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
