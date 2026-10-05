@@ -26,7 +26,15 @@ export default {
 
     if (url.pathname.startsWith("/s/")) {
       const target = `${env.SUPABASE_URL}/functions/v1/share-session${url.pathname}`;
-      return fetch(target, { method: request.method, headers: request.headers });
+      const upstream = await fetch(target, { method: request.method, headers: request.headers });
+      // Supabase's Edge Function gateway overrides whatever
+      // Content-Type the function itself sets (always comes back as
+      // text/plain, even for a 200 with real HTML) — rewrite it here
+      // so the browser actually renders the page instead of showing
+      // raw markup as text.
+      const headers = new Headers(upstream.headers);
+      headers.set("Content-Type", "text/html; charset=utf-8");
+      return new Response(upstream.body, { status: upstream.status, headers });
     }
 
     return env.ASSETS.fetch(request);
