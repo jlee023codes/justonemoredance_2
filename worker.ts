@@ -27,13 +27,18 @@ export default {
     if (url.pathname.startsWith("/s/")) {
       const target = `${env.SUPABASE_URL}/functions/v1/share-session${url.pathname}`;
       const upstream = await fetch(target, { method: request.method, headers: request.headers });
-      // Supabase's Edge Function gateway overrides whatever
-      // Content-Type the function itself sets (always comes back as
-      // text/plain, even for a 200 with real HTML) — rewrite it here
-      // so the browser actually renders the page instead of showing
-      // raw markup as text.
+      // Supabase's Edge Function gateway stamps every response with
+      // its own Content-Type (always text/plain, even for real HTML)
+      // and a locked-down Content-Security-Policy
+      // ("default-src 'none'; sandbox", meant for raw API responses)
+      // — both overriding whatever the function itself sets. Left
+      // alone, the CSP blocks the page's inline <style> and the
+      // Google Fonts stylesheet, so the browser renders bare,
+      // unstyled text. Rewrite/drop both here since this Worker
+      // already controls the final response either way.
       const headers = new Headers(upstream.headers);
       headers.set("Content-Type", "text/html; charset=utf-8");
+      headers.delete("Content-Security-Policy");
       return new Response(upstream.body, { status: upstream.status, headers });
     }
 
