@@ -52,20 +52,30 @@ function formatElapsed(totalSeconds: number): string {
 /** One tappable dance search result — name, a difficulty badge (same
  *  shape/colors as DanceCard's), the step-count/walls summary
  *  BootStepper already builds (dance.details, e.g. "32 count • 4
- *  wall"), and a source tag (My List / Playing here / BootStepper). */
+ *  wall"), and a source tag (My List / Playing here / BootStepper).
+ *  `loggedByName` set means someone already logged this exact dance
+ *  during tonight's session — disabled, with a note, instead of
+ *  letting it be logged a second time. */
 function DanceResultRow({
   dance,
   tag,
   onPress,
   disabled,
+  loggedByName,
 }: {
   dance: Dance;
   tag: string;
   onPress: () => void;
   disabled: boolean;
+  loggedByName?: string;
 }) {
+  const alreadyLogged = !!loggedByName;
   return (
-    <Pressable style={s.danceRow} onPress={onPress} disabled={disabled}>
+    <Pressable
+      style={[s.danceRow, alreadyLogged && s.danceRowDisabled]}
+      onPress={onPress}
+      disabled={disabled || alreadyLogged}
+    >
       <View style={s.danceRowCopy}>
         <View style={s.danceRowTitleLine}>
           <Text style={s.danceRowText} numberOfLines={1}>{dance.name}</Text>
@@ -76,7 +86,11 @@ function DanceResultRow({
           </View>
         </View>
         <Text style={s.danceRowSub} numberOfLines={1}>{dance.defaultSong}</Text>
-        {dance.details ? (
+        {alreadyLogged ? (
+          <Text style={s.danceRowAlready} numberOfLines={1}>
+            {loggedByName} recorded this for tonight
+          </Text>
+        ) : dance.details ? (
           <Text style={s.danceRowDetails} numberOfLines={1}>{dance.details}</Text>
         ) : null}
       </View>
@@ -139,7 +153,17 @@ export function DancingSessionScreen({
   useEffect(() => {
     refreshLive();
     const unsubscribe = subscribeLiveSession(session.venueId, refreshLive);
-    return unsubscribe;
+    // Someone ending their own session doesn't emit any dance/mark
+    // event the subscription above would catch — a plain poll is the
+    // simplest way for "N dancing here now" to notice they left,
+    // same foreground-interval pattern already used elsewhere in this
+    // app (App.tsx's geofence check) rather than widening who can see
+    // whose check-in timing via RLS/Realtime.
+    const pollTimer = setInterval(refreshLive, 15000);
+    return () => {
+      unsubscribe();
+      clearInterval(pollTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.venueId, userId]);
 
@@ -211,6 +235,19 @@ export function DancingSessionScreen({
     if (!trimmedQuery) return [];
     return localDances.filter((d) => matchesDanceName(d.name, trimmedQuery));
   }, [localDances, trimmedQuery]);
+
+  // Who already logged each dance tonight, keyed the same way
+  // everything else in this screen dedupes across sources — by
+  // squashed name, not id, since BootStepper can resolve the "same"
+  // dance to slightly different ids from different lookups.
+  const loggedTonightByName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of liveDances) {
+      const key = squash(d.name);
+      if (key) map.set(key, d.loggedBy === userId ? "you" : d.loggedByName);
+    }
+    return map;
+  }, [liveDances]);
 
   // BootStepper is opt-in, not automatic — only offered once a query
   // exists and nothing local matched it, and only actually searched
@@ -402,6 +439,7 @@ export function DancingSessionScreen({
               tag={progress[dance.id] ? "My List" : "Playing here"}
               onPress={() => handleLogDance(dance)}
               disabled={logging}
+              loggedByName={loggedTonightByName.get(squash(dance.name))}
             />
           ))}
 
@@ -423,6 +461,7 @@ export function DancingSessionScreen({
                 tag="BootStepper"
                 onPress={() => handleLogDance(dance)}
                 disabled={logging}
+                loggedByName={loggedTonightByName.get(squash(dance.name))}
               />
             ))}
           {showBootSearch && !searching && !bootResults.length && (
@@ -684,6 +723,7 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
   },
+  danceRowDisabled: { opacity: 0.5 },
   danceRowCopy: { flex: 1, paddingRight: 10 },
   danceRowTitleLine: { flexDirection: "row", alignItems: "center", gap: 8 },
   danceRowText: { color: colors.ink, fontSize: 14, fontWeight: "700", flexShrink: 1 },
@@ -696,6 +736,7 @@ const s = StyleSheet.create({
   difficultyBadgeText: { fontSize: 9, fontWeight: "800" },
   danceRowSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
   danceRowDetails: { color: colors.gold, fontSize: 11, fontWeight: "700", marginTop: 3 },
+  danceRowAlready: { color: colors.muted, fontSize: 11, fontStyle: "italic", marginTop: 3 },
   danceRowTag: { color: colors.muted, fontSize: 11 },
   empty: { color: colors.muted, fontSize: 13, lineHeight: 19 },
   doneButton: {
