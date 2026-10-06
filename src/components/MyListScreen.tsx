@@ -205,6 +205,15 @@ export function MyListScreen({
     [progress, catalogCache, venueLinks],
   );
 
+  // How many rows are still showing a bare snapshot (no choreographer/
+  // counts/video yet) — App.tsx's background resolver is working
+  // through these; this just makes that visible instead of cards
+  // silently swapping in over several seconds with no explanation.
+  const pendingResolveCount = useMemo(
+    () => rows.filter((r) => r.dance.snapshot).length,
+    [rows],
+  );
+
   const visible = useMemo(
     () => buildMyList(rows, { search, filters, sort }),
     [rows, search, filters, sort],
@@ -857,6 +866,16 @@ export function MyListScreen({
           )}
         </View>
 
+        {pendingResolveCount > 0 && (
+          <View style={s.resolvingBanner}>
+            <ActivityIndicator color={colors.gold} size="small" />
+            <Text style={s.resolvingBannerText}>
+              Loading full details for {pendingResolveCount}{" "}
+              {pendingResolveCount === 1 ? "dance" : "dances"}…
+            </Text>
+          </View>
+        )}
+
         <SearchInput
           value={search}
           onChangeText={setSearch}
@@ -1108,6 +1127,19 @@ const s = StyleSheet.create({
     fontWeight: "900",
   },
   headerSyncButtons: { flexDirection: "row", flexWrap: "wrap", gap: 6, flexShrink: 0 },
+  resolvingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  resolvingBannerText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,

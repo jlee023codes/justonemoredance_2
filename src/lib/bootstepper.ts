@@ -332,11 +332,25 @@ export async function mapWithConcurrency<T, R>(
   return results;
 }
 
-/** Batch fetch — used to resolve dances saved in "Want to learn" / "Learned"
- *  that aren't in the current search results. */
-export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
-  if (!ids.length) return [];
+// The batch endpoint returns *nothing* (empty body) if even one id in
+// the request is unknown — a stale/deleted dance, an old friend
+// sample, a slightly-off match from an offline-notepad import. With
+// one big all-ids-at-once call, that single bad id used to sink the
+// WHOLE list into the slow one-by-one fallback below (concurrency 8,
+// so a ~150-dance My List could take ~10s on a cold reconnect).
+// Chunking means a bad id only takes its own chunk down with it — the
+// common case (no stale ids anywhere) stays one fast request per
+// chunk, run in parallel.
+const BATCH_CHUNK_SIZE = 25;
+const BATCH_CHUNK_CONCURRENCY = 4;
 
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+async function getDancesByIdsChunk(ids: string[]): Promise<Dance[]> {
   let resolved: Dance[] = [];
   try {
     const data = await callProxy<RawListResponse<RawDance> | RawDance[] | null>(
@@ -348,11 +362,10 @@ export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
     // Fall through to per-id lookups below.
   }
 
-  // The batch endpoint returns *nothing* (empty body) if even one id is
-  // unknown, so a single stale id — an old friend sample, a dance deleted
-  // upstream — would otherwise sink the whole request. Retry the missing
-  // ones individually (throttled — see FALLBACK_CONCURRENCY above) and
-  // just drop whatever still doesn't resolve.
+  // Retry whatever this chunk's batch call didn't return — either it
+  // threw, or it silently dropped one bad id and took the rest of
+  // this chunk down with it (throttled — see FALLBACK_CONCURRENCY
+  // above) — and just drop whatever still doesn't resolve.
   const found = new Set(resolved.map((d) => d.id));
   const missing = ids.filter((id) => !found.has(id));
   if (missing.length) {
@@ -366,4 +379,18 @@ export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
     );
   }
   return resolved;
+}
+
+/** Batch fetch — used to resolve dances saved in "Want to learn" / "Learned"
+ *  that aren't in the current search results. Chunked (see
+ *  BATCH_CHUNK_SIZE above) so one stale id can't sink the whole list. */
+export async function getDancesByIds(ids: string[]): Promise<Dance[]> {
+  if (!ids.length) return [];
+  const chunks = chunk(ids, BATCH_CHUNK_SIZE);
+  const results = await mapWithConcurrency(
+    chunks,
+    BATCH_CHUNK_CONCURRENCY,
+    getDancesByIdsChunk,
+  );
+  return results.flat();
 }
