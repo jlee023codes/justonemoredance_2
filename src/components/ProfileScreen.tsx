@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { colors } from "../styles";
 import { confirmAction, showAlert } from "../lib/alerts";
+import { InfoTooltip } from "./InfoTooltip";
 import { supabase } from "../lib/supabase";
 import {
   presentCustomerCenter,
@@ -948,19 +949,13 @@ export function ProfileScreen({
             </View>
             <Text style={s.checkboxLabel}>Auto-add new dances to My List</Text>
           </Pressable>
-          <Pressable
-            onPress={() =>
-              showAlert(
-                "Auto-add new dances",
-                autoAddNewDances
-                  ? "New dances from a tracked session are added automatically — review them anytime from Stats."
-                  : "New dances from a tracked session won't be added automatically — add them from Stats when you're ready.",
-              )
+          <InfoTooltip
+            text={
+              autoAddNewDances
+                ? "New dances from a tracked session are added automatically — review them anytime from Stats."
+                : "New dances from a tracked session won't be added automatically — add them from Stats when you're ready."
             }
-            hitSlop={8}
-          >
-            <Text style={s.infoIcon}>ⓘ</Text>
-          </Pressable>
+          />
         </View>
 
         <Text style={[s.settingLabel, s.syncScopeLabel]}>SIGNED IN AS</Text>
@@ -1277,7 +1272,6 @@ const s = StyleSheet.create({
   checkboxOn: { backgroundColor: colors.pink, borderColor: colors.pink },
   checkboxMark: { color: "#fff", fontSize: 13, fontWeight: "900" },
   checkboxLabel: { flex: 1, color: colors.ink, fontSize: 13.5, fontWeight: "700" },
-  infoIcon: { color: colors.gold, fontSize: 16, fontWeight: "800", marginTop: 1 },
   scopeSave: {
     backgroundColor: colors.pink,
     borderRadius: 9,
