@@ -51,8 +51,9 @@ export type VenueOption = {
   // attachCheckinCounts and VERIFIED_THRESHOLD above.
   checkinCount?: number;
   // Derived, not a DB column: true while this venue is still below
-  // VENUE_PUBLIC_THRESHOLD and the viewer isn't its creator — i.e.
-  // the one case where the viewer can see this row at all AND it's
+  // VENUE_PUBLIC_THRESHOLD and the viewer can only see it because
+  // they created it or have it in their own user_venues list — i.e.
+  // the only case where the viewer can see this row at all AND it's
   // still locked to everyone else. Computed client-side by
   // attachCheckinCounts; a venue the viewer can't see isn't in the
   // results to begin with, so this only ever describes "my own,
@@ -734,26 +735,33 @@ export async function loadVerifiedVenues(): Promise<VenueOption[]> {
 
 // Fetches venue_checkin_counts for a set of venues and folds it in —
 // same shape as attachVotes/attachNights. Also derives `locked`: true
-// only for a venue the viewer created themselves that hasn't crossed
-// VENUE_PUBLIC_THRESHOLD yet (the only case where the viewer can see
-// this row via RLS at all AND it's still locked to everyone else).
+// for a venue below VENUE_PUBLIC_THRESHOLD that the viewer can only
+// see because they created it OR have it in their own user_venues
+// list (the RLS policy in migration_venue_lock_user_venues.sql grants
+// visibility on both grounds, not just created_by — every
+// pre-existing venue has created_by = null, so user_venues is the
+// only real "who brought this venue in" signal those rows have).
 export async function attachCheckinCounts(
   venues: VenueOption[],
   userId?: string,
 ): Promise<VenueOption[]> {
   if (!venues.length) return venues;
   const ids = venues.map((v) => v.id);
-  const { data, error } = await supabase
-    .from("venue_checkin_counts")
-    .select("venue_id,checkin_count")
-    .in("venue_id", ids);
+  const [{ data, error }, mineResult] = await Promise.all([
+    supabase.from("venue_checkin_counts").select("venue_id,checkin_count").in("venue_id", ids),
+    userId
+      ? supabase.from("user_venues").select("venue_id").eq("user_id", userId).in("venue_id", ids)
+      : Promise.resolve({ data: [] as { venue_id: string }[], error: null }),
+  ]);
   if (error) return venues.map((v) => ({ ...v, checkinCount: 0 }));
   const counts = new Map(
     (data ?? []).map((r: any) => [r.venue_id as string, r.checkin_count as number]),
   );
+  const mine = new Set((mineResult.data ?? []).map((r: any) => r.venue_id as string));
   return venues.map((v) => {
     const checkinCount = counts.get(v.id) ?? 0;
-    const locked = !!userId && v.createdBy === userId && checkinCount < VENUE_PUBLIC_THRESHOLD;
+    const inMyList = !!userId && (v.createdBy === userId || mine.has(v.id));
+    const locked = inMyList && checkinCount < VENUE_PUBLIC_THRESHOLD;
     return { ...v, checkinCount, locked };
   });
 }
