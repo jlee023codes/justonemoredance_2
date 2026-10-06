@@ -249,25 +249,34 @@ export function DancingSessionScreen({
     return map;
   }, [liveDances]);
 
-  // BootStepper is opt-in, not automatic — only offered once a query
-  // exists and nothing local matched it, and only actually searched
-  // once the user taps "Search BootStepper instead."
+  // Falls back to BootStepper automatically once nothing local
+  // matches the query — no extra tap. Debounced so it doesn't fire on
+  // every keystroke while localMatches is still catching up, and
+  // skipped entirely once a local match already exists (the common
+  // case: most dances tonight are already on My List or the venue's
+  // own "Playing here" list).
   useEffect(() => {
     setShowBootSearch(false);
     setBootResults([]);
-  }, [trimmedQuery]);
-
-  const handleSearchBootstepper = () => {
-    if (!trimmedQuery) return;
-    setShowBootSearch(true);
-    setSearching(true);
-    searchDances(trimmedQuery)
-      .then((found) => {
-        setBootResults(found);
-        setSearching(false);
-      })
-      .catch(() => setSearching(false));
-  };
+    if (!trimmedQuery || localMatches.length) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setShowBootSearch(true);
+      setSearching(true);
+      searchDances(trimmedQuery)
+        .then((found) => {
+          if (!cancelled) setBootResults(found);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [trimmedQuery, localMatches.length]);
 
   const handleLogDance = async (dance: Dance) => {
     setLogging(true);
@@ -443,13 +452,6 @@ export function DancingSessionScreen({
             />
           ))}
 
-          {trimmedQuery.length > 0 && !localMatches.length && !showBootSearch && (
-            <Pressable style={s.bootPrompt} onPress={handleSearchBootstepper}>
-              <Text style={s.bootPromptText}>
-                No local match for "{trimmedQuery}" — search BootStepper instead
-              </Text>
-            </Pressable>
-          )}
           {showBootSearch && searching && !bootResults.length && (
             <ActivityIndicator color={colors.gold} style={s.loader} />
           )}
@@ -709,12 +711,6 @@ const s = StyleSheet.create({
     fontSize: 15,
   },
   loader: { marginTop: 14 },
-  bootPrompt: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  bootPromptText: { color: colors.pink, fontSize: 13, fontWeight: "700" },
   danceRow: {
     flexDirection: "row",
     alignItems: "center",
