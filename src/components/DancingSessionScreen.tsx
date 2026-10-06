@@ -533,33 +533,34 @@ export function DancingSessionScreen({
           {liveDances.length > 0 && (
             <>
               <Text style={s.sectionLabel}>LAST LOGGED</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={s.recentRow}
-                contentContainerStyle={s.recentRowContent}
-              >
-                {liveDances.slice(0, 5).map((d) => (
-                  <View key={d.id} style={s.recentCard}>
-                    <Text style={s.recentCardName} numberOfLines={2}>{d.name}</Text>
-                    {participants.length > 1 ? (
-                      <Pressable
-                        style={[s.recentDancedPill, d.dancedByMe && s.recentDancedPillOn]}
-                        onPress={() => handleToggleDanced(d)}
-                        hitSlop={6}
-                      >
-                        <Text
-                          style={[s.recentDancedPillText, d.dancedByMe && s.recentDancedPillTextOn]}
+              <View style={s.recentBorder}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={s.recentRowContent}
+                >
+                  {liveDances.slice(0, 5).map((d) => (
+                    <View key={d.id} style={s.recentCard}>
+                      <Text style={s.recentCardName} numberOfLines={2}>{d.name}</Text>
+                      {participants.length > 1 ? (
+                        <Pressable
+                          style={[s.recentDancedPill, d.dancedByMe && s.recentDancedPillOn]}
+                          onPress={() => handleToggleDanced(d)}
+                          hitSlop={6}
                         >
-                          {d.dancedByMe ? "✓ Danced" : "Danced?"}
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <Text style={s.recentDancedStatic}>✓ Danced</Text>
-                    )}
-                  </View>
-                ))}
-              </ScrollView>
+                          <Text
+                            style={[s.recentDancedPillText, d.dancedByMe && s.recentDancedPillTextOn]}
+                          >
+                            {d.dancedByMe ? "✓ Danced" : "Danced?"}
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <Text style={s.recentDancedStatic}>✓ Danced</Text>
+                      )}
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
             </>
           )}
 
@@ -821,8 +822,13 @@ const s = StyleSheet.create({
     marginTop: 18,
     marginBottom: 8,
   },
-  recentRow: { marginHorizontal: -25 },
-  recentRowContent: { paddingHorizontal: 25, gap: 10 },
+  recentBorder: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 14,
+    padding: 10,
+  },
+  recentRowContent: { gap: 10 },
   recentCard: {
     width: 120,
     backgroundColor: colors.card,
