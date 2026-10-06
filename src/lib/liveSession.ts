@@ -33,17 +33,28 @@ function labelFor(profile: { display_name: string | null; username: string | nul
   return profile.display_name?.trim() || (profile.username ? `@${profile.username}` : "Someone");
 }
 
-/** Everyone currently checked in (ended_at is null) at this venue —
- *  the live pool's roster. Degenerates to a single-entry array for a
- *  solo session, same data shape either way. */
-export async function loadLiveParticipants(venueId: string): Promise<LiveParticipant[]> {
+/** One venue_live_presence fetch, shared by loadLiveSessionState below
+ *  for both the participant roster and the session window start — this
+ *  used to be two entirely separate query chains (loadLiveParticipants'
+ *  own presence -> profiles lookup, plus a second presence-only lookup
+ *  just to find the window start), run alongside loadLiveDances' own
+ *  3-step sequential chain (presence -> dances -> marks/profiles) —
+ *  together the main cause of a slow open/reopen on the session
+ *  screen. */
+async function loadPresence(
+  venueId: string,
+  fallbackWindowStart: string,
+): Promise<{ participants: LiveParticipant[]; windowStart: string }> {
   const { data: presence, error } = await supabase
     .from("venue_live_presence")
-    .select("user_id")
-    .eq("venue_id", venueId);
+    .select("user_id, checked_in_at")
+    .eq("venue_id", venueId)
+    .order("checked_in_at", { ascending: true });
   if (error) throw error;
-  const userIds = [...new Set((presence ?? []).map((r: any) => r.user_id as string))];
-  if (!userIds.length) return [];
+  const rows = presence ?? [];
+  const windowStart = rows[0]?.checked_in_at ?? fallbackWindowStart;
+  const userIds = [...new Set(rows.map((r: any) => r.user_id as string))];
+  if (!userIds.length) return { participants: [], windowStart };
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
@@ -51,11 +62,83 @@ export async function loadLiveParticipants(venueId: string): Promise<LivePartici
     .in("id", userIds);
   if (profilesError) throw profilesError;
 
-  return (profiles ?? []).map((p: any) => ({
+  const participants = (profiles ?? []).map((p: any) => ({
     userId: p.id,
     name: labelFor(p),
     avatarUrl: p.avatar_url ?? null,
   }));
+  return { participants, windowStart };
+}
+
+/** Participants + the shared dance pool, in one go — see loadPresence.
+ *  Replaces separately calling loadLiveParticipants and loadLiveDances
+ *  back to back (they both independently queried venue_live_presence
+ *  and venue_live_dance_marks/profiles-adjacent data); this cuts the
+ *  session screen's open/reopen refresh from ~6 round-trips (3 of them
+ *  sequential) down to 3 (2 sequential). */
+export async function loadLiveSessionState(
+  venueId: string,
+  myUserId: string,
+  checkedInAt: string,
+): Promise<{ dances: LiveDance[]; participants: LiveParticipant[] }> {
+  const { participants, windowStart } = await loadPresence(venueId, checkedInAt);
+
+  const { data: rows, error } = await supabase
+    .from("venue_live_dances")
+    .select("id, dance_id, dance_name, dance_song, dance_difficulty, dance_details, logged_by, logged_at")
+    .eq("venue_id", venueId)
+    .gte("logged_at", windowStart)
+    .order("logged_at", { ascending: false });
+  if (error) throw error;
+  const rawDances = rows ?? [];
+  if (!rawDances.length) return { dances: [], participants };
+
+  const liveDanceIds = rawDances.map((d: any) => d.id as string);
+  const loggerIds = [...new Set(rawDances.map((d: any) => d.logged_by as string))];
+  const knownNames = new Map(participants.map((p) => [p.userId, p.name]));
+  // Only fetch profiles for loggers NOT already covered by this venue's
+  // current participant list (the common case: whoever logged a dance
+  // is still checked in) — participants' names are already in hand
+  // from loadPresence above, no need to ask for them twice.
+  const unknownLoggerIds = loggerIds.filter((id) => !knownNames.has(id));
+
+  const [{ data: marks, error: marksError }, profilesResult] = await Promise.all([
+    supabase.from("venue_live_dance_marks").select("live_dance_id, user_id").in("live_dance_id", liveDanceIds),
+    unknownLoggerIds.length
+      ? supabase.from("profiles").select("id, username, display_name").in("id", unknownLoggerIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ]);
+  if (marksError) throw marksError;
+  if (profilesResult.error) throw profilesResult.error;
+
+  const nameById = new Map(knownNames);
+  for (const p of (profilesResult.data ?? []) as any[]) {
+    nameById.set(p.id, labelFor(p));
+  }
+  const marksByDance = new Map<string, Set<string>>();
+  for (const m of (marks ?? []) as any[]) {
+    const set = marksByDance.get(m.live_dance_id) ?? new Set<string>();
+    set.add(m.user_id);
+    marksByDance.set(m.live_dance_id, set);
+  }
+
+  const dances = rawDances.map((d: any) => {
+    const markedBy = marksByDance.get(d.id) ?? new Set<string>();
+    return {
+      id: d.id,
+      danceId: d.dance_id,
+      name: d.dance_name,
+      song: d.dance_song ?? null,
+      details: d.dance_details ?? null,
+      difficulty: (d.dance_difficulty ?? null) as Dance["difficulty"] | null,
+      loggedBy: d.logged_by,
+      loggedByName: nameById.get(d.logged_by) ?? "Someone",
+      loggedAt: d.logged_at,
+      dancedByMe: markedBy.has(myUserId),
+      dancedCount: markedBy.size,
+    };
+  });
+  return { dances, participants };
 }
 
 /** The start of the CURRENT ongoing session at this venue — the
@@ -80,64 +163,6 @@ async function loadSessionWindowStart(venueId: string, fallback: string): Promis
     .maybeSingle();
   if (error || !data) return fallback;
   return data.checked_in_at as string;
-}
-
-/** The shared dance pool for this venue, with each dance's logger
- *  name, whether the caller has marked it "danced," and how many
- *  people in total have. Scoped to the whole ongoing session (see
- *  loadSessionWindowStart), not just since this caller's own
- *  check-in — `checkedInAt` is only the fallback if that can't be
- *  determined. */
-export async function loadLiveDances(
-  venueId: string,
-  myUserId: string,
-  checkedInAt: string,
-): Promise<LiveDance[]> {
-  const windowStart = await loadSessionWindowStart(venueId, checkedInAt);
-  const { data: rows, error } = await supabase
-    .from("venue_live_dances")
-    .select("id, dance_id, dance_name, dance_song, dance_difficulty, dance_details, logged_by, logged_at")
-    .eq("venue_id", venueId)
-    .gte("logged_at", windowStart)
-    .order("logged_at", { ascending: false });
-  if (error) throw error;
-  const dances = rows ?? [];
-  if (!dances.length) return [];
-
-  const liveDanceIds = dances.map((d: any) => d.id as string);
-  const loggerIds = [...new Set(dances.map((d: any) => d.logged_by as string))];
-
-  const [{ data: marks, error: marksError }, { data: profiles, error: profilesError }] = await Promise.all([
-    supabase.from("venue_live_dance_marks").select("live_dance_id, user_id").in("live_dance_id", liveDanceIds),
-    supabase.from("profiles").select("id, username, display_name").in("id", loggerIds),
-  ]);
-  if (marksError) throw marksError;
-  if (profilesError) throw profilesError;
-
-  const nameById = new Map((profiles ?? []).map((p: any) => [p.id as string, labelFor(p)]));
-  const marksByDance = new Map<string, Set<string>>();
-  for (const m of (marks ?? []) as any[]) {
-    const set = marksByDance.get(m.live_dance_id) ?? new Set<string>();
-    set.add(m.user_id);
-    marksByDance.set(m.live_dance_id, set);
-  }
-
-  return dances.map((d: any) => {
-    const markedBy = marksByDance.get(d.id) ?? new Set<string>();
-    return {
-      id: d.id,
-      danceId: d.dance_id,
-      name: d.dance_name,
-      song: d.dance_song ?? null,
-      details: d.dance_details ?? null,
-      difficulty: (d.dance_difficulty ?? null) as Dance["difficulty"] | null,
-      loggedBy: d.logged_by,
-      loggedByName: nameById.get(d.logged_by) ?? "Someone",
-      loggedAt: d.logged_at,
-      dancedByMe: markedBy.has(myUserId),
-      dancedCount: markedBy.size,
-    };
-  });
 }
 
 /** Logs a dance into the shared pool and auto-marks the logger as

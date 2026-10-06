@@ -34,8 +34,7 @@ import {
 import {
   LiveDance,
   LiveParticipant,
-  loadLiveDances,
-  loadLiveParticipants,
+  loadLiveSessionState,
   loadLivePercent,
   logLiveDance,
   subscribeLiveSession,
@@ -164,8 +163,12 @@ export function DancingSessionScreen({
   const [participants, setParticipants] = useState<LiveParticipant[]>([]);
 
   const refreshLive = () => {
-    loadLiveDances(session.venueId, userId, session.startedAt).then(setLiveDances).catch(() => {});
-    loadLiveParticipants(session.venueId).then(setParticipants).catch(() => {});
+    loadLiveSessionState(session.venueId, userId, session.startedAt)
+      .then(({ dances, participants }) => {
+        setLiveDances(dances);
+        setParticipants(participants);
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -395,9 +398,9 @@ export function DancingSessionScreen({
       // log themselves — Stats should show the whole night's setlist
       // (every dance anyone logged this session), each flagged `danced`
       // by this user's own marks, not only this user's own log entries.
-      const finalLiveDances = await loadLiveDances(session.venueId, userId, session.startedAt).catch(
-        () => liveDances,
-      );
+      const finalLiveDances = await loadLiveSessionState(session.venueId, userId, session.startedAt)
+        .then((state) => state.dances)
+        .catch(() => liveDances);
       // "New to the venue" (nobody tagged this dance here before this
       // session started) and "new to me" (wasn't already on My List)
       // — snapshotted once here rather than recomputed later, same as
