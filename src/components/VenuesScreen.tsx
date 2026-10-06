@@ -15,7 +15,7 @@ import { DayFilterModal } from "./DayFilterModal";
 import { SearchInput } from "./SearchInput";
 import { getPlaceDetails, newSessionToken, PlaceSuggestion, searchPlaces } from "../lib/placesSearch";
 import {
-  attachCheckinCounts,
+  attachPublicCounts,
   attachNights,
   attachRepStatus,
   DAY_LABEL,
@@ -223,7 +223,7 @@ export function VenuesScreen({
   const mergeVenue = (venue: VenueOption, isNew: boolean) => {
     attachNights([venue])
       .then((withNights) => attachRepStatus(withNights, userId, isAdmin))
-      .then((withRep) => attachCheckinCounts(withRep, userId))
+      .then((withRep) => attachPublicCounts(withRep, userId))
       .then(([enriched]) => {
         setResults((prev) =>
           prev.some((v) => v.id === enriched.id)

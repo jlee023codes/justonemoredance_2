@@ -35,8 +35,8 @@ export function haversineDistanceMeters(
 }
 
 /** Venues worth proximity-prompting for — venues you've danced at, or
- *  that have crossed the Verified threshold in the shared catalog. Not
- *  a blanket "near any venue anywhere" prompt. */
+ *  that have crossed VENUE_PUBLIC_THRESHOLD ("Verified") in the shared
+ *  catalog. Not a blanket "near any venue anywhere" prompt. */
 export async function loadCheckinCandidates(userId: string): Promise<VenueOption[]> {
   const [danced, verified] = await Promise.all([
     loadDancedVenues(userId),

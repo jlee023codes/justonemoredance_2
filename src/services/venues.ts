@@ -47,21 +47,18 @@ export type VenueOption = {
   // days are already filled in, even for an approved rep. See
   // migration_venue_reps.sql.
   detailsLocked?: boolean;
-  // Distinct check-ins (migration_venue_checkins.sql) — see
-  // attachCheckinCounts and VERIFIED_THRESHOLD above. Check-ins only
-  // — narrower than publicCount below, backs the Verified badge.
-  checkinCount?: number;
   // Distinct users who've EITHER checked in OR tagged a dance to this
   // venue (venue_public_counts — migration_venue_lock_broaden_count.sql).
-  // What actually drives VENUE_PUBLIC_THRESHOLD/`locked` below — use
-  // this, not checkinCount, for anything about unlock progress.
+  // Crossing VENUE_PUBLIC_THRESHOLD is what both unlocks the venue for
+  // everyone and is what the app calls "Verified" — one count, one
+  // meaning (see VenueCard's verifiedMark).
   publicCount?: number;
   // Derived, not a DB column: true while this venue is still below
   // VENUE_PUBLIC_THRESHOLD and the viewer can only see it because
   // they created it or have it in their own user_venues list — i.e.
   // the only case where the viewer can see this row at all AND it's
   // still locked to everyone else. Computed client-side by
-  // attachCheckinCounts; a venue the viewer can't see isn't in the
+  // attachPublicCounts; a venue the viewer can't see isn't in the
   // results to begin with, so this only ever describes "my own,
   // still-locked" venues, never someone else's.
   locked?: boolean;
@@ -82,20 +79,17 @@ export const DAY_LABEL: Record<DayOfWeek, string> = {
   sat: "Sat",
 };
 
-// A venue's check-in Verified badge (see VenueCard.tsx) unlocks at this
-// many distinct check-ins — a plain constant, same spirit as
-// awards.ts's ladders, so it's tunable without a migration. NEW signal,
-// separate from addressVerified above (the existing admin-only manual
-// stamp — don't conflate them). See migration_venue_checkins.sql.
-export const VERIFIED_THRESHOLD = 3;
-
 // A brand-new venue is only visible to whoever added it until this
-// many distinct users have actually checked in there — enforced
-// server-side by venues' RLS policy (migration_venue_lock.sql), using
-// the same venue_checkin_counts view VERIFIED_THRESHOLD reads. Kept
-// in sync with the SQL constant `>= 5` in that migration; change both
-// together if this ever moves.
-export const VENUE_PUBLIC_THRESHOLD = 5;
+// many distinct users have either checked in or tagged a dance there
+// (venue_public_counts) — enforced server-side by venues' RLS policy
+// (migration_venue_lock_threshold_3.sql). Crossing it is also what
+// the app calls "Verified" (see VenueCard's verifiedMark) — one
+// threshold, one meaning, not two separate badges. A plain constant,
+// same spirit as awards.ts's ladders, so it's tunable without a
+// migration, but keep this in sync with the SQL constant `>= 3` in
+// that migration if it ever moves — separate from addressVerified
+// above (the existing admin-only manual stamp — don't conflate them).
+export const VENUE_PUBLIC_THRESHOLD = 3;
 
 const VENUE_SELECT = "id,name,address,addressVerified:address_verified,latitude,longitude,googlePlaceId:google_place_id,createdBy:created_by,detailsLocked:details_locked";
 
@@ -329,10 +323,10 @@ export async function searchGlobalVenues(
   if (error) throw error;
   const withVotes = await attachVotes((data ?? []) as VenueOption[], userId);
   const withNights = await attachNights(withVotes);
-  const withCheckins = await attachCheckinCounts(withNights, userId);
+  const withPublicCounts = await attachPublicCounts(withNights, userId);
   // Best-endorsed first, then alphabetical — helps a real venue outrank a
   // typo'd duplicate that slipped in before name_key existed.
-  const ranked = withCheckins.sort(
+  const ranked = withPublicCounts.sort(
     (a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.name.localeCompare(b.name),
   );
   return trimmed ? ranked : ranked.slice(0, limit);
@@ -720,14 +714,15 @@ export async function loadDancedVenues(userId: string): Promise<VenueOption[]> {
 }
 
 
-/** Venues that have crossed the check-in Verified threshold — see
- *  geoCheckin.ts's VERIFIED_THRESHOLD and migration_venue_checkins.sql's
- *  venue_checkin_counts view. */
+/** Venues that have crossed VENUE_PUBLIC_THRESHOLD — i.e. "Verified,"
+ *  unlocked for everyone. See migration_venue_lock_broaden_count.sql's
+ *  venue_public_counts view (distinct users who've either checked in
+ *  or tagged a dance at a venue). */
 export async function loadVerifiedVenues(): Promise<VenueOption[]> {
   const { data: counts, error: countsError } = await supabase
-    .from("venue_checkin_counts")
-    .select("venue_id,checkin_count")
-    .gte("checkin_count", VERIFIED_THRESHOLD);
+    .from("venue_public_counts")
+    .select("venue_id,public_count")
+    .gte("public_count", VENUE_PUBLIC_THRESHOLD);
   if (countsError) throw countsError;
   const ids = (counts ?? []).map((r: any) => r.venue_id as string);
   if (!ids.length) return [];
@@ -739,52 +734,38 @@ export async function loadVerifiedVenues(): Promise<VenueOption[]> {
   return (venues ?? []) as VenueOption[];
 }
 
-// Fetches venue_checkin_counts for a set of venues and folds it in —
-// same shape as attachVotes/attachNights. Also derives `locked`.
-//
-// `locked` reads venue_public_counts, not venue_checkin_counts —
-// broader than the Verified badge's signal (migration_venue_lock_broaden_count.sql):
-// a venue reaches the public-visibility threshold once 5 distinct
-// users have EITHER checked in there OR tagged a dance to it from a
-// dance card (whichever happened for each of them), not check-ins
-// alone. `checkinCount` itself keeps reading the narrower
-// venue_checkin_counts view, since the Verified badge
-// (VERIFIED_THRESHOLD) is meant to stay a stronger, check-ins-only
-// signal — don't conflate the two counts.
-//
-// `locked` is true for a venue below VENUE_PUBLIC_THRESHOLD that the
-// viewer can only see because they created it OR have it in their own
-// user_venues list (the RLS policy grants visibility on both
-// grounds, not just created_by — every pre-existing venue has
-// created_by = null, so user_venues is the only real "who brought
-// this venue in" signal those rows have).
-export async function attachCheckinCounts(
+// Fetches venue_public_counts for a set of venues and folds it in —
+// same shape as attachVotes/attachNights. publicCount crossing
+// VENUE_PUBLIC_THRESHOLD is both what unlocks a venue (RLS) and what
+// the app calls "Verified" (VenueCard's verifiedMark) — one count,
+// one meaning. Also derives `locked`: true for a venue below that
+// threshold that the viewer can only see because they created it OR
+// have it in their own user_venues list (the RLS policy grants
+// visibility on both grounds, not just created_by — every
+// pre-existing venue has created_by = null, so user_venues is the
+// only real "who brought this venue in" signal those rows have).
+export async function attachPublicCounts(
   venues: VenueOption[],
   userId?: string,
 ): Promise<VenueOption[]> {
   if (!venues.length) return venues;
   const ids = venues.map((v) => v.id);
-  const [{ data, error }, publicResult, mineResult] = await Promise.all([
-    supabase.from("venue_checkin_counts").select("venue_id,checkin_count").in("venue_id", ids),
+  const [{ data, error }, mineResult] = await Promise.all([
     supabase.from("venue_public_counts").select("venue_id,public_count").in("venue_id", ids),
     userId
       ? supabase.from("user_venues").select("venue_id").eq("user_id", userId).in("venue_id", ids)
       : Promise.resolve({ data: [] as { venue_id: string }[], error: null }),
   ]);
-  if (error) return venues.map((v) => ({ ...v, checkinCount: 0 }));
-  const counts = new Map(
-    (data ?? []).map((r: any) => [r.venue_id as string, r.checkin_count as number]),
-  );
+  if (error) return venues.map((v) => ({ ...v, publicCount: 0 }));
   const publicCounts = new Map(
-    (publicResult.data ?? []).map((r: any) => [r.venue_id as string, r.public_count as number]),
+    (data ?? []).map((r: any) => [r.venue_id as string, r.public_count as number]),
   );
   const mine = new Set((mineResult.data ?? []).map((r: any) => r.venue_id as string));
   return venues.map((v) => {
-    const checkinCount = counts.get(v.id) ?? 0;
     const publicCount = publicCounts.get(v.id) ?? 0;
     const inMyList = !!userId && (v.createdBy === userId || mine.has(v.id));
     const locked = inMyList && publicCount < VENUE_PUBLIC_THRESHOLD;
-    return { ...v, checkinCount, publicCount, locked };
+    return { ...v, publicCount, locked };
   });
 }
 

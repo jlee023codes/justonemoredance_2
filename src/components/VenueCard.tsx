@@ -13,7 +13,6 @@ import {
   updateVenueNight,
   VenueOption,
   VENUE_PUBLIC_THRESHOLD,
-  VERIFIED_THRESHOLD,
 } from "../services/venues";
 
 /** One venue in the Venues tab's card list. Nights can only be added or
@@ -127,8 +126,8 @@ export function VenueCard({
       <View style={s.headRow}>
         <Text style={s.name} numberOfLines={2}>
           {venue.name}
-          {(venue.checkinCount ?? 0) >= VERIFIED_THRESHOLD && (
-            <Text style={s.verifiedMark}> ✓</Text>
+          {(venue.publicCount ?? 0) >= VENUE_PUBLIC_THRESHOLD && (
+            <Text style={s.verifiedMark}> ✓ (Verified)</Text>
           )}
         </Text>
         <Pressable
