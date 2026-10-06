@@ -17,7 +17,10 @@ import { DifficultyPieChart } from "./DifficultyPieChart";
 import { SearchInput } from "./SearchInput";
 import { AddPastNightModal } from "./AddPastNightModal";
 import { AddDanceToSessionModal } from "./AddDanceToSessionModal";
+import { NewToMeModal } from "./NewToMeModal";
 import { matchesDanceName } from "../lib/danceListView";
+import { DanceProgress } from "../types";
+import { Tier } from "../lib/entitlements";
 import {
   getOrCreateShareLink,
   loadSessionHistory,
@@ -46,16 +49,26 @@ export function StatsScreen({
   userId,
   refreshKey,
   scrollRef,
+  progress,
+  onProgressChange,
+  tier,
 }: {
   userId: string;
   // Bumped by the parent whenever a session ends, to pick up the new entry.
   refreshKey: number;
   scrollRef?: Ref<BackToTopHandle>;
+  // The user's own My List — drives "New To Me"'s already-added
+  // dimming and the tier dance-cap on import.
+  progress: Record<string, DanceProgress>;
+  onProgressChange: (danceId: string, next: DanceProgress | null) => void;
+  tier?: Tier;
 }) {
   const [entries, setEntries] = useState<SessionHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [viewingDancesFor, setViewingDancesFor] = useState<SessionHistoryEntry | null>(null);
+  const [viewingNewTonightFor, setViewingNewTonightFor] = useState<SessionHistoryEntry | null>(null);
+  const [viewingNewToMeFor, setViewingNewToMeFor] = useState<SessionHistoryEntry | null>(null);
   const [search, setSearch] = useState("");
   const [addNightOpen, setAddNightOpen] = useState(false);
   const [addDanceFor, setAddDanceFor] = useState<SessionHistoryEntry | null>(null);
@@ -178,6 +191,29 @@ export function StatsScreen({
                 <Text style={s.addDanceButtonText}>＋ Add a dance</Text>
               </Pressable>
             </View>
+            {(() => {
+              const newTonightCount = entry.dances.filter((d) => d.newToVenue).length;
+              const newToMeCount = entry.dances.filter((d) => d.newToUser).length;
+              if (!newTonightCount && !newToMeCount) return null;
+              return (
+                <View style={s.newDancesRow}>
+                  {newTonightCount > 0 && (
+                    <Pressable onPress={() => setViewingNewTonightFor(entry)}>
+                      <Text style={s.viewDancesButtonText}>
+                        New Tonight ({newTonightCount}) →
+                      </Text>
+                    </Pressable>
+                  )}
+                  {newToMeCount > 0 && (
+                    <Pressable onPress={() => setViewingNewToMeFor(entry)}>
+                      <Text style={s.addDanceButtonText}>
+                        New To Me ({newToMeCount}) →
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })()}
           </View>
         ))}
 
@@ -208,6 +244,27 @@ export function StatsScreen({
         onClose={() => setAddDanceFor(null)}
         onAdded={() => setLocalRefresh((k) => k + 1)}
       />
+
+      <SessionDancesModal
+        entry={viewingNewTonightFor}
+        onClose={() => setViewingNewTonightFor(null)}
+        filterDances={(dances) => dances.filter((d) => d.newToVenue)}
+        titleOverride="New Tonight"
+        subtitleOverride={
+          viewingNewTonightFor
+            ? `${viewingNewTonightFor.venueName} — first time played here`
+            : undefined
+        }
+      />
+
+      <NewToMeModal
+        userId={userId}
+        entry={viewingNewToMeFor}
+        progress={progress}
+        onProgressChange={onProgressChange}
+        tier={tier}
+        onClose={() => setViewingNewToMeFor(null)}
+      />
     </BackToTopScrollView>
   );
 }
@@ -216,13 +273,25 @@ export function StatsScreen({
  *  design: a dense, 2-3 column grid of just dance names, so a long
  *  night (avid dancers can log 60-100+) still fits on screen without
  *  scrolling forever. Full-screen rather than a centered card — a
- *  fixed-width card was clipping the venue name on longer titles. */
+ *  fixed-width card was clipping the venue name on longer titles.
+ *
+ *  Also reused (filtered) for "New Tonight" — dances new to the
+ *  VENUE this session, read-only, no add/select affordance since
+ *  there's nothing to do with them here (contrast "New To Me" below,
+ *  which is addable). `filterDances`/`titleOverride` let the same
+ *  grid serve both without a second component. */
 function SessionDancesModal({
   entry,
   onClose,
+  filterDances,
+  titleOverride,
+  subtitleOverride,
 }: {
   entry: SessionHistoryEntry | null;
   onClose: () => void;
+  filterDances?: (dances: SessionHistoryEntry["dances"]) => SessionHistoryEntry["dances"];
+  titleOverride?: string;
+  subtitleOverride?: string;
 }) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
@@ -236,10 +305,11 @@ function SessionDancesModal({
 
   if (!entry) return null;
 
+  const baseDances = filterDances ? filterDances(entry.dances) : entry.dances;
   const trimmedQuery = query.trim();
   const visibleDances = trimmedQuery
-    ? entry.dances.filter((d) => matchesDanceName(d.name, trimmedQuery))
-    : entry.dances;
+    ? baseDances.filter((d) => matchesDanceName(d.name, trimmedQuery))
+    : baseDances;
 
   const handleShare = async () => {
     const danced = entry.dances.filter((d) => d.danced !== false).map((d) => d.name);
@@ -281,21 +351,24 @@ function SessionDancesModal({
             <Text style={s.gridCloseButtonText}>✕</Text>
           </Pressable>
           <View style={s.gridTitleCopy}>
-            <Text style={s.gridTitle} numberOfLines={2}>{entry.venueName}</Text>
+            <Text style={s.gridTitle} numberOfLines={2}>{titleOverride ?? entry.venueName}</Text>
             <Text style={s.gridSubtitle}>
-              {formatDate(entry.checkedInAt)} · {entry.dances.length}{" "}
-              {entry.dances.length === 1 ? "dance" : "dances"}
+              {subtitleOverride ?? `${formatDate(entry.checkedInAt)} · ${baseDances.length} ${baseDances.length === 1 ? "dance" : "dances"}`}
             </Text>
           </View>
-          <Pressable style={s.gridShareButton} onPress={handleCopyLink} hitSlop={10}>
-            <Text style={s.gridShareButtonText}>{copied ? "✓" : "🔗"}</Text>
-          </Pressable>
-          <Pressable style={s.gridShareButton} onPress={handleShare} hitSlop={10}>
-            <Text style={s.gridShareButtonText}>⤴︎</Text>
-          </Pressable>
+          {!filterDances && (
+            <>
+              <Pressable style={s.gridShareButton} onPress={handleCopyLink} hitSlop={10}>
+                <Text style={s.gridShareButtonText}>{copied ? "✓" : "🔗"}</Text>
+              </Pressable>
+              <Pressable style={s.gridShareButton} onPress={handleShare} hitSlop={10}>
+                <Text style={s.gridShareButtonText}>⤴︎</Text>
+              </Pressable>
+            </>
+          )}
         </View>
 
-        {entry.dances.length > 5 && (
+        {baseDances.length > 5 && (
           <SearchInput
             value={query}
             onChangeText={setQuery}
@@ -417,6 +490,12 @@ const s = StyleSheet.create({
   viewDancesButtonText: { color: colors.pink, fontSize: 12.5, fontWeight: "800" },
   addDanceButton: { alignSelf: "flex-start", marginLeft: "auto" },
   addDanceButtonText: { color: colors.gold, fontSize: 12.5, fontWeight: "800" },
+  newDancesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
   empty: { color: colors.muted, fontSize: 14, marginTop: 14, lineHeight: 20 },
   gridScreen: { flex: 1, backgroundColor: colors.bg, paddingTop: 60 },
   gridTopRow: {

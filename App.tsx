@@ -98,6 +98,7 @@ import {
 } from "./src/services/progress";
 import { loadFriendRequests } from "./src/services/friends";
 import { saveVenueDance } from "./src/services/venues";
+import { loadAutoAddNewDances } from "./src/services/checkinSessions";
 import {
   loadCachedCatalog,
   saveCachedCatalog,
@@ -141,6 +142,11 @@ function AppRoot() {
     // doesn't lose it (see checkinSession.ts's loadActiveSession).
     [activeSession, setActiveSession] = useState<ActiveSession | null>(null),
     [sessionScreenOpen, setSessionScreenOpen] = useState(false),
+    // Profile preference: auto-add new-to-me dances from a tracked
+    // session to My List at session-end. Loaded once per sign-in,
+    // kept in sync with ProfileScreen's own toggle via
+    // onAutoAddNewDancesChange. See src/services/checkinSessions.ts.
+    [autoAddNewDances, setAutoAddNewDances] = useState(false),
     // Bumped whenever a session ends, so the Stats tab picks up the new entry.
     [statsRefreshKey, setStatsRefreshKey] = useState(0),
     // Ticks every second purely to force the header's elapsed-time
@@ -353,6 +359,11 @@ function AppRoot() {
       if (state === "active") checkNearby();
     });
     return () => subscription.remove();
+  }, [session?.user.id]);
+
+  useEffect(() => {
+    if (!session?.user.id) return;
+    loadAutoAddNewDances(session.user.id).then(setAutoAddNewDances).catch(() => {});
   }, [session?.user.id]);
 
   // Geofence auto-end — foreground-only, same AppState shape as the
@@ -803,6 +814,8 @@ function AppRoot() {
                 onSignOut={() => void supabase.auth.signOut()}
                 tier="free"
                 musicRefreshKey={musicRefreshKey}
+                autoAddNewDances={false}
+                onAutoAddNewDancesChange={() => {}}
               />
             </AppleMusicProviderGate>
           </KeyboardAvoidingView>
@@ -1098,6 +1111,7 @@ function AppRoot() {
             session={activeSession}
             progress={progress}
             catalogCache={catalogCache}
+            autoAddNewDances={autoAddNewDances}
             onSessionChange={setActiveSession}
             onAddToMyList={(dance) => handleQuickStatus(dance, "want")}
             onClose={() => setSessionScreenOpen(false)}
@@ -1155,6 +1169,8 @@ function AppRoot() {
               musicRefreshKey={musicRefreshKey}
               onMusicChanged={() => setMusicRefreshKey((k) => k + 1)}
               onConnected={() => setTab("My List")}
+              autoAddNewDances={autoAddNewDances}
+              onAutoAddNewDancesChange={setAutoAddNewDances}
             />
           </AppleMusicProviderGate>
         ) : tab === "My List" ? (
@@ -1189,6 +1205,9 @@ function AppRoot() {
             userId={session.user.id}
             refreshKey={statsRefreshKey}
             scrollRef={activeScrollRef}
+            progress={progress}
+            onProgressChange={handleProgressChange}
+            tier={tier}
           />
         ) : tierAtLeast(tier, "pro") ? (
           <FriendsScreen

@@ -167,3 +167,25 @@ export async function getOrCreateShareLink(checkinId: string): Promise<string> {
   if (error) throw error;
   return `https://justonemoredance.com/s/${token}`;
 }
+
+/** Whether new-to-me dances from a tracked session should be added to
+ *  My List automatically at session-end, instead of needing a manual
+ *  visit to Stats' "New To Me" picker — default false, opt-in. See
+ *  migration_auto_add_new_dances.sql. */
+export async function loadAutoAddNewDances(userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("auto_add_new_dances")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.auto_add_new_dances === true;
+}
+
+export async function setAutoAddNewDances(userId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ auto_add_new_dances: enabled })
+    .eq("id", userId);
+  if (error) throw error;
+}

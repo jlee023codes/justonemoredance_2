@@ -38,6 +38,15 @@ export type LoggedDance = {
   // existed — treat a missing value as true (the old behavior, before
   // "logged" and "danced" were distinguished at all).
   danced?: boolean;
+  // First time anyone tagged this dance at this venue, as of when
+  // this session started — see loadDancesAlreadyAtVenue
+  // (src/services/venues.ts). Snapshotted once at endSession time,
+  // same as `danced`; never recomputed later.
+  newToVenue?: boolean;
+  // Wasn't already in this user's My List before this session started.
+  // Distinct from newToVenue — a dance can be new to the user while
+  // well-known at the venue, or vice versa.
+  newToUser?: boolean;
 };
 
 export type ActiveSession = {

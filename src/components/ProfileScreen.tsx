@@ -37,6 +37,7 @@ import {
   setFavoriteDance,
   setFirstDance,
 } from "../services/friends";
+import { setAutoAddNewDances } from "../services/checkinSessions";
 import { Avatar } from "./Avatar";
 import { AvatarPickerModal } from "./AvatarPickerModal";
 import { AWARDS as awards, VENUE_AWARDS } from "../lib/awards";
@@ -194,6 +195,8 @@ export function ProfileScreen({
   musicRefreshKey,
   onMusicChanged,
   onConnected,
+  autoAddNewDances,
+  onAutoAddNewDancesChange,
 }: {
   userId: string;
   email?: string;
@@ -229,6 +232,13 @@ export function ProfileScreen({
   // handleSpotifyAuthResult/handleGoogleAuthResult there), which calls
   // this same navigation separately.
   onConnected?: () => void;
+  // Whether new-to-me dances from a tracked session get added to My
+  // List automatically at session-end — see
+  // src/services/checkinSessions.ts's loadAutoAddNewDances. App.tsx
+  // owns the live value (DancingSessionScreen needs it too); this
+  // screen just renders/toggles it.
+  autoAddNewDances: boolean;
+  onAutoAddNewDancesChange: (enabled: boolean) => void;
 }) {
   const next = awards.find((award) => award.count > learnedCount);
 
@@ -419,6 +429,16 @@ export function ProfileScreen({
     try {
       await setPlaylistSyncScope(userId, scope);
     } catch (err: any) {
+      showAlert("Couldn't save that", err?.message ?? "Please try again.");
+    }
+  };
+
+  const handleToggleAutoAdd = async (enabled: boolean) => {
+    onAutoAddNewDancesChange(enabled);
+    try {
+      await setAutoAddNewDances(userId, enabled);
+    } catch (err: any) {
+      onAutoAddNewDancesChange(!enabled); // roll back
       showAlert("Couldn't save that", err?.message ?? "Please try again.");
     }
   };
@@ -916,7 +936,22 @@ export function ProfileScreen({
 
       <Text style={s.section}>SETTINGS</Text>
       <View style={s.settings}>
-        <Text style={s.settingLabel}>SIGNED IN AS</Text>
+        <Text style={s.settingLabel}>DANCE TRACKING</Text>
+        <Pressable
+          style={[s.scopeChip, autoAddNewDances && s.scopeChipOn]}
+          onPress={() => handleToggleAutoAdd(!autoAddNewDances)}
+        >
+          <Text style={[s.scopeChipText, autoAddNewDances && s.scopeChipTextOn]}>
+            {autoAddNewDances ? "✓ " : ""}Auto-add new dances to My List
+          </Text>
+        </Pressable>
+        <Text style={s.hint}>
+          {autoAddNewDances
+            ? "New dances from a tracked session are added automatically — review them anytime from Stats."
+            : "New dances from a tracked session won't be added automatically — add them from Stats when you're ready."}
+        </Text>
+
+        <Text style={[s.settingLabel, s.syncScopeLabel]}>SIGNED IN AS</Text>
         <Text style={s.email}>{email ?? "Guest dancer"}</Text>
 
         {/* Guests have no password to change. */}

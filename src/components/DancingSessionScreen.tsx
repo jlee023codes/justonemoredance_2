@@ -16,7 +16,7 @@ import { colors } from "../styles";
 import { confirmAction, showError } from "../lib/alerts";
 import { Dance, DanceProgress } from "../types";
 import { getDancesByIds, searchDances } from "../lib/bootstepper";
-import { loadVenueDanceReports, saveVenueDance } from "../services/venues";
+import { loadDancesAlreadyAtVenue, loadVenueDanceReports, saveVenueDance } from "../services/venues";
 import { parseNotesText } from "../services/notesImport";
 import { matchesDanceName, squash } from "../lib/danceListView";
 import { DIFFICULTY_COLOR } from "./DanceCard";
@@ -109,6 +109,7 @@ export function DancingSessionScreen({
   session,
   progress,
   catalogCache,
+  autoAddNewDances,
   onSessionChange,
   onAddToMyList,
   onEnd,
@@ -119,11 +120,15 @@ export function DancingSessionScreen({
   // The user's own My List, for the "pick from your list" log source.
   progress: Record<string, DanceProgress>;
   catalogCache: Record<string, Dance>;
+  // Profile preference — if true, new-to-me dances from this session
+  // are added to My List silently at session-end instead of waiting
+  // for a manual pick from Stats' "New To Me" card. See
+  // src/services/checkinSessions.ts's loadAutoAddNewDances.
+  autoAddNewDances: boolean;
   onSessionChange: (next: ActiveSession) => void;
   // Adds a dance to My List as "Want to Learn" — same write path as
   // every other quick-status action (App.tsx's handleQuickStatus).
-  // Used for the end-of-session "add dances you didn't already have?"
-  // prompt.
+  // Used by the auto-add-new-dances preference at session-end.
   onAddToMyList: (dance: Dance) => Promise<void>;
   onEnd: (summary: SessionSummary) => Promise<void>;
   onClose: () => void;
@@ -340,35 +345,6 @@ export function DancingSessionScreen({
     if (!confirmed) return;
     setEnding(true);
     try {
-      // Dances logged tonight that weren't already on My List — offer to
-      // add them as "Want to Learn" before closing out (not after —
-      // onEnd below unmounts this screen, so anything needing session/
-      // progress/catalogCache or a confirm dialog has to happen first).
-      // Dedup by id (the same dance can get logged more than once in a
-      // night); only ones we actually have a full Dance object for in
-      // catalogCache can be added (should be all of them, since logging
-      // a dance always resolves one first).
-      const seen = new Set<string>();
-      const newDances: Dance[] = [];
-      for (const d of session.loggedDances) {
-        if (progress[d.danceId] || seen.has(d.danceId)) continue;
-        seen.add(d.danceId);
-        const dance = catalogCache[d.danceId];
-        if (dance) newDances.push(dance);
-      }
-      if (newDances.length) {
-        const add = await confirmAction(
-          `${newDances.length} ${newDances.length === 1 ? "dance was" : "dances were"} new to you tonight`,
-          "Add them to your list as Want to Learn?",
-          "Add to list",
-        );
-        if (add) {
-          for (const dance of newDances) {
-            await onAddToMyList(dance).catch(() => {});
-          }
-        }
-      }
-
       const stepCount = await queryStepCount(session);
       const endedAt = new Date().toISOString();
       const livePercent = await loadLivePercent(
@@ -384,6 +360,21 @@ export function DancingSessionScreen({
       const finalLiveDances = await loadLiveDances(session.venueId, userId, session.startedAt).catch(
         () => liveDances,
       );
+      // "New to the venue" (nobody tagged this dance here before this
+      // session started) and "new to me" (wasn't already on My List)
+      // — snapshotted once here rather than recomputed later, same as
+      // `danced`, so a past Stats card stays stable. No in-the-moment
+      // popup for new-to-me anymore (it was lost entirely if the app
+      // closed before answering) — Stats' "New To Me" card is the
+      // permanent, always-available replacement; see handleDoneDancing's
+      // former confirmAction block, removed in favor of that + the
+      // autoAddNewDances preference below.
+      const danceIds = finalLiveDances.map((d) => d.danceId);
+      const alreadyAtVenue = await loadDancesAlreadyAtVenue(
+        session.venueId,
+        danceIds,
+        session.startedAt,
+      ).catch(() => new Set<string>());
       const finalDances: LoggedDance[] = finalLiveDances.map((d) => ({
         danceId: d.danceId,
         name: d.name,
@@ -392,7 +383,20 @@ export function DancingSessionScreen({
         loggedAt: d.loggedAt,
         difficulty: d.difficulty,
         danced: d.dancedByMe,
+        newToVenue: !alreadyAtVenue.has(d.danceId),
+        newToUser: !progress[d.danceId],
       }));
+
+      if (autoAddNewDances) {
+        const seen = new Set<string>();
+        for (const d of finalDances) {
+          if (!d.newToUser || seen.has(d.danceId)) continue;
+          seen.add(d.danceId);
+          const dance = catalogCache[d.danceId];
+          if (dance) await onAddToMyList(dance).catch(() => {});
+        }
+      }
+
       const summary = await endSession(session, "manual", stepCount, livePercent, finalDances);
       await onEnd(summary);
     } catch (err: any) {
