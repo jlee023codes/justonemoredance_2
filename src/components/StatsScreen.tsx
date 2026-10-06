@@ -242,12 +242,21 @@ function SessionDancesModal({
     : entry.dances;
 
   const handleShare = async () => {
-    const names = entry.dances.map((d) => d.name).join("\n");
+    const danced = entry.dances.filter((d) => d.danced !== false).map((d) => d.name);
+    const justLogged = entry.dances.filter((d) => d.danced === false).map((d) => d.name);
+    const lines = [
+      `${entry.venueName} — ${formatDate(entry.checkedInAt)}`,
+      `${entry.dances.length} dances:`,
+      "",
+      ...danced,
+    ];
+    if (justLogged.length) {
+      lines.push("", "Also playing (not danced):", ...justLogged);
+    }
     try {
       const link = await getOrCreateShareLink(entry.id);
-      await Share.share({
-        message: `${entry.venueName} — ${formatDate(entry.checkedInAt)}\n${entry.dances.length} dances:\n\n${names}\n\n${link}`,
-      });
+      lines.push("", link);
+      await Share.share({ message: lines.join("\n") });
     } catch (err: any) {
       showError(err, "Could not create a share link.");
     }
@@ -295,10 +304,24 @@ function SessionDancesModal({
           />
         )}
 
+        <View style={s.gridLegend}>
+          <View style={s.legendItem}>
+            <View style={[s.legendSwatch, s.gridCellDanced]} />
+            <Text style={s.legendText}>Danced</Text>
+          </View>
+          <View style={s.legendItem}>
+            <View style={[s.legendSwatch, s.gridCellLogged]} />
+            <Text style={s.legendText}>Logged / playing</Text>
+          </View>
+        </View>
+
         <ScrollView contentContainerStyle={s.gridList}>
           <View style={s.grid}>
             {visibleDances.map((d, i) => (
-              <View key={`${d.danceId}-${i}`} style={s.gridCell}>
+              <View
+                key={`${d.danceId}-${i}`}
+                style={[s.gridCell, d.danced === false ? s.gridCellLogged : s.gridCellDanced]}
+              >
                 <Text style={s.gridCellText} numberOfLines={2}>{d.name}</Text>
               </View>
             ))}
@@ -439,6 +462,10 @@ const s = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 14,
   },
+  gridLegend: { flexDirection: "row", gap: 16, paddingHorizontal: 20, paddingTop: 14 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendSwatch: { width: 12, height: 12, borderRadius: 3 },
+  legendText: { color: colors.muted, fontSize: 11.5, fontWeight: "700" },
   gridList: { padding: 20, paddingBottom: 50 },
   grid: {
     flexDirection: "row",
@@ -449,13 +476,14 @@ const s = StyleSheet.create({
     flexBasis: "31.5%",
     flexGrow: 1,
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderWidth: 1.5,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 8,
     minHeight: 54,
     justifyContent: "center",
   },
+  gridCellDanced: { borderColor: colors.gold, backgroundColor: colors.card },
+  gridCellLogged: { borderColor: colors.line, backgroundColor: colors.bg },
   gridCellText: { color: colors.ink, fontSize: 12.5, fontWeight: "700", textAlign: "center" },
 });

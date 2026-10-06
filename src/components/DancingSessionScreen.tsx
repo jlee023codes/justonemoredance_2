@@ -26,6 +26,7 @@ import {
   ActiveSession,
   elapsedSeconds,
   endSession,
+  LoggedDance,
   logDanceToSession,
   queryStepCount,
   SessionSummary,
@@ -369,13 +370,30 @@ export function DancingSessionScreen({
       }
 
       const stepCount = await queryStepCount(session);
+      const endedAt = new Date().toISOString();
       const livePercent = await loadLivePercent(
         session.venueId,
         userId,
         session.startedAt,
-        new Date().toISOString(),
+        endedAt,
       ).catch(() => null);
-      const summary = await endSession(session, "manual", stepCount, livePercent);
+      // The full collaborative pool, not just what this user tapped to
+      // log themselves — Stats should show the whole night's setlist
+      // (every dance anyone logged this session), each flagged `danced`
+      // by this user's own marks, not only this user's own log entries.
+      const finalLiveDances = await loadLiveDances(session.venueId, userId, session.startedAt).catch(
+        () => liveDances,
+      );
+      const finalDances: LoggedDance[] = finalLiveDances.map((d) => ({
+        danceId: d.danceId,
+        name: d.name,
+        song: d.song ?? "",
+        details: d.details,
+        loggedAt: d.loggedAt,
+        difficulty: d.difficulty,
+        danced: d.dancedByMe,
+      }));
+      const summary = await endSession(session, "manual", stepCount, livePercent, finalDances);
       await onEnd(summary);
     } catch (err: any) {
       showError(err, "Could not end your session.");

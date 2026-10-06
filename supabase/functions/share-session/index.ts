@@ -29,6 +29,7 @@ type LoggedDance = {
   song: string;
   details: string | null;
   difficulty: "Beginner" | "Improver" | "Intermediate" | "Advanced" | null;
+  danced?: boolean;
 };
 
 const DIFFICULTY_COLOR: Record<string, string> = {
@@ -142,15 +143,19 @@ function pageShell(title: string, body: string): string {
   }
   .difficulty-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; }
   .difficulty-dot { width: 10px; height: 10px; border-radius: 5px; flex-shrink: 0; }
+  .legend { display: flex; gap: 16px; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; font-weight: 700; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
   .grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
   }
   @media (max-width: 420px) { .grid { grid-template-columns: repeat(2, 1fr); } }
   .grid-cell {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); border: 1.5px solid var(--line); border-radius: 10px;
     padding: 10px 8px; min-height: 52px; display: flex; align-items: center;
     justify-content: center; text-align: center; font-size: 12.5px; font-weight: 700;
   }
+  .grid-cell.danced { border-color: var(--gold); }
   .cta {
     display: block; text-align: center; margin-top: 28px;
     background: var(--pink); color: #fff; text-decoration: none;
@@ -244,8 +249,17 @@ function renderSessionPage(
 
     ${
       dances.length
-        ? `<div class="grid">
-            ${dances.map((d) => `<div class="grid-cell">${escapeHtml(d.name)}</div>`).join("")}
+        ? `<div class="legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--gold)"></span>Danced</div>
+            <div class="legend-item"><span class="legend-swatch" style="background:var(--line)"></span>Logged / playing</div>
+          </div>
+          <div class="grid">
+            ${dances
+              .map(
+                (d) =>
+                  `<div class="grid-cell${d.danced === false ? "" : " danced"}">${escapeHtml(d.name)}</div>`,
+              )
+              .join("")}
           </div>`
         : `<p class="empty">No dances logged this session.</p>`
     }

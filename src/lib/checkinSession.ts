@@ -29,6 +29,15 @@ export type LoggedDance = {
   // backfilled night). Manual entries never have a real step count,
   // since there was no device tracking them — see LoggedDanceRow.
   source?: "live" | "manual";
+  // Did THIS user actually dance it, vs. it was just logged/playing
+  // (by them or by someone else in a collaborative session) — see
+  // src/lib/liveSession.ts's dancedByMe. A solo/manual entry is always
+  // true (logging it already implies you danced it, same as the
+  // live-session auto-mark-the-logger rule). Optional only for
+  // backward compatibility with history written before this field
+  // existed — treat a missing value as true (the old behavior, before
+  // "logged" and "danced" were distinguished at all).
+  danced?: boolean;
 };
 
 export type ActiveSession = {
@@ -184,19 +193,24 @@ export function distanceFromVenueMeters(
 
 /** Closes out a session: stamps the venue_checkins row and clears the
  *  persisted active-session, whether ended manually or by the geofence.
- *  Dance count comes from the session's own persisted log, not a
- *  caller-supplied number — it's always accurate even if the session
- *  screen was closed and reopened since the last dance was logged.
- *  `livePercent` (from loadLivePercent) is a snapshot stamped once
- *  here, not live-recomputed later, so a Stats history card stays
- *  stable even if the underlying live-session rows are ever pruned. */
+ *  Dance count comes from `finalDances` if given (the session's own
+ *  local log, by default) — `DancingSessionScreen` passes the full
+ *  collaborative pool (every dance anyone logged this session, each
+ *  flagged `danced` per this user's own marks) instead, so Stats shows
+ *  the whole night's setlist, not just what this user personally
+ *  tapped to log. `livePercent` (from loadLivePercent) is a snapshot
+ *  stamped once here, not live-recomputed later, so a Stats history
+ *  card stays stable even if the underlying live-session rows are
+ *  ever pruned. */
 export async function endSession(
   session: ActiveSession,
   reason: "manual" | "geofence",
   stepCount: number | null,
   livePercent?: { dancedCount: number; totalCount: number } | null,
+  finalDances?: LoggedDance[],
 ): Promise<SessionSummary> {
-  const danceCount = session.loggedDances.length;
+  const loggedDances = finalDances ?? session.loggedDances;
+  const danceCount = loggedDances.length;
   const durationSeconds = elapsedSeconds(session);
 
   const { error } = await supabase
@@ -205,7 +219,7 @@ export async function endSession(
       ended_at: new Date().toISOString(),
       end_reason: reason,
       step_count: stepCount,
-      logged_dances: session.loggedDances,
+      logged_dances: loggedDances,
       live_danced_count: livePercent?.dancedCount ?? null,
       live_total_count: livePercent?.totalCount ?? null,
     })
