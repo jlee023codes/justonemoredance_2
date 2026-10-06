@@ -153,6 +153,7 @@ export function DancingSessionScreen({
   const [searching, setSearching] = useState(false);
   const [ending, setEnding] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [logTab, setLogTab] = useState<"danced" | "venueLog">("danced");
 
   // The shared, collaborative "TONIGHT" list — server-backed, visible
   // to everyone currently checked in at this venue, refreshed by the
@@ -529,27 +530,87 @@ export function DancingSessionScreen({
             <Text style={s.empty}>No BootStepper matches either.</Text>
           )}
 
-          <Text style={s.sectionLabel}>TONIGHT ({liveDances.length})</Text>
-          {!liveDances.length && (
-            <Text style={s.empty}>Nothing logged yet — search above to add one.</Text>
+          {liveDances.length > 0 && (
+            <>
+              <Text style={s.sectionLabel}>LAST LOGGED</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={s.recentRow}
+                contentContainerStyle={s.recentRowContent}
+              >
+                {liveDances.slice(0, 5).map((d) => (
+                  <View key={d.id} style={s.recentCard}>
+                    <Text style={s.recentCardName} numberOfLines={2}>{d.name}</Text>
+                    {participants.length > 1 ? (
+                      <Pressable
+                        style={[s.recentDancedPill, d.dancedByMe && s.recentDancedPillOn]}
+                        onPress={() => handleToggleDanced(d)}
+                        hitSlop={6}
+                      >
+                        <Text
+                          style={[s.recentDancedPillText, d.dancedByMe && s.recentDancedPillTextOn]}
+                        >
+                          {d.dancedByMe ? "✓ Danced" : "Danced?"}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={s.recentDancedStatic}>✓ Danced</Text>
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+            </>
           )}
-          {liveDances.map((d) => (
-            <LoggedDanceRow
-              key={d.id}
-              dance={{
-                danceId: d.danceId,
-                name: d.name,
-                song: d.song ?? "",
-                details: d.details,
-                loggedAt: d.loggedAt,
-                difficulty: d.difficulty,
-              }}
-              loggedByName={participants.length > 1 ? d.loggedByName : undefined}
-              dancedCount={participants.length > 1 ? d.dancedCount : undefined}
-              dancedByMe={d.dancedByMe}
-              onToggleDanced={participants.length > 1 ? () => handleToggleDanced(d) : undefined}
-            />
-          ))}
+
+          <View style={s.logTabRow}>
+            <Pressable
+              style={[s.logTab, logTab === "danced" && s.logTabActive]}
+              onPress={() => setLogTab("danced")}
+            >
+              <Text style={[s.logTabText, logTab === "danced" && s.logTabTextActive]}>
+                Danced ({liveDances.filter((d) => d.dancedByMe).length})
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[s.logTab, logTab === "venueLog" && s.logTabActive]}
+              onPress={() => setLogTab("venueLog")}
+            >
+              <Text style={[s.logTabText, logTab === "venueLog" && s.logTabTextActive]}>
+                Venue's Log ({liveDances.length})
+              </Text>
+            </Pressable>
+          </View>
+
+          {(() => {
+            const shown = logTab === "danced" ? liveDances.filter((d) => d.dancedByMe) : liveDances;
+            if (!shown.length) {
+              return (
+                <Text style={s.empty}>
+                  {logTab === "danced"
+                    ? "Nothing marked danced yet."
+                    : "Nothing logged yet — search above to add one."}
+                </Text>
+              );
+            }
+            return shown.map((d) => (
+              <LoggedDanceRow
+                key={d.id}
+                dance={{
+                  danceId: d.danceId,
+                  name: d.name,
+                  song: d.song ?? "",
+                  details: d.details,
+                  loggedAt: d.loggedAt,
+                  difficulty: d.difficulty,
+                }}
+                loggedByName={participants.length > 1 ? d.loggedByName : undefined}
+                dancedCount={participants.length > 1 ? d.dancedCount : undefined}
+                dancedByMe={d.dancedByMe}
+                onToggleDanced={participants.length > 1 ? () => handleToggleDanced(d) : undefined}
+              />
+            ));
+          })()}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -760,6 +821,44 @@ const s = StyleSheet.create({
     marginTop: 18,
     marginBottom: 8,
   },
+  recentRow: { marginHorizontal: -25 },
+  recentRowContent: { paddingHorizontal: 25, gap: 10 },
+  recentCard: {
+    width: 120,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    padding: 10,
+    justifyContent: "space-between",
+    minHeight: 78,
+  },
+  recentCardName: { color: colors.ink, fontSize: 13, fontWeight: "700" },
+  recentDancedPill: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  recentDancedPillOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  recentDancedPillText: { color: colors.muted, fontSize: 10.5, fontWeight: "800" },
+  recentDancedPillTextOn: { color: "#fff" },
+  recentDancedStatic: { color: colors.gold, fontSize: 10.5, fontWeight: "800", marginTop: 8 },
+  logTabRow: { flexDirection: "row", gap: 8, marginTop: 18, marginBottom: 10 },
+  logTab: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  logTabActive: { backgroundColor: colors.pink, borderColor: colors.pink },
+  logTabText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
+  logTabTextActive: { color: "#fff" },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,
