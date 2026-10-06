@@ -112,6 +112,7 @@ export function DancingSessionScreen({
   autoAddNewDances,
   onSessionChange,
   onAddToMyList,
+  onCacheDances,
   onEnd,
   onClose,
 }: {
@@ -130,6 +131,16 @@ export function DancingSessionScreen({
   // every other quick-status action (App.tsx's handleQuickStatus).
   // Used by the auto-add-new-dances preference at session-end.
   onAddToMyList: (dance: Dance) => Promise<void>;
+  // Feeds freshly-resolved dances back into App.tsx's shared
+  // catalogCache (same callback every other screen already uses —
+  // see onCacheDances={mergeIntoCache} in App.tsx). Needed because
+  // App.tsx's own background resolve effect can still be mid-flight
+  // for a My List dance that was never individually opened before —
+  // without resolving here too, that dance silently can't be found by
+  // this screen's search (localDances drops any progress entry with
+  // no catalogCache hit at all) until that effect gets to it on its
+  // own schedule.
+  onCacheDances: (dances: Dance[]) => void;
   onEnd: (summary: SessionSummary) => Promise<void>;
   onClose: () => void;
 }) {
@@ -211,6 +222,32 @@ export function DancingSessionScreen({
   // real clock itself, not this value.
   void now;
   const elapsed = elapsedSeconds(session);
+
+  // Resolves any My List dance this screen can't yet find in
+  // catalogCache (missing entirely, or still a bare snapshot) — don't
+  // just wait on App.tsx's own background resolve effect, which can
+  // still be mid-flight (e.g. right after sign-in, or for a dance
+  // added but never individually opened) and has no awareness this
+  // screen is actively trying to search for it right now. Without
+  // this, localDances below silently drops any such dance from
+  // search entirely until that other effect eventually gets to it.
+  useEffect(() => {
+    const needIds = Object.keys(progress).filter((id) => {
+      const cached = catalogCache[id];
+      return !cached || cached.snapshot;
+    });
+    if (!needIds.length) return;
+    let cancelled = false;
+    getDancesByIds(needIds)
+      .then((dances) => {
+        if (!cancelled && dances.length) onCacheDances(dances);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress, catalogCache]);
 
   // Local pool to search: My List + the venue's own "What's Playing"
   // list, deduped by NAME (not just id) — BootStepper's catalog can
@@ -454,7 +491,7 @@ export function DancingSessionScreen({
           <TextInput
             value={logQuery}
             onChangeText={setLogQuery}
-            placeholder="Search tonight's dances"
+            placeholder="Log Tonight's Dances"
             placeholderTextColor={colors.muted}
             style={s.search}
             autoCapitalize="none"

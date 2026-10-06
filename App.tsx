@@ -1114,6 +1114,7 @@ function AppRoot() {
             autoAddNewDances={autoAddNewDances}
             onSessionChange={setActiveSession}
             onAddToMyList={(dance) => handleQuickStatus(dance, "want")}
+            onCacheDances={mergeIntoCache}
             onClose={() => setSessionScreenOpen(false)}
             onEnd={async (summary) => {
               setActiveSession(null);
