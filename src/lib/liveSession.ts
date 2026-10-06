@@ -60,12 +60,22 @@ export async function loadLiveParticipants(venueId: string): Promise<LivePartici
 
 /** The shared dance pool for this venue, with each dance's logger
  *  name, whether the caller has marked it "danced," and how many
- *  people in total have. */
-export async function loadLiveDances(venueId: string, myUserId: string): Promise<LiveDance[]> {
+ *  people in total have. Scoped to dances logged since `checkedInAt`
+ *  — venue_live_dances is append-only and never cleared between
+ *  sessions, so without this a second check-in at the same venue
+ *  later the same day would show every dance from the earlier,
+ *  already-ended session too (same reasoning as loadLivePercent's
+ *  identical gte filter). */
+export async function loadLiveDances(
+  venueId: string,
+  myUserId: string,
+  checkedInAt: string,
+): Promise<LiveDance[]> {
   const { data: rows, error } = await supabase
     .from("venue_live_dances")
     .select("id, dance_id, dance_name, dance_song, dance_difficulty, dance_details, logged_by, logged_at")
     .eq("venue_id", venueId)
+    .gte("logged_at", checkedInAt)
     .order("logged_at", { ascending: false });
   if (error) throw error;
   const dances = rows ?? [];

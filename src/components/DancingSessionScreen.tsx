@@ -146,7 +146,7 @@ export function DancingSessionScreen({
   const [participants, setParticipants] = useState<LiveParticipant[]>([]);
 
   const refreshLive = () => {
-    loadLiveDances(session.venueId, userId).then(setLiveDances).catch(() => {});
+    loadLiveDances(session.venueId, userId, session.startedAt).then(setLiveDances).catch(() => {});
     loadLiveParticipants(session.venueId).then(setParticipants).catch(() => {});
   };
 
