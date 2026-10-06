@@ -1,6 +1,7 @@
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
 import { Dance } from "../types";
+import { STALE_CHECKIN_HOURS } from "../services/venues";
 
 // Collaborative live dance pool, shared by everyone currently checked
 // in (ended_at is null) at the same venue — automatic the moment you
@@ -165,10 +166,18 @@ export async function loadLiveVenueView(
 ): Promise<{ dances: LiveDance[]; participantCount: number }> {
   const [windowStart, { data: presence, error: presenceError }] = await Promise.all([
     loadSessionWindowStart(venueId, new Date(0).toISOString()),
-    supabase.from("venue_live_presence").select("user_id").eq("venue_id", venueId),
+    supabase.from("venue_live_presence").select("user_id, checked_in_at").eq("venue_id", venueId),
   ]);
   if (presenceError) throw presenceError;
-  const participantCount = new Set((presence ?? []).map((r: any) => r.user_id as string)).size;
+  // Same staleness guard as loadLiveVenueIds (venues.ts) — a check-in
+  // that's been open for days with nothing logged shouldn't count
+  // toward "N people checked in" here either.
+  const staleCutoff = Date.now() - STALE_CHECKIN_HOURS * 60 * 60 * 1000;
+  const participantCount = new Set(
+    (presence ?? [])
+      .filter((r: any) => new Date(r.checked_in_at).getTime() >= staleCutoff)
+      .map((r: any) => r.user_id as string),
+  ).size;
 
   const { data: rows, error } = await supabase
     .from("venue_live_dances")

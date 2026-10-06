@@ -968,19 +968,50 @@ export async function loadDancesAlreadyAtVenue(
   return new Set((data ?? []).map((r: any) => r.dance_id as string));
 }
 
-/** Which of these venues currently have at least one person checked
- *  in (ended_at is null) right now — one batched query for the whole
- *  visible Venues list, so each card can show "View Live Logging"
- *  without a query per card. Relies on the public read policy from
+// A check-in with ended_at is null but no activity in this long is
+// treated as abandoned (app killed/crashed/uninstalled before the
+// geofence or manual "Done Dancing" ever fired) rather than a real
+// ongoing session — otherwise a stale row from days ago keeps a venue
+// falsely marked "live" for every browsing user, forever. Doesn't
+// touch the row itself (no backfill, nothing closes it out) — this
+// only affects what counts as "live" for detection purposes. Exported
+// so liveSession.ts's read-only live view can apply the same cutoff.
+export const STALE_CHECKIN_HOURS = 4;
+
+/** Which of these venues currently have at least one person both
+ *  checked in (ended_at is null) AND recently active — either the
+ *  check-in itself or the venue's most recent logged dance falls
+ *  within STALE_CHECKIN_HOURS. One batched query per list for the
+ *  presence side, so each card can show "View Live Logging" without
+ *  a query per card. Relies on the public read policies from
  *  migration_venue_live_view_public.sql, since a browsing user isn't
  *  necessarily checked in anywhere themselves. */
 export async function loadLiveVenueIds(venueIds: string[]): Promise<Set<string>> {
   if (!venueIds.length) return new Set();
-  const { data, error } = await supabase
-    .from("venue_checkins")
-    .select("venue_id")
-    .in("venue_id", venueIds)
-    .is("ended_at", null);
-  if (error) throw error;
-  return new Set((data ?? []).map((r: any) => r.venue_id as string));
+  const cutoff = new Date(Date.now() - STALE_CHECKIN_HOURS * 60 * 60 * 1000).toISOString();
+
+  const [{ data: checkins, error: checkinsError }, { data: dances, error: dancesError }] =
+    await Promise.all([
+      supabase
+        .from("venue_checkins")
+        .select("venue_id, checked_in_at")
+        .in("venue_id", venueIds)
+        .is("ended_at", null),
+      supabase
+        .from("venue_live_dances")
+        .select("venue_id")
+        .in("venue_id", venueIds)
+        .gte("logged_at", cutoff),
+    ]);
+  if (checkinsError) throw checkinsError;
+  if (dancesError) throw dancesError;
+
+  const recentlyDanced = new Set((dances ?? []).map((r: any) => r.venue_id as string));
+  const live = new Set<string>();
+  for (const row of (checkins ?? []) as any[]) {
+    if (row.checked_in_at >= cutoff || recentlyDanced.has(row.venue_id)) {
+      live.add(row.venue_id as string);
+    }
+  }
+  return live;
 }
