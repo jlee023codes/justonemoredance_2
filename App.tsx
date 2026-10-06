@@ -64,13 +64,9 @@ import {
   tierAtLeast,
   Tier,
 } from "./src/lib/entitlements";
-import {
-  clearOfflineList,
-  countOfflineList,
-  OfflineDance,
-} from "./src/services/offlineList";
+import { countOfflineList } from "./src/services/offlineList";
 import { LastUser, loadLastUser, rememberLastUser } from "./src/lib/lastUser";
-import { queueImport } from "./src/services/notesImport";
+import { ParsedDanceLine, queueImport } from "./src/services/notesImport";
 import {
   applyRecoveryLink,
   clearRecoveryLinkFromUrl,
@@ -598,22 +594,16 @@ function AppRoot() {
   useEffect(refreshOfflineCount, [userId, online]);
 
   // Back online: push every offline-notepad line into the normal import
-  // queue, wipe the notepad, and drop the user into the matcher on Profile.
-  // Requires a real, restored session (not just `lastUser`) — the forced-
-  // offline screen's own OfflineListModal mount disables Import entirely
-  // until then (hasRealSession prop) so this shouldn't be reachable
-  // without one, but bail out rather than writing against an id with no
-  // live `progress` state behind it if it somehow is.
-  const handleOfflineImport = async (items: OfflineDance[]) => {
-    if (!userId || !items.length) return;
-    await queueImport(
-      userId,
-      items.map((item) => ({
-        name: item.note ? `${item.name} — ${item.note}` : item.name,
-        checked: false,
-      })),
-    );
-    await clearOfflineList(userId);
+  // queue and drop the user into the matcher on Profile — OfflineListModal
+  // clears its own on-device text once this resolves. Requires a real,
+  // restored session (not just `lastUser`) — the forced-offline screen's
+  // own OfflineListModal mount disables Import entirely until then
+  // (hasRealSession prop) so this shouldn't be reachable without one, but
+  // bail out rather than writing against an id with no live `progress`
+  // state behind it if it somehow is.
+  const handleOfflineImport = async (lines: ParsedDanceLine[]) => {
+    if (!userId || !lines.length) return;
+    await queueImport(userId, lines);
     setOfflineCount(0);
     setOfflineOpen(false);
     setOpenImportOnProfile(true);

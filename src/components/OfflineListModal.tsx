@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,17 +11,13 @@ import {
 } from "react-native";
 import { colors } from "../styles";
 import { showError } from "../lib/alerts";
-import {
-  addOfflineDance,
-  loadOfflineList,
-  OfflineDance,
-  removeOfflineDance,
-  updateOfflineDance,
-} from "../services/offlineList";
+import { loadOfflineText, saveOfflineText, clearOfflineList } from "../services/offlineList";
+import { parseNotesText, ParsedDanceLine } from "../services/notesImport";
 
-// A notepad the user can fill in with no signal. Names only — matching them
-// to real BootStepper dances happens later, online, through the normal
-// import flow.
+// A notepad the user can fill in with no signal — plain free-form text, one
+// dance per line (bullets/numbering optional, same parser as pasting an
+// Apple Notes checklist). Names only — matching them to real BootStepper
+// dances happens later, online, through the normal import flow.
 export function OfflineListModal({
   visible,
   online,
@@ -46,62 +40,35 @@ export function OfflineListModal({
   hasRealSession?: boolean;
   userId: string;
   onClose: () => void;
-  // Hand the whole list to the parent to push into the import queue.
-  onImport: (items: OfflineDance[]) => Promise<void>;
+  // Hand the parsed lines to the parent to push into the import queue.
+  onImport: (lines: ParsedDanceLine[]) => Promise<void>;
 }) {
-  const [items, setItems] = useState<OfflineDance[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [input, setInput] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [text, setText] = useState("");
   const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    setLoading(true);
-    setInput("");
-    setEditingId(null);
-    loadOfflineList(userId)
-      .then(setItems)
-      .finally(() => setLoading(false));
+    loadOfflineText(userId).then(setText);
   }, [visible, userId]);
 
-  const commit = async () => {
-    const name = input.trim();
-    if (!name) return;
-    try {
-      const next = editingId
-        ? await updateOfflineDance(userId, editingId, { name })
-        : await addOfflineDance(userId, name);
-      setItems(next);
-      setInput("");
-      setEditingId(null);
-    } catch (err) {
-      showError(err, "Could not save that on this device.");
-    }
-  };
+  // Autosave as the user types — no separate "Add"/"Save" step. Debounced
+  // so every keystroke doesn't hit AsyncStorage individually.
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      saveOfflineText(userId, text).catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [text, userId, visible]);
 
-  const startEdit = (item: OfflineDance) => {
-    setEditingId(item.id);
-    setInput(item.name);
-  };
-
-  const remove = async (id: string) => {
-    try {
-      const next = await removeOfflineDance(userId, id);
-      setItems(next);
-      if (editingId === id) {
-        setEditingId(null);
-        setInput("");
-      }
-    } catch (err) {
-      showError(err, "Could not remove that.");
-    }
-  };
+  const parsed = useMemo(() => parseNotesText(text), [text]);
 
   const runImport = async () => {
     setImporting(true);
     try {
-      await onImport(items);
+      await onImport(parsed);
+      await clearOfflineList(userId);
+      setText("");
     } catch (err) {
       showError(err, "Could not start the import.");
     } finally {
@@ -120,10 +87,7 @@ export function OfflineListModal({
             <Text style={s.closeButtonText}>✕</Text>
           </Pressable>
 
-          <ScrollView
-            contentContainerStyle={s.sheet}
-            keyboardShouldPersistTaps="handled"
-          >
+          <View style={s.header}>
             <Text style={s.title}>Offline dance list</Text>
             <View
               style={[
@@ -140,90 +104,38 @@ export function OfflineListModal({
               </Text>
             </View>
             <Text style={s.subtitle}>
-              Jot down dance names now. When you&apos;re back online, import the
-              list and match each one to the real dance.
+              Jot down dance names, one per line. When you&apos;re back
+              online, import the list and match each one to the real dance.
             </Text>
+          </View>
 
-            {loading ? (
-              <ActivityIndicator color={colors.gold} style={s.loader} />
-            ) : items.length === 0 ? (
-              <Text style={s.empty}>
-                Nothing here yet — add a dance name below.
-              </Text>
-            ) : (
-              <View style={s.list}>
-                {items.map((item, i) => (
-                  <View
-                    key={item.id}
-                    style={[s.row, editingId === item.id && s.rowEditing]}
-                  >
-                    <Text style={s.num}>{i + 1}.</Text>
-                    <Pressable style={s.rowMain} onPress={() => startEdit(item)}>
-                      <Text style={s.name}>{item.name}</Text>
-                      {item.note ? (
-                        <Text style={s.note}>{item.note}</Text>
-                      ) : null}
-                    </Pressable>
-                    <Pressable onPress={() => remove(item.id)} hitSlop={8}>
-                      <Text style={s.rowDelete}>✕</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <View style={s.addRow}>
-              <Text style={s.addNum}>
-                {editingId ? "✎" : `${items.length + 1}.`}
-              </Text>
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                placeholder="e.g. Watermelon Crawl"
-                placeholderTextColor={colors.muted}
-                style={s.input}
-                onSubmitEditing={commit}
-                returnKeyType="done"
-                blurOnSubmit={false}
-              />
-              <Pressable
-                style={[s.addButton, !input.trim() && s.disabled]}
-                onPress={commit}
-                disabled={!input.trim()}
-              >
-                <Text style={s.addButtonText}>
-                  {editingId ? "Save" : "Add"}
-                </Text>
-              </Pressable>
-            </View>
-            {editingId ? (
-              <Pressable
-                onPress={() => {
-                  setEditingId(null);
-                  setInput("");
-                }}
-              >
-                <Text style={s.cancelEdit}>Cancel edit</Text>
-              </Pressable>
-            ) : null}
-          </ScrollView>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder={"• Watermelon Crawl\n• Tush Push\n• Copperhead Road"}
+            placeholderTextColor={colors.muted}
+            style={s.editor}
+            multiline
+            textAlignVertical="top"
+            autoCorrect={false}
+          />
 
           <View style={s.stickyFooter}>
             {online && hasRealSession ? (
               <Pressable
                 style={[
                   s.importButton,
-                  (!items.length || importing || !!editingId) && s.disabled,
+                  (!parsed.length || importing) && s.disabled,
                 ]}
                 onPress={runImport}
-                disabled={!items.length || importing || !!editingId}
+                disabled={!parsed.length || importing}
               >
                 <Text style={s.importButtonText}>
                   {importing
                     ? "Starting import…"
-                    : items.length
-                      ? `Import ${items.length} dance${
-                          items.length === 1 ? "" : "s"
+                    : parsed.length
+                      ? `Import ${parsed.length} dance${
+                          parsed.length === 1 ? "" : "s"
                         } into my list`
                       : "Nothing to import yet"}
                 </Text>
@@ -272,7 +184,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
-  sheet: { padding: 25, paddingBottom: 10 },
+  header: { padding: 25, paddingBottom: 0 },
   title: { color: colors.ink, fontSize: 24, fontWeight: "900", paddingRight: 36 },
   statusPill: {
     alignSelf: "flex-start",
@@ -291,67 +203,20 @@ const s = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 18,
   },
-  loader: { marginVertical: 24 },
-  empty: { color: colors.muted, fontSize: 14, marginVertical: 12 },
-  list: { marginBottom: 6 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-  },
-  rowEditing: { backgroundColor: "#392746", borderRadius: 8 },
-  num: {
-    color: colors.gold,
-    fontSize: 13,
-    fontWeight: "800",
-    width: 26,
-    textAlign: "right",
-    marginRight: 10,
-  },
-  rowMain: { flex: 1 },
-  name: { color: colors.ink, fontSize: 15 },
-  note: { color: colors.muted, fontSize: 12, marginTop: 2 },
-  rowDelete: { color: colors.muted, fontSize: 14, paddingHorizontal: 8 },
-  addRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-  },
-  addNum: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "800",
-    width: 26,
-    textAlign: "right",
-    marginRight: 10,
-  },
-  input: {
+  editor: {
     flex: 1,
+    minHeight: 220,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 10,
     color: colors.ink,
-    padding: 12,
+    padding: 14,
     fontSize: 15,
+    lineHeight: 21,
+    marginHorizontal: 25,
   },
-  addButton: {
-    backgroundColor: colors.pink,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginLeft: 8,
-  },
-  addButtonText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   disabled: { opacity: 0.4 },
-  cancelEdit: {
-    color: colors.muted,
-    fontWeight: "700",
-    fontSize: 12,
-    marginTop: 8,
-  },
   stickyFooter: {
     paddingHorizontal: 25,
     paddingTop: 14,
