@@ -437,13 +437,27 @@ export function DancingSessionScreen({
       }));
 
       if (autoAddNewDances) {
+        // Fired in parallel rather than awaited one at a time — this
+        // used to be a sequential loop (a real round-trip per dance,
+        // slow after a night with several new ones), which existed
+        // specifically to protect the free-tier dance-limit check
+        // (onAddToMyList -> handleQuickStatus reads live `progress`
+        // state, and two concurrent adds could both see "not full
+        // yet" and both succeed past the cap). The free tier is
+        // unlimited now (see planLimits.ts), so that race no longer
+        // has anything to protect against.
         const seen = new Set<string>();
-        for (const d of finalDances) {
-          if (!d.newToUser || seen.has(d.danceId)) continue;
+        const toAdd = finalDances.filter((d) => {
+          if (!d.newToUser || seen.has(d.danceId)) return false;
           seen.add(d.danceId);
-          const dance = catalogCache[d.danceId];
-          if (dance) await onAddToMyList(dance).catch(() => {});
-        }
+          return true;
+        });
+        await Promise.all(
+          toAdd.map((d) => {
+            const dance = catalogCache[d.danceId];
+            return dance ? onAddToMyList(dance).catch(() => {}) : Promise.resolve();
+          }),
+        );
       }
 
       const summary = await endSession(session, "manual", stepCount, livePercent, finalDances);

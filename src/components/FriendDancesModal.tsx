@@ -131,12 +131,14 @@ export function FriendDancesModal({
 
     // The tier's dance cap — only fill up to it, rather than letting a
     // bulk import quietly blow past the limit. Math.max/slice both handle
-    // "pro"'s Infinity limit correctly with no separate branch needed.
-    const remainingSlots = Math.max(
-      0,
-      danceLimitFor(tier ?? "free") - Object.keys(progress).length,
-    );
-    const overLimit = fresh.length - remainingSlots;
+    // an Infinity limit (pro, and free as of the cap removal) correctly
+    // with no separate branch needed — but fresh.length - Infinity is
+    // -Infinity, which is truthy, so overLimit itself needs the explicit
+    // isFinite guard below or an unlimited tier shows "-Infinity more
+    // didn't fit."
+    const limit = danceLimitFor(tier ?? "free");
+    const remainingSlots = Math.max(0, limit - Object.keys(progress).length);
+    const overLimit = Number.isFinite(limit) ? fresh.length - remainingSlots : 0;
     const toImport = fresh.slice(0, remainingSlots);
 
     if (!toImport.length) {

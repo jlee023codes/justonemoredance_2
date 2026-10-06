@@ -85,9 +85,13 @@ export function NewToMeModal({
     }
 
     // The tier's dance cap — only fill up to it, rather than letting a
-    // bulk import quietly blow past the limit.
-    const remainingSlots = Math.max(0, danceLimitFor(tier ?? "free") - Object.keys(progress).length);
-    const overLimit = fresh.length - remainingSlots;
+    // bulk import quietly blow past the limit. fresh.length - Infinity is
+    // -Infinity, which is truthy, so an unlimited tier needs the explicit
+    // isFinite guard below or overLimit would show "-Infinity more
+    // didn't fit" (see FriendDancesModal.tsx's matching fix).
+    const limit = danceLimitFor(tier ?? "free");
+    const remainingSlots = Math.max(0, limit - Object.keys(progress).length);
+    const overLimit = Number.isFinite(limit) ? fresh.length - remainingSlots : 0;
     const toImport = fresh.slice(0, remainingSlots);
 
     if (!toImport.length) {

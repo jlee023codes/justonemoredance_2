@@ -948,7 +948,7 @@ export function MyListScreen({
             ))}
         </View>
 
-        {!tierAtLeast(tier, "pro") && (
+        {Number.isFinite(danceLimitFor(tier)) && (
           <View style={s.limitRow}>
             <Text style={s.limitText}>
               {rows.length} of {danceLimitFor(tier)} dances

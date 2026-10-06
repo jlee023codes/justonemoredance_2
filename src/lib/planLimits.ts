@@ -2,9 +2,11 @@ import { Tier } from "./tier";
 
 // How many dances can sit on My List at once, per tier. A dance already
 // on the list (any status, including "none") always counts — this only
-// blocks genuinely *new* additions.
+// blocks genuinely *new* additions. Free was previously capped at 50;
+// removed so My List is unlimited on every tier — sync's 100 stays as
+// the one remaining paid-tier distinction.
 const DANCE_LIMITS: Record<Tier, number> = {
-  free: 50,
+  free: Infinity,
   sync: 100,
   pro: Infinity,
 };
