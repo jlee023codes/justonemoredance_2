@@ -1262,7 +1262,7 @@ const s = StyleSheet.create({
   scopeChipOn: { backgroundColor: colors.gold, borderColor: colors.gold },
   scopeChipText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
   scopeChipTextOn: { color: colors.bg },
-  checkboxRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  checkboxRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 8 },
   checkboxToggle: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   checkbox: {
     width: 20,
