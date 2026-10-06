@@ -937,19 +937,31 @@ export function ProfileScreen({
       <Text style={s.section}>SETTINGS</Text>
       <View style={s.settings}>
         <Text style={s.settingLabel}>DANCE TRACKING</Text>
-        <Pressable
-          style={[s.scopeChip, autoAddNewDances && s.scopeChipOn]}
-          onPress={() => handleToggleAutoAdd(!autoAddNewDances)}
-        >
-          <Text style={[s.scopeChipText, autoAddNewDances && s.scopeChipTextOn]}>
-            {autoAddNewDances ? "✓ " : ""}Auto-add new dances to My List
-          </Text>
-        </Pressable>
-        <Text style={s.hint}>
-          {autoAddNewDances
-            ? "New dances from a tracked session are added automatically — review them anytime from Stats."
-            : "New dances from a tracked session won't be added automatically — add them from Stats when you're ready."}
-        </Text>
+        <View style={s.checkboxRow}>
+          <Pressable
+            style={s.checkboxToggle}
+            onPress={() => handleToggleAutoAdd(!autoAddNewDances)}
+            hitSlop={4}
+          >
+            <View style={[s.checkbox, autoAddNewDances && s.checkboxOn]}>
+              {autoAddNewDances && <Text style={s.checkboxMark}>✓</Text>}
+            </View>
+            <Text style={s.checkboxLabel}>Auto-add new dances to My List</Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              showAlert(
+                "Auto-add new dances",
+                autoAddNewDances
+                  ? "New dances from a tracked session are added automatically — review them anytime from Stats."
+                  : "New dances from a tracked session won't be added automatically — add them from Stats when you're ready.",
+              )
+            }
+            hitSlop={8}
+          >
+            <Text style={s.infoIcon}>ⓘ</Text>
+          </Pressable>
+        </View>
 
         <Text style={[s.settingLabel, s.syncScopeLabel]}>SIGNED IN AS</Text>
         <Text style={s.email}>{email ?? "Guest dancer"}</Text>
@@ -1250,6 +1262,22 @@ const s = StyleSheet.create({
   scopeChipOn: { backgroundColor: colors.gold, borderColor: colors.gold },
   scopeChipText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
   scopeChipTextOn: { color: colors.bg },
+  checkboxRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  checkboxToggle: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  checkboxOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  checkboxMark: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  checkboxLabel: { flex: 1, color: colors.ink, fontSize: 13.5, fontWeight: "700" },
+  infoIcon: { color: colors.gold, fontSize: 16, fontWeight: "800", marginTop: 1 },
   scopeSave: {
     backgroundColor: colors.pink,
     borderRadius: 9,
