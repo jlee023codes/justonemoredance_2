@@ -161,6 +161,13 @@ export function DancingSessionScreen({
   // special-case branch needed anywhere in this render path.
   const [liveDances, setLiveDances] = useState<LiveDance[]>([]);
   const [participants, setParticipants] = useState<LiveParticipant[]>([]);
+  // True only until the very first refreshLive() resolves (or fails) —
+  // without this, opening/reopening the session screen briefly showed
+  // "VENUE'S LOG (0)" and "Nothing logged yet" before the real list
+  // arrived, reading as an empty session rather than a loading one.
+  // Every refresh after the first (poll/Realtime) just swaps the list
+  // in place, same as before.
+  const [liveLoading, setLiveLoading] = useState(true);
 
   const refreshLive = () => {
     loadLiveSessionState(session.venueId, userId, session.startedAt)
@@ -168,7 +175,8 @@ export function DancingSessionScreen({
         setLiveDances(dances);
         setParticipants(participants);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLiveLoading(false));
   };
 
   useEffect(() => {
@@ -563,7 +571,7 @@ export function DancingSessionScreen({
 
           <View style={s.venueLogHeader}>
             <Text style={[s.sectionLabel, s.venueLogLabel]}>
-              VENUE'S LOG ({liveDances.length})
+              VENUE'S LOG {liveLoading ? "" : `(${liveDances.length})`}
             </Text>
             <Pressable
               style={[s.dancedFilterChip, dancedOnly && s.dancedFilterChipOn]}
@@ -575,35 +583,39 @@ export function DancingSessionScreen({
             </Pressable>
           </View>
 
-          {(() => {
-            const shown = dancedOnly ? liveDances.filter((d) => d.dancedByMe) : liveDances;
-            if (!shown.length) {
-              return (
-                <Text style={s.empty}>
-                  {dancedOnly
-                    ? "Nothing marked danced yet."
-                    : "Nothing logged yet — search above to add one."}
-                </Text>
-              );
-            }
-            return shown.map((d) => (
-              <LoggedDanceRow
-                key={d.id}
-                dance={{
-                  danceId: d.danceId,
-                  name: d.name,
-                  song: d.song ?? "",
-                  details: d.details,
-                  loggedAt: d.loggedAt,
-                  difficulty: d.difficulty,
-                }}
-                loggedByName={participants.length > 1 ? d.loggedByName : undefined}
-                dancedCount={participants.length > 1 ? d.dancedCount : undefined}
-                dancedByMe={d.dancedByMe}
-                onToggleDanced={() => handleToggleDanced(d)}
-              />
-            ));
-          })()}
+          {liveLoading ? (
+            <ActivityIndicator color={colors.gold} style={s.liveLoader} />
+          ) : (
+            (() => {
+              const shown = dancedOnly ? liveDances.filter((d) => d.dancedByMe) : liveDances;
+              if (!shown.length) {
+                return (
+                  <Text style={s.empty}>
+                    {dancedOnly
+                      ? "Nothing marked danced yet."
+                      : "Nothing logged yet — search above to add one."}
+                  </Text>
+                );
+              }
+              return shown.map((d) => (
+                <LoggedDanceRow
+                  key={d.id}
+                  dance={{
+                    danceId: d.danceId,
+                    name: d.name,
+                    song: d.song ?? "",
+                    details: d.details,
+                    loggedAt: d.loggedAt,
+                    difficulty: d.difficulty,
+                  }}
+                  loggedByName={participants.length > 1 ? d.loggedByName : undefined}
+                  dancedCount={participants.length > 1 ? d.dancedCount : undefined}
+                  dancedByMe={d.dancedByMe}
+                  onToggleDanced={() => handleToggleDanced(d)}
+                />
+              ));
+            })()
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -872,6 +884,7 @@ const s = StyleSheet.create({
     fontSize: 15,
   },
   loader: { marginTop: 14 },
+  liveLoader: { marginTop: 18 },
   danceRow: {
     flexDirection: "row",
     alignItems: "center",
