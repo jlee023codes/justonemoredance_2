@@ -77,20 +77,27 @@ export function DanceCard({
   // video is just the default until/unless they save their own.
   const videoUrl = progress?.link || dance.teachVideoUrl;
 
+  // In picking mode the checkbox already sits in the top-right corner
+  // (in normal flex flow, next to the row) — the badge floating there
+  // too via position: absolute put both in the same spot. Picking mode
+  // instead renders the badge as a plain flex sibling right before the
+  // checkbox, so they sit side by side instead of overlapping.
+  const badge = (
+    <View style={[s.badge, { borderColor: DIFFICULTY_COLOR[dance.difficulty] }]}>
+      <Text style={[s.badgeText, { color: DIFFICULTY_COLOR[dance.difficulty] }]}>
+        {dance.difficulty}
+      </Text>
+    </View>
+  );
+
   return (
     <View style={[s.card, dimmed && s.dimmed]}>
-      <View
-        style={[s.badge, s.badgeCorner, { borderColor: DIFFICULTY_COLOR[dance.difficulty] }]}
-      >
-        <Text style={[s.badgeText, { color: DIFFICULTY_COLOR[dance.difficulty] }]}>
-          {dance.difficulty}
-        </Text>
-      </View>
+      {!picking && <View style={s.badgeCorner}>{badge}</View>}
 
       <View style={s.mainRow}>
         <Pressable style={s.main} onPress={onPress}>
           <Text style={s.icon}>{icon}</Text>
-          <View style={s.copy}>
+          <View style={[s.copy, picking && s.copyPicking]}>
             <Text style={s.title} numberOfLines={1}>
               {dance.name}
             </Text>
@@ -128,8 +135,11 @@ export function DanceCard({
           </View>
 
           {picking ? (
-            <View style={[s.checkbox, selected && s.checkboxOn]}>
-              {selected && <Text style={s.checkmark}>✓</Text>}
+            <View style={s.pickingControls}>
+              {badge}
+              <View style={[s.checkbox, selected && s.checkboxOn]}>
+                {selected && <Text style={s.checkmark}>✓</Text>}
+              </View>
             </View>
           ) : !onDelete && !fromFriend && !onQuickStatus ? (
             <Text style={s.arrow}>›</Text>
@@ -187,6 +197,11 @@ const s = StyleSheet.create({
   // at badgeText's size/weight — 54 was sized for shorter labels like
   // "Easy"/"Hard" and let "Intermediate" overlap the truncated title.
   copy: { flex: 1, paddingRight: 78 },
+  // In picking mode the badge/checkbox already take their own flex
+  // space next to copy (pickingControls) — no need to additionally
+  // reserve room for the now-absolute-positioned badge that isn't
+  // there in this mode.
+  copyPicking: { paddingRight: 10 },
   title: { color: colors.ink, fontSize: 16, fontWeight: "800" },
   badge: {
     borderWidth: 1,
@@ -199,6 +214,10 @@ const s = StyleSheet.create({
   // title.
   badgeCorner: { position: "absolute", top: 13, right: 13 },
   badgeText: { fontSize: 10, fontWeight: "800" },
+  // Picking mode: badge and checkbox sit side by side in normal flex
+  // flow instead of the badge floating independently in the same
+  // corner the checkbox occupies (see the overlap this replaced).
+  pickingControls: { flexDirection: "row", alignItems: "center", gap: 8 },
   choreographer: {
     color: colors.muted,
     fontSize: 12,
