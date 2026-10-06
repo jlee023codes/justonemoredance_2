@@ -122,12 +122,14 @@ export function AddPastNightModal({
                 <Text style={s.caret}>▾</Text>
               </Pressable>
 
-              <DateTimeField
-                label="DATE"
-                mode="date"
-                value={dancedOn}
-                onChange={setDancedOn}
-              />
+              <View style={s.dateField}>
+                <DateTimeField
+                  label="DATE"
+                  mode="date"
+                  value={dancedOn}
+                  onChange={setDancedOn}
+                />
+              </View>
 
               <Text style={s.fieldLabel}>DANCES</Text>
               <TextInput
@@ -222,6 +224,7 @@ const s = StyleSheet.create({
   },
   selectText: { color: colors.ink, fontSize: 16, flex: 1 },
   caret: { color: colors.gold, fontSize: 16 },
+  dateField: { marginHorizontal: 24 },
   input: {
     backgroundColor: colors.card,
     borderWidth: 1,
