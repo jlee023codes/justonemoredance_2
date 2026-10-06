@@ -58,24 +58,47 @@ export async function loadLiveParticipants(venueId: string): Promise<LivePartici
   }));
 }
 
+/** The start of the CURRENT ongoing session at this venue — the
+ *  earliest checked_in_at among everyone still actively checked in
+ *  (ended_at is null) right now, not just this one caller's own
+ *  check-in time. This is what lets a user who joins partway through
+ *  a group's night see everything logged before they arrived, while
+ *  still correctly excluding an earlier, already-ended, separate
+ *  night at the same venue (venue_live_dances is append-only and
+ *  never cleared between sessions — once everyone currently there
+ *  ends their session, this naturally resets for whoever checks in
+ *  next). Falls back to `fallback` (the caller's own checked_in_at)
+ *  if the presence query fails or — in a genuine race, someone's row
+ *  disappearing between calls — comes back empty. */
+async function loadSessionWindowStart(venueId: string, fallback: string): Promise<string> {
+  const { data, error } = await supabase
+    .from("venue_live_presence")
+    .select("checked_in_at")
+    .eq("venue_id", venueId)
+    .order("checked_in_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return fallback;
+  return data.checked_in_at as string;
+}
+
 /** The shared dance pool for this venue, with each dance's logger
  *  name, whether the caller has marked it "danced," and how many
- *  people in total have. Scoped to dances logged since `checkedInAt`
- *  — venue_live_dances is append-only and never cleared between
- *  sessions, so without this a second check-in at the same venue
- *  later the same day would show every dance from the earlier,
- *  already-ended session too (same reasoning as loadLivePercent's
- *  identical gte filter). */
+ *  people in total have. Scoped to the whole ongoing session (see
+ *  loadSessionWindowStart), not just since this caller's own
+ *  check-in — `checkedInAt` is only the fallback if that can't be
+ *  determined. */
 export async function loadLiveDances(
   venueId: string,
   myUserId: string,
   checkedInAt: string,
 ): Promise<LiveDance[]> {
+  const windowStart = await loadSessionWindowStart(venueId, checkedInAt);
   const { data: rows, error } = await supabase
     .from("venue_live_dances")
     .select("id, dance_id, dance_name, dance_song, dance_difficulty, dance_details, logged_by, logged_at")
     .eq("venue_id", venueId)
-    .gte("logged_at", checkedInAt)
+    .gte("logged_at", windowStart)
     .order("logged_at", { ascending: false });
   if (error) throw error;
   const dances = rows ?? [];
@@ -174,22 +197,25 @@ export async function toggleDanced(
 
 export type LivePercent = { dancedCount: number; totalCount: number } | null;
 
-/** "You danced X of Y dances logged while you were there" — scoped to
- *  THIS user's own check-in window (not the whole night), per the
- *  confirmed design: a late arrival isn't asked about dances logged
- *  before they showed up. Returns null when nothing meaningful to
- *  show (solo session, nobody else ever logged anything). */
+/** "You danced X of Y dances logged" — scoped to the whole ongoing
+ *  session (see loadSessionWindowStart), same window as
+ *  loadLiveDances, not just since this caller's own check-in: a late
+ *  joiner sees (and is scored against) the full night's list so far,
+ *  not just what happened after they arrived. Returns null when
+ *  nothing meaningful to show (solo session, nobody else ever logged
+ *  anything). */
 export async function loadLivePercent(
   venueId: string,
   myUserId: string,
   checkedInAt: string,
   endedAt: string,
 ): Promise<LivePercent> {
+  const windowStart = await loadSessionWindowStart(venueId, checkedInAt);
   const { data: rows, error } = await supabase
     .from("venue_live_dances")
     .select("id, logged_by")
     .eq("venue_id", venueId)
-    .gte("logged_at", checkedInAt)
+    .gte("logged_at", windowStart)
     .lte("logged_at", endedAt);
   if (error) throw error;
   const dances = rows ?? [];
