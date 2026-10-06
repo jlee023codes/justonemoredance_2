@@ -542,21 +542,15 @@ export function DancingSessionScreen({
                   {liveDances.slice(0, 5).map((d) => (
                     <View key={d.id} style={s.recentCard}>
                       <Text style={s.recentCardName} numberOfLines={2}>{d.name}</Text>
-                      {participants.length > 1 ? (
-                        <Pressable
-                          style={[s.recentDancedPill, d.dancedByMe && s.recentDancedPillOn]}
-                          onPress={() => handleToggleDanced(d)}
-                          hitSlop={6}
-                        >
-                          <Text
-                            style={[s.recentDancedPillText, d.dancedByMe && s.recentDancedPillTextOn]}
-                          >
-                            {d.dancedByMe ? "✓ Danced" : "Danced?"}
-                          </Text>
-                        </Pressable>
-                      ) : (
-                        <Text style={s.recentDancedStatic}>✓ Danced</Text>
-                      )}
+                      <Pressable
+                        style={[s.recentDancedPill, d.dancedByMe && s.recentDancedPillOn]}
+                        onPress={() => handleToggleDanced(d)}
+                        hitSlop={6}
+                      >
+                        <Text style={[s.recentDancedPillText, d.dancedByMe && s.recentDancedPillTextOn]}>
+                          {d.dancedByMe ? "✓ Danced" : "Danced?"}
+                        </Text>
+                      </Pressable>
                     </View>
                   ))}
                 </ScrollView>
@@ -603,7 +597,7 @@ export function DancingSessionScreen({
                 loggedByName={participants.length > 1 ? d.loggedByName : undefined}
                 dancedCount={participants.length > 1 ? d.dancedCount : undefined}
                 dancedByMe={d.dancedByMe}
-                onToggleDanced={participants.length > 1 ? () => handleToggleDanced(d) : undefined}
+                onToggleDanced={() => handleToggleDanced(d)}
               />
             ));
           })()}
@@ -847,7 +841,6 @@ const s = StyleSheet.create({
   recentDancedPillOn: { backgroundColor: colors.pink, borderColor: colors.pink },
   recentDancedPillText: { color: colors.muted, fontSize: 10.5, fontWeight: "800" },
   recentDancedPillTextOn: { color: "#fff" },
-  recentDancedStatic: { color: colors.gold, fontSize: 10.5, fontWeight: "800", marginTop: 8 },
   venueLogHeader: {
     flexDirection: "row",
     alignItems: "center",
