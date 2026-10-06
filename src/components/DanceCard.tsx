@@ -183,7 +183,10 @@ const s = StyleSheet.create({
   mainRow: { flexDirection: "row", alignItems: "center" },
   main: { flex: 1, flexDirection: "row", alignItems: "center" },
   icon: { fontSize: 23, width: 38 },
-  copy: { flex: 1, paddingRight: 54 },
+  // Wide enough to clear the badge's longest label ("Intermediate")
+  // at badgeText's size/weight — 54 was sized for shorter labels like
+  // "Easy"/"Hard" and let "Intermediate" overlap the truncated title.
+  copy: { flex: 1, paddingRight: 78 },
   title: { color: colors.ink, fontSize: 16, fontWeight: "800" },
   badge: {
     borderWidth: 1,
