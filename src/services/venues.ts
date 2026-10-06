@@ -48,8 +48,14 @@ export type VenueOption = {
   // migration_venue_reps.sql.
   detailsLocked?: boolean;
   // Distinct check-ins (migration_venue_checkins.sql) — see
-  // attachCheckinCounts and VERIFIED_THRESHOLD above.
+  // attachCheckinCounts and VERIFIED_THRESHOLD above. Check-ins only
+  // — narrower than publicCount below, backs the Verified badge.
   checkinCount?: number;
+  // Distinct users who've EITHER checked in OR tagged a dance to this
+  // venue (venue_public_counts — migration_venue_lock_broaden_count.sql).
+  // What actually drives VENUE_PUBLIC_THRESHOLD/`locked` below — use
+  // this, not checkinCount, for anything about unlock progress.
+  publicCount?: number;
   // Derived, not a DB column: true while this venue is still below
   // VENUE_PUBLIC_THRESHOLD and the viewer can only see it because
   // they created it or have it in their own user_venues list — i.e.
@@ -734,21 +740,33 @@ export async function loadVerifiedVenues(): Promise<VenueOption[]> {
 }
 
 // Fetches venue_checkin_counts for a set of venues and folds it in —
-// same shape as attachVotes/attachNights. Also derives `locked`: true
-// for a venue below VENUE_PUBLIC_THRESHOLD that the viewer can only
-// see because they created it OR have it in their own user_venues
-// list (the RLS policy in migration_venue_lock_user_venues.sql grants
-// visibility on both grounds, not just created_by — every
-// pre-existing venue has created_by = null, so user_venues is the
-// only real "who brought this venue in" signal those rows have).
+// same shape as attachVotes/attachNights. Also derives `locked`.
+//
+// `locked` reads venue_public_counts, not venue_checkin_counts —
+// broader than the Verified badge's signal (migration_venue_lock_broaden_count.sql):
+// a venue reaches the public-visibility threshold once 5 distinct
+// users have EITHER checked in there OR tagged a dance to it from a
+// dance card (whichever happened for each of them), not check-ins
+// alone. `checkinCount` itself keeps reading the narrower
+// venue_checkin_counts view, since the Verified badge
+// (VERIFIED_THRESHOLD) is meant to stay a stronger, check-ins-only
+// signal — don't conflate the two counts.
+//
+// `locked` is true for a venue below VENUE_PUBLIC_THRESHOLD that the
+// viewer can only see because they created it OR have it in their own
+// user_venues list (the RLS policy grants visibility on both
+// grounds, not just created_by — every pre-existing venue has
+// created_by = null, so user_venues is the only real "who brought
+// this venue in" signal those rows have).
 export async function attachCheckinCounts(
   venues: VenueOption[],
   userId?: string,
 ): Promise<VenueOption[]> {
   if (!venues.length) return venues;
   const ids = venues.map((v) => v.id);
-  const [{ data, error }, mineResult] = await Promise.all([
+  const [{ data, error }, publicResult, mineResult] = await Promise.all([
     supabase.from("venue_checkin_counts").select("venue_id,checkin_count").in("venue_id", ids),
+    supabase.from("venue_public_counts").select("venue_id,public_count").in("venue_id", ids),
     userId
       ? supabase.from("user_venues").select("venue_id").eq("user_id", userId).in("venue_id", ids)
       : Promise.resolve({ data: [] as { venue_id: string }[], error: null }),
@@ -757,12 +775,16 @@ export async function attachCheckinCounts(
   const counts = new Map(
     (data ?? []).map((r: any) => [r.venue_id as string, r.checkin_count as number]),
   );
+  const publicCounts = new Map(
+    (publicResult.data ?? []).map((r: any) => [r.venue_id as string, r.public_count as number]),
+  );
   const mine = new Set((mineResult.data ?? []).map((r: any) => r.venue_id as string));
   return venues.map((v) => {
     const checkinCount = counts.get(v.id) ?? 0;
+    const publicCount = publicCounts.get(v.id) ?? 0;
     const inMyList = !!userId && (v.createdBy === userId || mine.has(v.id));
-    const locked = inMyList && checkinCount < VENUE_PUBLIC_THRESHOLD;
-    return { ...v, checkinCount, locked };
+    const locked = inMyList && publicCount < VENUE_PUBLIC_THRESHOLD;
+    return { ...v, checkinCount, publicCount, locked };
   });
 }
 

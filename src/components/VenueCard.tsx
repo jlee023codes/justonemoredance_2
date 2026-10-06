@@ -149,9 +149,9 @@ export function VenueCard({
       {venue.locked && (
         <Text style={s.lockedNote}>
           🔒 Only visible to you — unlocks for everyone once{" "}
-          {VENUE_PUBLIC_THRESHOLD - (venue.checkinCount ?? 0)} more{" "}
-          {VENUE_PUBLIC_THRESHOLD - (venue.checkinCount ?? 0) === 1 ? "person checks" : "people check"}{" "}
-          in here.
+          {VENUE_PUBLIC_THRESHOLD - (venue.publicCount ?? 0)} more{" "}
+          {VENUE_PUBLIC_THRESHOLD - (venue.publicCount ?? 0) === 1 ? "person checks in or logs a dance" : "people check in or log a dance"}{" "}
+          here.
         </Text>
       )}
 
