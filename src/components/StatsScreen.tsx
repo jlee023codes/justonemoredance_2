@@ -379,11 +379,11 @@ function SessionDancesModal({
 
         <View style={s.gridLegend}>
           <View style={s.legendItem}>
-            <View style={[s.legendSwatch, s.gridCellDanced]} />
+            <View style={[s.legendSwatch, s.legendSwatchDanced]} />
             <Text style={s.legendText}>Danced</Text>
           </View>
           <View style={s.legendItem}>
-            <View style={[s.legendSwatch, s.gridCellLogged]} />
+            <View style={[s.legendSwatch, s.legendSwatchLogged]} />
             <Text style={s.legendText}>Logged / playing</Text>
           </View>
         </View>
@@ -544,6 +544,8 @@ const s = StyleSheet.create({
   gridLegend: { flexDirection: "row", gap: 16, paddingHorizontal: 20, paddingTop: 14 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendSwatch: { width: 12, height: 12, borderRadius: 3 },
+  legendSwatchDanced: { backgroundColor: colors.gold },
+  legendSwatchLogged: { backgroundColor: colors.line },
   legendText: { color: colors.muted, fontSize: 11.5, fontWeight: "700" },
   gridList: { padding: 20, paddingBottom: 50 },
   grid: {
