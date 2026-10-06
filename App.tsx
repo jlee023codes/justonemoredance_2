@@ -303,6 +303,19 @@ function AppRoot() {
     if (session && forcedOffline) setForcedOffline(false);
   }, [session, forcedOffline]);
 
+  // Auto-retry the hung session once connectivity genuinely comes back
+  // (now that useOnlineStatus is accurate on native, not just web — see
+  // that hook) instead of requiring the user to notice and tap "Try
+  // reconnecting" themselves. Previously the only way back from a stuck
+  // Offline Mode was that manual tap; this just fires the same call
+  // automatically on the online transition.
+  const wasOnlineRef = useRef(online);
+  useEffect(() => {
+    const cameOnline = online && !wasOnlineRef.current;
+    wasOnlineRef.current = online;
+    if (cameOnline && forcedOffline && !session) restoreSession();
+  }, [online, forcedOffline, session]);
+
   // Read inside the effect below via a ref rather than a dependency —
   // the AppState subscription shouldn't tear down and re-subscribe
   // every time a session starts/ends, just skip its own prompt while
@@ -586,21 +599,21 @@ function AppRoot() {
 
   // Back online: push every offline-notepad line into the normal import
   // queue, wipe the notepad, and drop the user into the matcher on Profile.
-  // Falls back to `lastUser` when there's no live session yet — reachable
-  // from the forced-offline screen, where `online` can read true (native's
-  // useOnlineStatus always assumes so — see that hook) before the user has
-  // actually tapped "Try reconnecting" to restore a real session.
+  // Requires a real, restored session (not just `lastUser`) — the forced-
+  // offline screen's own OfflineListModal mount disables Import entirely
+  // until then (hasRealSession prop) so this shouldn't be reachable
+  // without one, but bail out rather than writing against an id with no
+  // live `progress` state behind it if it somehow is.
   const handleOfflineImport = async (items: OfflineDance[]) => {
-    const importUserId = userId ?? lastUser?.userId;
-    if (!importUserId || !items.length) return;
+    if (!userId || !items.length) return;
     await queueImport(
-      importUserId,
+      userId,
       items.map((item) => ({
         name: item.note ? `${item.name} — ${item.note}` : item.name,
         checked: false,
       })),
     );
-    await clearOfflineList(importUserId);
+    await clearOfflineList(userId);
     setOfflineCount(0);
     setOfflineOpen(false);
     setOpenImportOnProfile(true);
@@ -822,6 +835,7 @@ function AppRoot() {
           <OfflineListModal
             visible={offlineOpen}
             online={online}
+            hasRealSession={false}
             userId={lastUser.userId}
             onClose={() => {
               setOfflineOpen(false);

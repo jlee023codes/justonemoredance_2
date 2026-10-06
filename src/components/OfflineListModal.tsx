@@ -27,12 +27,23 @@ import {
 export function OfflineListModal({
   visible,
   online,
+  hasRealSession = true,
   userId,
   onClose,
   onImport,
 }: {
   visible: boolean;
   online: boolean;
+  // False from the forced-offline screen before the user has actually
+  // reconnected (userId there is just `lastUser`, a remembered id with
+  // no live Supabase session behind it yet). Importing against that
+  // writes real data for the right account, but App.tsx's own
+  // `progress` state for that account hasn't loaded — the app can't
+  // show the result correctly until a real session exists, so Import
+  // stays disabled until then rather than appearing to work and
+  // leaving My List looking wiped. Defaults true for the normal,
+  // already-authenticated mount.
+  hasRealSession?: boolean;
   userId: string;
   onClose: () => void;
   // Hand the whole list to the parent to push into the import queue.
@@ -114,11 +125,18 @@ export function OfflineListModal({
             keyboardShouldPersistTaps="handled"
           >
             <Text style={s.title}>Offline dance list</Text>
-            <View style={[s.statusPill, online ? s.pillOnline : s.pillOffline]}>
+            <View
+              style={[
+                s.statusPill,
+                online && hasRealSession ? s.pillOnline : s.pillOffline,
+              ]}
+            >
               <Text style={s.statusPillText}>
-                {online
+                {online && hasRealSession
                   ? "● Back online — you can import below"
-                  : "● Offline — saved on this device"}
+                  : online
+                    ? "● Reconnecting your account…"
+                    : "● Offline — saved on this device"}
               </Text>
             </View>
             <Text style={s.subtitle}>
@@ -191,7 +209,7 @@ export function OfflineListModal({
           </ScrollView>
 
           <View style={s.stickyFooter}>
-            {online ? (
+            {online && hasRealSession ? (
               <Pressable
                 style={[
                   s.importButton,
@@ -210,6 +228,11 @@ export function OfflineListModal({
                       : "Nothing to import yet"}
                 </Text>
               </Pressable>
+            ) : online ? (
+              <Text style={s.offlineHint}>
+                Signal's back, but your account isn't fully reconnected yet —
+                give it a moment, or tap "Try reconnecting" and come back here.
+              </Text>
             ) : (
               <Text style={s.offlineHint}>
                 You&apos;re offline. This list is safe on your phone — reconnect
