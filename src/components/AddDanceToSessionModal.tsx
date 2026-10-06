@@ -144,7 +144,7 @@ export function AddDanceToSessionModal({
           </Pressable>
 
           <View style={s.headerArea}>
-            <Text style={s.title}>Add a forgotten dance</Text>
+            <Text style={s.title}>Add a missed dance</Text>
             <Text style={s.subtitle} numberOfLines={1}>{entry.venueName}</Text>
 
             <View style={s.modeRow}>
