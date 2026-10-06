@@ -153,7 +153,7 @@ export function DancingSessionScreen({
   const [searching, setSearching] = useState(false);
   const [ending, setEnding] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [logTab, setLogTab] = useState<"danced" | "venueLog">("danced");
+  const [dancedOnly, setDancedOnly] = useState(false);
 
   // The shared, collaborative "TONIGHT" list — server-backed, visible
   // to everyone currently checked in at this venue, refreshed by the
@@ -564,31 +564,26 @@ export function DancingSessionScreen({
             </>
           )}
 
-          <View style={s.logTabRow}>
+          <View style={s.venueLogHeader}>
+            <Text style={[s.sectionLabel, s.venueLogLabel]}>
+              VENUE'S LOG ({liveDances.length})
+            </Text>
             <Pressable
-              style={[s.logTab, logTab === "danced" && s.logTabActive]}
-              onPress={() => setLogTab("danced")}
+              style={[s.dancedFilterChip, dancedOnly && s.dancedFilterChipOn]}
+              onPress={() => setDancedOnly((v) => !v)}
             >
-              <Text style={[s.logTabText, logTab === "danced" && s.logTabTextActive]}>
-                Danced ({liveDances.filter((d) => d.dancedByMe).length})
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[s.logTab, logTab === "venueLog" && s.logTabActive]}
-              onPress={() => setLogTab("venueLog")}
-            >
-              <Text style={[s.logTabText, logTab === "venueLog" && s.logTabTextActive]}>
-                Venue's Log ({liveDances.length})
+              <Text style={[s.dancedFilterChipText, dancedOnly && s.dancedFilterChipTextOn]}>
+                {dancedOnly ? "✓ " : ""}I Danced
               </Text>
             </Pressable>
           </View>
 
           {(() => {
-            const shown = logTab === "danced" ? liveDances.filter((d) => d.dancedByMe) : liveDances;
+            const shown = dancedOnly ? liveDances.filter((d) => d.dancedByMe) : liveDances;
             if (!shown.length) {
               return (
                 <Text style={s.empty}>
-                  {logTab === "danced"
+                  {dancedOnly
                     ? "Nothing marked danced yet."
                     : "Nothing logged yet — search above to add one."}
                 </Text>
@@ -853,18 +848,24 @@ const s = StyleSheet.create({
   recentDancedPillText: { color: colors.muted, fontSize: 10.5, fontWeight: "800" },
   recentDancedPillTextOn: { color: "#fff" },
   recentDancedStatic: { color: colors.gold, fontSize: 10.5, fontWeight: "800", marginTop: 8 },
-  logTabRow: { flexDirection: "row", gap: 8, marginTop: 18, marginBottom: 10 },
-  logTab: {
-    flex: 1,
+  venueLogHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 18,
+    marginBottom: 8,
+  },
+  venueLogLabel: { marginTop: 0, marginBottom: 0 },
+  dancedFilterChip: {
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: "center",
+    paddingVertical: 7,
+    paddingHorizontal: 12,
   },
-  logTabActive: { backgroundColor: colors.pink, borderColor: colors.pink },
-  logTabText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
-  logTabTextActive: { color: "#fff" },
+  dancedFilterChipOn: { backgroundColor: colors.pink, borderColor: colors.pink },
+  dancedFilterChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
+  dancedFilterChipTextOn: { color: "#fff" },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,
