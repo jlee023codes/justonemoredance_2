@@ -12,6 +12,7 @@ import { VenueDancesModal } from "./VenueDancesModal";
 import { VenueRevisionModal } from "./VenueRevisionModal";
 import { VenueScheduleModal } from "./VenueScheduleModal";
 import { DayFilterModal } from "./DayFilterModal";
+import { LiveLoggingModal } from "./LiveLoggingModal";
 import { SearchInput } from "./SearchInput";
 import { getPlaceDetails, newSessionToken, PlaceSuggestion, searchPlaces } from "../lib/placesSearch";
 import {
@@ -26,6 +27,7 @@ import {
   isUserAdmin,
   loadDancedVenues,
   loadHomeVenueId,
+  loadLiveVenueIds,
   searchGlobalVenues,
   VenueOption,
 } from "../services/venues";
@@ -90,6 +92,8 @@ export function VenuesScreen({
   const [error, setError] = useState("");
   const [dancesVenue, setDancesVenue] = useState<VenueOption | null>(null);
   const [scheduleVenue, setScheduleVenue] = useState<VenueOption | null>(null);
+  const [liveVenueIds, setLiveVenueIds] = useState<Set<string>>(new Set());
+  const [liveLoggingVenue, setLiveLoggingVenue] = useState<VenueOption | null>(null);
   const [notifyModal, setNotifyModal] = useState<
     { venue: VenueOption; kind: "revision" | "rep_request" } | null
   >(null);
@@ -111,6 +115,32 @@ export function VenuesScreen({
       .then((venues) => setDancedVenueIds(new Set(venues.map((v) => v.id))))
       .catch(() => {});
   }, [userId, refreshKey]);
+
+  // Which of the currently-visible venues have a live session right
+  // now — polled rather than one-shot, so a card's "View Live
+  // Logging" button appears/disappears as sessions start and end
+  // without the user having to re-search or refresh.
+  useEffect(() => {
+    const ids = results.map((v) => v.id);
+    if (!ids.length) {
+      setLiveVenueIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    const check = () => {
+      loadLiveVenueIds(ids)
+        .then((live) => {
+          if (!cancelled) setLiveVenueIds(live);
+        })
+        .catch(() => {});
+    };
+    check();
+    const timer = setInterval(check, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [results]);
 
   useEffect(() => {
     let cancelled = false;
@@ -401,7 +431,9 @@ export function VenuesScreen({
               venue={venue}
               userId={userId}
               isHome={venue.id === homeVenueId}
+              isLive={liveVenueIds.has(venue.id)}
               onOpenDances={() => setDancesVenue(venue)}
+              onOpenLiveLogging={() => setLiveLoggingVenue(venue)}
               onSubmitRevision={() => setNotifyModal({ venue, kind: "revision" })}
               onRequestRep={() => setNotifyModal({ venue, kind: "rep_request" })}
               onNightsChanged={(nights) => setNightsLocally(venue.id, nights)}
@@ -477,6 +509,12 @@ export function VenuesScreen({
       />
 
       <VenueScheduleModal venue={scheduleVenue} onClose={() => setScheduleVenue(null)} />
+
+      <LiveLoggingModal
+        venueId={liveLoggingVenue?.id ?? null}
+        venueName={liveLoggingVenue?.name ?? ""}
+        onClose={() => setLiveLoggingVenue(null)}
+      />
 
       <DayFilterModal
         visible={dayFilterOpen}

@@ -23,7 +23,9 @@ export function VenueCard({
   venue,
   userId,
   isHome,
+  isLive,
   onOpenDances,
+  onOpenLiveLogging,
   onSubmitRevision,
   onRequestRep,
   onNightsChanged,
@@ -32,7 +34,12 @@ export function VenueCard({
   venue: VenueOption;
   userId: string;
   isHome?: boolean;
+  // True when at least one person is currently checked in here —
+  // shows the read-only "View Live Logging" button (see
+  // loadLiveVenueIds, migration_venue_live_view_public.sql).
+  isLive?: boolean;
   onOpenDances: () => void;
+  onOpenLiveLogging?: () => void;
   onSubmitRevision: () => void;
   onRequestRep: () => void;
   onNightsChanged: (nights: { day: DayOfWeek; details: string }[]) => void;
@@ -264,6 +271,12 @@ export function VenueCard({
           </Pressable>
         ))}
 
+      {isLive && (
+        <Pressable style={s.liveButton} onPress={onOpenLiveLogging} hitSlop={6}>
+          <Text style={s.liveButtonText}>🔴 View Live Logging</Text>
+        </Pressable>
+      )}
+
       <View style={s.footerRow}>
         <Pressable style={s.whatsPlaying} onPress={onOpenDances}>
           <Text style={s.whatsPlayingText}>🎶 What's Playing</Text>
@@ -317,6 +330,16 @@ const s = StyleSheet.create({
   nightActionText: { fontSize: 12 },
   nightDeleteText: { color: colors.muted },
   addNight: { color: colors.pink, fontSize: 12, fontWeight: "700", marginTop: 12 },
+  liveButton: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#ff4444",
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 12,
+  },
+  liveButtonText: { color: "#ff4444", fontSize: 12, fontWeight: "800" },
   editBox: { marginTop: 10, gap: 8 },
   dayPicker: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   dayChip: {

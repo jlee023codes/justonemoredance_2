@@ -67,7 +67,6 @@ export function StatsScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [viewingDancesFor, setViewingDancesFor] = useState<SessionHistoryEntry | null>(null);
-  const [viewingNewTonightFor, setViewingNewTonightFor] = useState<SessionHistoryEntry | null>(null);
   const [viewingNewToMeFor, setViewingNewToMeFor] = useState<SessionHistoryEntry | null>(null);
   const [search, setSearch] = useState("");
   const [addNightOpen, setAddNightOpen] = useState(false);
@@ -191,29 +190,15 @@ export function StatsScreen({
                 <Text style={s.addDanceButtonText}>＋ Add a dance</Text>
               </Pressable>
             </View>
-            {(() => {
-              const newTonightCount = entry.dances.filter((d) => d.newToVenue).length;
-              const newToMeCount = entry.dances.filter((d) => d.newToUser).length;
-              if (!newTonightCount && !newToMeCount) return null;
-              return (
-                <View style={s.newDancesRow}>
-                  {newTonightCount > 0 && (
-                    <Pressable onPress={() => setViewingNewTonightFor(entry)}>
-                      <Text style={s.viewDancesButtonText}>
-                        New Tonight ({newTonightCount}) →
-                      </Text>
-                    </Pressable>
-                  )}
-                  {newToMeCount > 0 && (
-                    <Pressable onPress={() => setViewingNewToMeFor(entry)}>
-                      <Text style={s.addDanceButtonText}>
-                        New To Me ({newToMeCount}) →
-                      </Text>
-                    </Pressable>
-                  )}
-                </View>
-              );
-            })()}
+            {entry.dances.some((d) => d.newToUser) && (
+              <View style={s.newDancesRow}>
+                <Pressable onPress={() => setViewingNewToMeFor(entry)}>
+                  <Text style={s.addDanceButtonText}>
+                    New To Me ({entry.dances.filter((d) => d.newToUser).length}) →
+                  </Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         ))}
 
@@ -245,18 +230,6 @@ export function StatsScreen({
         onAdded={() => setLocalRefresh((k) => k + 1)}
       />
 
-      <SessionDancesModal
-        entry={viewingNewTonightFor}
-        onClose={() => setViewingNewTonightFor(null)}
-        filterDances={(dances) => dances.filter((d) => d.newToVenue)}
-        titleOverride="New Tonight"
-        subtitleOverride={
-          viewingNewTonightFor
-            ? `${viewingNewTonightFor.venueName} — first time played here`
-            : undefined
-        }
-      />
-
       <NewToMeModal
         userId={userId}
         entry={viewingNewToMeFor}
@@ -269,43 +242,54 @@ export function StatsScreen({
   );
 }
 
+type DanceFilter = "danced" | "newToVenue";
+
 /** Pop-out list of everything logged during one session — minimal by
  *  design: a dense, 2-3 column grid of just dance names, so a long
  *  night (avid dancers can log 60-100+) still fits on screen without
  *  scrolling forever. Full-screen rather than a centered card — a
  *  fixed-width card was clipping the venue name on longer titles.
  *
- *  Also reused (filtered) for "New Tonight" — dances new to the
- *  VENUE this session, read-only, no add/select affordance since
- *  there's nothing to do with them here (contrast "New To Me" below,
- *  which is addable). `filterDances`/`titleOverride` let the same
- *  grid serve both without a second component. */
+ *  "I Danced" and "New to venue" are togglable filter chips rather
+ *  than separate cards/modals — both are just facts about dances
+ *  already in this same list, so filtering in place (with a small
+ *  badge per cell) keeps one grid instead of duplicating it per
+ *  signal. */
 function SessionDancesModal({
   entry,
   onClose,
-  filterDances,
-  titleOverride,
-  subtitleOverride,
 }: {
   entry: SessionHistoryEntry | null;
   onClose: () => void;
-  filterDances?: (dances: SessionHistoryEntry["dances"]) => SessionHistoryEntry["dances"];
-  titleOverride?: string;
-  subtitleOverride?: string;
 }) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const [filters, setFilters] = useState<Set<DanceFilter>>(new Set());
 
   useEffect(() => {
     if (entry) {
       setQuery("");
       setCopied(false);
+      setFilters(new Set());
     }
   }, [entry]);
 
   if (!entry) return null;
 
-  const baseDances = filterDances ? filterDances(entry.dances) : entry.dances;
+  const toggleFilter = (f: DanceFilter) => {
+    setFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(f)) next.delete(f);
+      else next.add(f);
+      return next;
+    });
+  };
+
+  const baseDances = entry.dances.filter((d) => {
+    if (filters.has("danced") && d.danced === false) return false;
+    if (filters.has("newToVenue") && !d.newToVenue) return false;
+    return true;
+  });
   const trimmedQuery = query.trim();
   const visibleDances = trimmedQuery
     ? baseDances.filter((d) => matchesDanceName(d.name, trimmedQuery))
@@ -351,24 +335,20 @@ function SessionDancesModal({
             <Text style={s.gridCloseButtonText}>✕</Text>
           </Pressable>
           <View style={s.gridTitleCopy}>
-            <Text style={s.gridTitle} numberOfLines={2}>{titleOverride ?? entry.venueName}</Text>
+            <Text style={s.gridTitle} numberOfLines={2}>{entry.venueName}</Text>
             <Text style={s.gridSubtitle}>
-              {subtitleOverride ?? `${formatDate(entry.checkedInAt)} · ${baseDances.length} ${baseDances.length === 1 ? "dance" : "dances"}`}
+              {formatDate(entry.checkedInAt)} · {baseDances.length} {baseDances.length === 1 ? "dance" : "dances"}
             </Text>
           </View>
-          {!filterDances && (
-            <>
-              <Pressable style={s.gridShareButton} onPress={handleCopyLink} hitSlop={10}>
-                <Text style={s.gridShareButtonText}>{copied ? "✓" : "🔗"}</Text>
-              </Pressable>
-              <Pressable style={s.gridShareButton} onPress={handleShare} hitSlop={10}>
-                <Text style={s.gridShareButtonText}>⤴︎</Text>
-              </Pressable>
-            </>
-          )}
+          <Pressable style={s.gridShareButton} onPress={handleCopyLink} hitSlop={10}>
+            <Text style={s.gridShareButtonText}>{copied ? "✓" : "🔗"}</Text>
+          </Pressable>
+          <Pressable style={s.gridShareButton} onPress={handleShare} hitSlop={10}>
+            <Text style={s.gridShareButtonText}>⤴︎</Text>
+          </Pressable>
         </View>
 
-        {baseDances.length > 5 && (
+        {entry.dances.length > 5 && (
           <SearchInput
             value={query}
             onChangeText={setQuery}
@@ -376,6 +356,25 @@ function SessionDancesModal({
             style={s.gridSearch}
           />
         )}
+
+        <View style={s.gridFilterRow}>
+          <Pressable
+            style={[s.gridFilterChip, filters.has("danced") && s.gridFilterChipOn]}
+            onPress={() => toggleFilter("danced")}
+          >
+            <Text style={[s.gridFilterChipText, filters.has("danced") && s.gridFilterChipTextOn]}>
+              {filters.has("danced") ? "✓ " : ""}I Danced
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[s.gridFilterChip, filters.has("newToVenue") && s.gridFilterChipOn]}
+            onPress={() => toggleFilter("newToVenue")}
+          >
+            <Text style={[s.gridFilterChipText, filters.has("newToVenue") && s.gridFilterChipTextOn]}>
+              {filters.has("newToVenue") ? "✓ " : ""}New to venue
+            </Text>
+          </Pressable>
+        </View>
 
         <View style={s.gridLegend}>
           <View style={s.legendItem}>
@@ -396,11 +395,18 @@ function SessionDancesModal({
                 style={[s.gridCell, d.danced === false ? s.gridCellLogged : s.gridCellDanced]}
               >
                 <Text style={s.gridCellText} numberOfLines={2}>{d.name}</Text>
+                {d.newToVenue && (
+                  <Text style={s.gridCellBadge} numberOfLines={1}>New to venue</Text>
+                )}
               </View>
             ))}
           </View>
-          {trimmedQuery.length > 0 && !visibleDances.length && (
-            <Text style={s.empty}>No dances match "{trimmedQuery}".</Text>
+          {!visibleDances.length && (
+            <Text style={s.empty}>
+              {trimmedQuery.length > 0
+                ? `No dances match "${trimmedQuery}".`
+                : "No dances match the selected filters."}
+            </Text>
           )}
         </ScrollView>
       </View>
@@ -541,6 +547,22 @@ const s = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 14,
   },
+  gridFilterRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+  },
+  gridFilterChip: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  gridFilterChipOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
+  gridFilterChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
+  gridFilterChipTextOn: { color: colors.pink },
   gridLegend: { flexDirection: "row", gap: 16, paddingHorizontal: 20, paddingTop: 14 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   legendSwatch: { width: 12, height: 12, borderRadius: 3 },
@@ -567,4 +589,11 @@ const s = StyleSheet.create({
   gridCellDanced: { borderColor: colors.gold, backgroundColor: colors.card },
   gridCellLogged: { borderColor: colors.line, backgroundColor: colors.bg },
   gridCellText: { color: colors.ink, fontSize: 12.5, fontWeight: "700", textAlign: "center" },
+  gridCellBadge: {
+    color: colors.gold,
+    fontSize: 9.5,
+    fontWeight: "800",
+    textAlign: "center",
+    marginTop: 3,
+  },
 });

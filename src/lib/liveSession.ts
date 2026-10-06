@@ -153,6 +153,65 @@ export async function loadLiveSessionState(
   return { dances, participants };
 }
 
+/** Read-only view of a venue's current live session for someone just
+ *  browsing the Venues screen — not checked in there themselves, so
+ *  no `myUserId`/`dancedByMe` to compute. Relies on the public read
+ *  policies from migration_venue_live_view_public.sql rather than
+ *  is_live_at_venue. Reuses the same gap-based window as the real
+ *  session screen (loadSessionWindowStart) so a browser sees exactly
+ *  the same "current session" boundary participants do. */
+export async function loadLiveVenueView(
+  venueId: string,
+): Promise<{ dances: LiveDance[]; participantCount: number }> {
+  const [windowStart, { data: presence, error: presenceError }] = await Promise.all([
+    loadSessionWindowStart(venueId, new Date(0).toISOString()),
+    supabase.from("venue_live_presence").select("user_id").eq("venue_id", venueId),
+  ]);
+  if (presenceError) throw presenceError;
+  const participantCount = new Set((presence ?? []).map((r: any) => r.user_id as string)).size;
+
+  const { data: rows, error } = await supabase
+    .from("venue_live_dances")
+    .select("id, dance_id, dance_name, dance_song, dance_difficulty, dance_details, logged_by, logged_at")
+    .eq("venue_id", venueId)
+    .gte("logged_at", windowStart)
+    .order("logged_at", { ascending: false });
+  if (error) throw error;
+  const rawDances = rows ?? [];
+  if (!rawDances.length) return { dances: [], participantCount };
+
+  const liveDanceIds = rawDances.map((d: any) => d.id as string);
+  const loggerIds = [...new Set(rawDances.map((d: any) => d.logged_by as string))];
+
+  const [{ data: marks, error: marksError }, { data: profiles, error: profilesError }] = await Promise.all([
+    supabase.from("venue_live_dance_marks").select("live_dance_id").in("live_dance_id", liveDanceIds),
+    supabase.from("profiles").select("id, username, display_name").in("id", loggerIds),
+  ]);
+  if (marksError) throw marksError;
+  if (profilesError) throw profilesError;
+
+  const nameById = new Map((profiles ?? []).map((p: any) => [p.id, labelFor(p)]));
+  const markCountByDance = new Map<string, number>();
+  for (const m of (marks ?? []) as any[]) {
+    markCountByDance.set(m.live_dance_id, (markCountByDance.get(m.live_dance_id) ?? 0) + 1);
+  }
+
+  const dances = rawDances.map((d: any) => ({
+    id: d.id,
+    danceId: d.dance_id,
+    name: d.dance_name,
+    song: d.dance_song ?? null,
+    details: d.dance_details ?? null,
+    difficulty: (d.dance_difficulty ?? null) as Dance["difficulty"] | null,
+    loggedBy: d.logged_by,
+    loggedByName: nameById.get(d.logged_by) ?? "Someone",
+    loggedAt: d.logged_at,
+    dancedByMe: false,
+    dancedCount: markCountByDance.get(d.id) ?? 0,
+  }));
+  return { dances, participantCount };
+}
+
 /** Logs a dance into the shared pool and auto-marks the logger as
  *  having danced it — logging already implies you danced it, same as
  *  the solo flow today where logging = counted, no separate tap

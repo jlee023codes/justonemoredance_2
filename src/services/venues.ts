@@ -967,3 +967,20 @@ export async function loadDancesAlreadyAtVenue(
   if (error) throw error;
   return new Set((data ?? []).map((r: any) => r.dance_id as string));
 }
+
+/** Which of these venues currently have at least one person checked
+ *  in (ended_at is null) right now — one batched query for the whole
+ *  visible Venues list, so each card can show "View Live Logging"
+ *  without a query per card. Relies on the public read policy from
+ *  migration_venue_live_view_public.sql, since a browsing user isn't
+ *  necessarily checked in anywhere themselves. */
+export async function loadLiveVenueIds(venueIds: string[]): Promise<Set<string>> {
+  if (!venueIds.length) return new Set();
+  const { data, error } = await supabase
+    .from("venue_checkins")
+    .select("venue_id")
+    .in("venue_id", venueIds)
+    .is("ended_at", null);
+  if (error) throw error;
+  return new Set((data ?? []).map((r: any) => r.venue_id as string));
+}
