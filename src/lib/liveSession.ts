@@ -33,28 +33,19 @@ function labelFor(profile: { display_name: string | null; username: string | nul
   return profile.display_name?.trim() || (profile.username ? `@${profile.username}` : "Someone");
 }
 
-/** One venue_live_presence fetch, shared by loadLiveSessionState below
- *  for both the participant roster and the session window start — this
- *  used to be two entirely separate query chains (loadLiveParticipants'
- *  own presence -> profiles lookup, plus a second presence-only lookup
- *  just to find the window start), run alongside loadLiveDances' own
- *  3-step sequential chain (presence -> dances -> marks/profiles) —
- *  together the main cause of a slow open/reopen on the session
- *  screen. */
-async function loadPresence(
-  venueId: string,
-  fallbackWindowStart: string,
-): Promise<{ participants: LiveParticipant[]; windowStart: string }> {
+/** The current roster of everyone checked in right now — presence
+ *  only decides WHO is here, never the dance list's time window (see
+ *  loadSessionWindowStart below for why those two are now fully
+ *  decoupled). */
+async function loadPresence(venueId: string): Promise<LiveParticipant[]> {
   const { data: presence, error } = await supabase
     .from("venue_live_presence")
-    .select("user_id, checked_in_at")
-    .eq("venue_id", venueId)
-    .order("checked_in_at", { ascending: true });
+    .select("user_id")
+    .eq("venue_id", venueId);
   if (error) throw error;
   const rows = presence ?? [];
-  const windowStart = rows[0]?.checked_in_at ?? fallbackWindowStart;
   const userIds = [...new Set(rows.map((r: any) => r.user_id as string))];
-  if (!userIds.length) return { participants: [], windowStart };
+  if (!userIds.length) return [];
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
@@ -62,26 +53,47 @@ async function loadPresence(
     .in("id", userIds);
   if (profilesError) throw profilesError;
 
-  const participants = (profiles ?? []).map((p: any) => ({
+  return (profiles ?? []).map((p: any) => ({
     userId: p.id,
     name: labelFor(p),
     avatarUrl: p.avatar_url ?? null,
   }));
-  return { participants, windowStart };
 }
 
-/** Participants + the shared dance pool, in one go — see loadPresence.
- *  Replaces separately calling loadLiveParticipants and loadLiveDances
- *  back to back (they both independently queried venue_live_presence
- *  and venue_live_dance_marks/profiles-adjacent data); this cuts the
- *  session screen's open/reopen refresh from ~6 round-trips (3 of them
- *  sequential) down to 3 (2 sequential). */
+/** The start of the venue's CURRENT ongoing dance list — purely a
+ *  function of gaps in venue_live_dances.logged_at, via the
+ *  venue_live_session_window_start SQL function (migration_venue_live_session_window.sql).
+ *  Deliberately independent of who is checked in or when: the list is
+ *  a shared, dynamic pool that only "resets" once more than an hour
+ *  has passed with nothing logged — not when any particular person
+ *  leaves. A user checking in long after everyone else has gone still
+ *  sees the full streak back to the last such gap. Falls back to
+ *  `fallback` (the caller's own checked_in_at) only if the RPC itself
+ *  errors or finds no rows yet (brand new session, nothing logged). */
+async function loadSessionWindowStart(venueId: string, fallback: string): Promise<string> {
+  const { data, error } = await supabase.rpc("venue_live_session_window_start", {
+    p_venue_id: venueId,
+  });
+  if (error || !data) return fallback;
+  return data as string;
+}
+
+/** Participants + the shared dance pool, in one go. Presence (who's
+ *  here) and the dance list's time window (what's in the list) are
+ *  fetched independently in parallel — they used to be entangled in
+ *  one query, which was the root cause of a data-loss bug: the window
+ *  start was computed from "earliest active check-in," so it jumped
+ *  forward (silently dropping earlier dances) the moment that person
+ *  left. See loadSessionWindowStart. */
 export async function loadLiveSessionState(
   venueId: string,
   myUserId: string,
   checkedInAt: string,
 ): Promise<{ dances: LiveDance[]; participants: LiveParticipant[] }> {
-  const { participants, windowStart } = await loadPresence(venueId, checkedInAt);
+  const [participants, windowStart] = await Promise.all([
+    loadPresence(venueId),
+    loadSessionWindowStart(venueId, checkedInAt),
+  ]);
 
   const { data: rows, error } = await supabase
     .from("venue_live_dances")
@@ -139,30 +151,6 @@ export async function loadLiveSessionState(
     };
   });
   return { dances, participants };
-}
-
-/** The start of the CURRENT ongoing session at this venue — the
- *  earliest checked_in_at among everyone still actively checked in
- *  (ended_at is null) right now, not just this one caller's own
- *  check-in time. This is what lets a user who joins partway through
- *  a group's night see everything logged before they arrived, while
- *  still correctly excluding an earlier, already-ended, separate
- *  night at the same venue (venue_live_dances is append-only and
- *  never cleared between sessions — once everyone currently there
- *  ends their session, this naturally resets for whoever checks in
- *  next). Falls back to `fallback` (the caller's own checked_in_at)
- *  if the presence query fails or — in a genuine race, someone's row
- *  disappearing between calls — comes back empty. */
-async function loadSessionWindowStart(venueId: string, fallback: string): Promise<string> {
-  const { data, error } = await supabase
-    .from("venue_live_presence")
-    .select("checked_in_at")
-    .eq("venue_id", venueId)
-    .order("checked_in_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error || !data) return fallback;
-  return data.checked_in_at as string;
 }
 
 /** Logs a dance into the shared pool and auto-marks the logger as
