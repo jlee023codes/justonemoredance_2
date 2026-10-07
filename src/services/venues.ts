@@ -433,7 +433,10 @@ export async function findOrCreateGlobalVenue(
     .insert({ id: slugify(trimmed) || key, name: trimmed, name_key: key, created_by: userId ?? null })
     .select(VENUE_SELECT)
     .single();
-  if (!insertError) return { venue: created, isNew: true };
+  if (!insertError) {
+    if (userId) await linkCreatorVisibility(userId, created.id);
+    return { venue: created, isNew: true };
+  }
 
   // 23505 = unique violation: lost the race (name_key) or the readable id
   // collided with a different venue. Either way, the canonical row is the
@@ -453,6 +456,7 @@ export async function findOrCreateGlobalVenue(
       .select(VENUE_SELECT)
       .single();
     if (retryError) throw retryError;
+    if (userId) await linkCreatorVisibility(userId, retry.id);
     return { venue: retry, isNew: true };
   }
   throw insertError;
@@ -562,7 +566,10 @@ export async function findOrCreateGlobalVenueFromPlace(
     .insert(insertRow)
     .select(VENUE_SELECT)
     .single();
-  if (!insertError) return { venue: created, isNew: true };
+  if (!insertError) {
+    if (userId) await linkCreatorVisibility(userId, created.id);
+    return { venue: created, isNew: true };
+  }
 
   // 23505 = unique violation: lost the race on name_key or google_place_id,
   // or the readable id collided with a different venue.
@@ -575,6 +582,7 @@ export async function findOrCreateGlobalVenueFromPlace(
       .select(VENUE_SELECT)
       .single();
     if (retryError) throw retryError;
+    if (userId) await linkCreatorVisibility(userId, retry.id);
     return { venue: retry, isNew: true };
   }
   throw insertError;
@@ -767,6 +775,36 @@ export async function attachPublicCounts(
     const locked = inMyList && publicCount < VENUE_PUBLIC_THRESHOLD;
     return { ...v, publicCount, locked };
   });
+}
+
+// Defensive redundancy for venue creation: visibility of a freshly
+// created venue (via the "read venues" RLS policy — see
+// migration_venue_lock_threshold_3.sql) depends on created_by =
+// auth.uid() OR a user_venues row OR crossing the public-unlock
+// threshold. created_by is set correctly at insert time whenever a
+// real userId is passed in, but it's still a single point of
+// failure — if it's ever wrong or gets nulled out by anything
+// (a stale/partial write, a future migration, data imported from
+// elsewhere), the venue becomes permanently unreadable to everyone,
+// including its own creator, with no in-app way to recover it (this
+// exact scenario happened once — see
+// migration_venue_lock_backfill_created_by.sql). Writing a
+// user_venues row at creation time too means visibility never rests
+// on created_by alone. No vote/endorsement side effect here
+// (unlike addUserVenue) — this exists purely for the RLS safety net,
+// not as a user action.
+async function linkCreatorVisibility(userId: string, venueId: string): Promise<void> {
+  try {
+    await supabase
+      .from("user_venues")
+      .upsert(
+        { user_id: userId, venue_id: venueId },
+        { onConflict: "user_id,venue_id", ignoreDuplicates: true },
+      );
+  } catch {
+    // Best-effort safety net — the venue is still usable via
+    // created_by alone if this write fails for some reason.
+  }
 }
 
 export async function addUserVenue(userId: string, venueId: string) {
