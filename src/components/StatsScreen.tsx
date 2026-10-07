@@ -245,19 +245,16 @@ export function StatsScreen({
   );
 }
 
-type DanceFilter = "danced" | "newToVenue";
-
 /** Pop-out list of everything logged during one session — minimal by
- *  design: a dense, 2-3 column grid of just dance names, so a long
- *  night (avid dancers can log 60-100+) still fits on screen without
- *  scrolling forever. Full-screen rather than a centered card — a
- *  fixed-width card was clipping the venue name on longer titles.
+ *  design: plain dance names in text columns (no card chrome), so a
+ *  long night (avid dancers can log 60-100+) still fits on screen
+ *  without scrolling forever. Full-screen rather than a centered card
+ *  — a fixed-width card was clipping the venue name on longer titles.
  *
- *  "I Danced" and "New to venue" are togglable filter chips rather
- *  than separate cards/modals — both are just facts about dances
- *  already in this same list, so filtering in place (with a small
- *  badge per cell) keeps one grid instead of duplicating it per
- *  signal. */
+ *  Defaults to just the dances this user actually danced — "Show all
+ *  dances" toggles to the whole venue log for the night; "New to
+ *  venue" is a separate, independent filter on top of whichever of
+ *  those two is active. */
 function SessionDancesModal({
   entry,
   onClose,
@@ -267,30 +264,23 @@ function SessionDancesModal({
 }) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
-  const [filters, setFilters] = useState<Set<DanceFilter>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+  const [newToVenueOnly, setNewToVenueOnly] = useState(false);
 
   useEffect(() => {
     if (entry) {
       setQuery("");
       setCopied(false);
-      setFilters(new Set());
+      setShowAll(false);
+      setNewToVenueOnly(false);
     }
   }, [entry]);
 
   if (!entry) return null;
 
-  const toggleFilter = (f: DanceFilter) => {
-    setFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(f)) next.delete(f);
-      else next.add(f);
-      return next;
-    });
-  };
-
   const baseDances = entry.dances.filter((d) => {
-    if (filters.has("danced") && d.danced === false) return false;
-    if (filters.has("newToVenue") && !d.newToVenue) return false;
+    if (!showAll && d.danced === false) return false;
+    if (newToVenueOnly && !d.newToVenue) return false;
     return true;
   });
   const trimmedQuery = query.trim();
@@ -362,46 +352,29 @@ function SessionDancesModal({
 
         <View style={s.gridFilterRow}>
           <Pressable
-            style={[s.gridFilterChip, filters.has("danced") && s.gridFilterChipOn]}
-            onPress={() => toggleFilter("danced")}
+            style={[s.gridFilterChip, showAll && s.gridFilterChipOn]}
+            onPress={() => setShowAll((v) => !v)}
           >
-            <Text style={[s.gridFilterChipText, filters.has("danced") && s.gridFilterChipTextOn]}>
-              {filters.has("danced") ? "✓ " : ""}I Danced
+            <Text style={[s.gridFilterChipText, showAll && s.gridFilterChipTextOn]}>
+              {showAll ? "✓ " : ""}Show all dances
             </Text>
           </Pressable>
           <Pressable
-            style={[s.gridFilterChip, filters.has("newToVenue") && s.gridFilterChipOn]}
-            onPress={() => toggleFilter("newToVenue")}
+            style={[s.gridFilterChip, newToVenueOnly && s.gridFilterChipOn]}
+            onPress={() => setNewToVenueOnly((v) => !v)}
           >
-            <Text style={[s.gridFilterChipText, filters.has("newToVenue") && s.gridFilterChipTextOn]}>
-              {filters.has("newToVenue") ? "✓ " : ""}New to venue
+            <Text style={[s.gridFilterChipText, newToVenueOnly && s.gridFilterChipTextOn]}>
+              {newToVenueOnly ? "✓ " : ""}New to venue
             </Text>
           </Pressable>
         </View>
 
-        <View style={s.gridLegend}>
-          <View style={s.legendItem}>
-            <View style={[s.legendSwatch, s.legendSwatchDanced]} />
-            <Text style={s.legendText}>Danced</Text>
-          </View>
-          <View style={s.legendItem}>
-            <View style={[s.legendSwatch, s.legendSwatchLogged]} />
-            <Text style={s.legendText}>Logged / playing</Text>
-          </View>
-        </View>
-
         <ScrollView contentContainerStyle={s.gridList}>
-          <View style={s.grid}>
+          <View style={s.textGrid}>
             {visibleDances.map((d, i) => (
-              <View
-                key={`${d.danceId}-${i}`}
-                style={[s.gridCell, d.danced === false ? s.gridCellLogged : s.gridCellDanced]}
-              >
-                <Text style={s.gridCellText} numberOfLines={2}>{d.name}</Text>
-                {d.newToVenue && (
-                  <Text style={s.gridCellBadge} numberOfLines={1}>New to venue</Text>
-                )}
-              </View>
+              <Text key={`${d.danceId}-${i}`} style={s.textGridCell} numberOfLines={2}>
+                {d.name}
+              </Text>
             ))}
           </View>
           {!visibleDances.length && (
@@ -566,37 +539,21 @@ const s = StyleSheet.create({
   gridFilterChipOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
   gridFilterChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
   gridFilterChipTextOn: { color: colors.pink },
-  gridLegend: { flexDirection: "row", gap: 16, paddingHorizontal: 20, paddingTop: 14 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendSwatch: { width: 12, height: 12, borderRadius: 3 },
-  legendSwatchDanced: { backgroundColor: colors.gold },
-  legendSwatchLogged: { backgroundColor: colors.line },
-  legendText: { color: colors.muted, fontSize: 11.5, fontWeight: "700" },
   gridList: { padding: 20, paddingBottom: 50 },
-  grid: {
+  // Plain text, no card chrome — three columns via flexBasis so a
+  // long night's list (60-100+ dances) still reads at a glance
+  // instead of scrolling a single column forever.
+  textGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
   },
-  gridCell: {
-    flexBasis: "31.5%",
-    flexGrow: 1,
-    backgroundColor: colors.card,
-    borderWidth: 1.5,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    minHeight: 54,
-    justifyContent: "center",
-  },
-  gridCellDanced: { borderColor: colors.gold, backgroundColor: colors.card },
-  gridCellLogged: { borderColor: colors.line, backgroundColor: colors.bg },
-  gridCellText: { color: colors.ink, fontSize: 12.5, fontWeight: "700", textAlign: "center" },
-  gridCellBadge: {
-    color: colors.gold,
-    fontSize: 9.5,
-    fontWeight: "800",
+  textGridCell: {
+    flexBasis: "33.333%",
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "600",
     textAlign: "center",
-    marginTop: 3,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
   },
 });
