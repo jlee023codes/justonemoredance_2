@@ -10,17 +10,18 @@ function mergeDateAndTime(date: Date, time: Date): Date {
   return merged;
 }
 
-/** Prompts when a restored check-in has gone quiet a while (2+ hours,
- *  nothing logged — see App.tsx's staleness check) instead of silently
- *  leaving it open forever or guessing on the user's behalf. Ending a
- *  session otherwise relies entirely on the user reopening the app
- *  (manual "Done Dancing", or the geofence check, which is foreground-
- *  only) — someone who just closes the app after a night out and
- *  doesn't come back near that venue would stay "checked in"
- *  indefinitely with nothing to ever prompt them. "Still here" simply
- *  dismisses (no change, same as if this never fired); "I actually
- *  left" opens a date/time picker so the user can backdate ended_at to
- *  roughly when they really left, rather than always using right now. */
+/** Prompts when a restored check-in's venue has gone quiet a while
+ *  (4+ hours since the last dance logged there, by anyone — see
+ *  App.tsx's staleness check) instead of silently leaving it open
+ *  forever or auto-ending on the user's behalf. Ending a session is
+ *  otherwise only a manual "Done Dancing" tap (no GPS-based auto-end —
+ *  that was removed as too unreliable, prone to false-triggering on
+ *  bad/imprecise location fixes) — someone who just closes the app
+ *  after a night out would stay "checked in" indefinitely with
+ *  nothing to ever prompt them. "Still here" simply dismisses (no
+ *  change, same as if this never fired); "I actually left" opens a
+ *  date/time picker so the user can backdate ended_at to roughly when
+ *  they really left, rather than always using right now. */
 export function StaleSessionModal({
   session,
   onStillHere,
@@ -51,8 +52,8 @@ export function StaleSessionModal({
           {!picking ? (
             <>
               <Text style={s.body}>
-                You checked in a while ago and nothing's been logged since —
-                just checking this is still right.
+                Nothing's been logged at this venue in a while — just
+                checking this is still right.
               </Text>
               <Pressable style={s.primary} onPress={onStillHere}>
                 <Text style={s.primaryText}>Yes, still here</Text>

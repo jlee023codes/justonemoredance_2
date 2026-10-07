@@ -29,7 +29,7 @@ import { HelpModal } from "./src/components/HelpModal";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { OfflineListModal } from "./src/components/OfflineListModal";
 import { StaleSessionModal } from "./src/components/StaleSessionModal";
-import { hasLoggedAnyDance } from "./src/lib/liveSession";
+import { hoursSinceLastVenueDance } from "./src/lib/liveSession";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
@@ -44,10 +44,8 @@ import {
 } from "./src/lib/geoCheckin";
 import {
   ActiveSession,
-  distanceFromVenueMeters,
   elapsedSeconds,
   endSession,
-  GEOFENCE_EXIT_METERS,
   loadActiveSession,
   queryStepCount,
   startSession,
@@ -383,77 +381,33 @@ function AppRoot() {
     loadAutoAddNewDances(session.user.id).then(setAutoAddNewDances).catch(() => {});
   }, [session?.user.id]);
 
-  // Geofence auto-end — foreground-only, same AppState shape as the
-  // proximity effect above. While a session is active (and not
-  // paused), check distance from the checked-in venue on every
-  // foreground transition; drifting past GEOFENCE_EXIT_METERS ends it
-  // automatically. Reads activeSession via the same ref so this
-  // doesn't need its own separate subscription lifecycle concerns.
-  useEffect(() => {
-    if (!session) return;
-
-    const checkGeofence = async () => {
-      const current = activeSessionRef.current;
-      if (!current) return;
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) return;
-        const loc = await Location.getCurrentPositionAsync({});
-        const distance = distanceFromVenueMeters(current, {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        });
-        if (distance <= GEOFENCE_EXIT_METERS) return;
-        const stepCount = await queryStepCount(current);
-        const summary = await endSession(current, "geofence", stepCount);
-        setActiveSession(null);
-        setSessionScreenOpen(false);
-        setStatsRefreshKey((k) => k + 1);
-        showAlert(
-          "Session ended",
-          `Looks like you left ${current.venueName} — we ended your dancing session automatically.${
-            summary.durationSeconds > 0
-              ? ` You were there for ${Math.round(summary.durationSeconds / 60)} min.`
-              : ""
-          }`,
-        );
-      } catch {
-        // Best-effort — never auto-end over a location hiccup.
-      }
-    };
-
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") checkGeofence();
-    });
-    return () => subscription.remove();
-  }, [session?.user.id]);
-
-  // "Did you forget to end this?" — ending a session otherwise relies
-  // entirely on the user reopening the app (manual "Done Dancing", or
-  // the geofence check above, which only fires on a foreground
-  // transition). Someone who checks in, dances a bit, then just closes
-  // the app for the night and doesn't come back near that venue stays
-  // "checked in" indefinitely — reported as other people still seeing
-  // them live at the venue hours later. Rather than guessing an end
-  // time server-side (no reliable per-user "last seen" signal exists —
-  // a quiet stretch looks identical whether someone left or is just
-  // dancing without logging), prompt the user themselves the next time
-  // they open the app, so THEY decide. Deliberately conservative:
-  // triggers only when NOTHING has EVER been logged this check-in
-  // (hasLoggedAnyDance — not "nothing recently"; a long quiet stretch
-  // after real logging is normal, not a sign of having left) AND it's
-  // been 2+ hours since check-in. A real, actively-logging session,
-  // even a very long one, is never second-guessed here.
+  // "Did you forget to end this?" — ending a session is now purely
+  // (1) the user manually tapping "Done Dancing," or (2) this prompt,
+  // since a GPS-based geofence auto-end was removed (unreliable —
+  // false-triggered on web/dev where browser geolocation can be
+  // wildly inaccurate, and in general too easy to misfire on bad GPS
+  // fixes or imprecise venue coordinates). Someone who checks in,
+  // dances a bit, then just closes the app for the night stays
+  // "checked in" indefinitely otherwise — reported as other people
+  // still seeing them live at the venue hours later. Rather than
+  // silently auto-ending (same false-positive risk that just burned
+  // the geofence feature), prompt the user themselves the next time
+  // they open the app, so THEY decide. Triggers once 4+ hours have
+  // passed since the most recent dance logged anywhere at this venue
+  // (not just by this user — someone else still logging keeps the
+  // venue's session genuinely alive), or since check-in itself if
+  // nothing's ever been logged there yet.
+  const STALE_SESSION_HOURS = 4;
   const staleDismissedRef = useRef<string | null>(null);
   useEffect(() => {
     const checkStale = async () => {
       const current = activeSessionRef.current;
       if (!current) return;
       if (staleDismissedRef.current === current.checkinId) return;
-      const hoursSinceCheckIn = (Date.now() - new Date(current.startedAt).getTime()) / 3600000;
-      if (hoursSinceCheckIn < 2) return;
-      const everLogged = await hasLoggedAnyDance(current.checkinId).catch(() => true);
-      if (!everLogged && activeSessionRef.current?.checkinId === current.checkinId) {
+      const hoursSinceLastDance = await hoursSinceLastVenueDance(current.venueId).catch(() => null);
+      const hoursQuiet =
+        hoursSinceLastDance ?? (Date.now() - new Date(current.startedAt).getTime()) / 3600000;
+      if (hoursQuiet >= STALE_SESSION_HOURS && activeSessionRef.current?.checkinId === current.checkinId) {
         setStaleSession(current);
       }
     };

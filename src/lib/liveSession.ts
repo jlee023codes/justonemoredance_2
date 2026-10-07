@@ -211,13 +211,23 @@ export async function loadLiveSessionState(
  *  session screen reads from the shared live pool instead — it would
  *  always read as empty and make every long session look "stale,"
  *  including a genuinely active one. */
-export async function hasLoggedAnyDance(checkinId: string): Promise<boolean> {
-  const { count, error } = await supabase
+/** Hours since the most recent dance was logged anywhere at this
+ *  venue (not scoped to one check-in — other people logging keeps
+ *  the venue's session genuinely alive even if this specific user
+ *  hasn't personally added anything), or null if nothing has ever
+ *  been logged there. Used by App.tsx's "did you forget to end this?"
+ *  staleness prompt. */
+export async function hoursSinceLastVenueDance(venueId: string): Promise<number | null> {
+  const { data, error } = await supabase
     .from("venue_live_dances")
-    .select("id", { count: "exact", head: true })
-    .eq("checkin_id", checkinId);
+    .select("logged_at")
+    .eq("venue_id", venueId)
+    .order("logged_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (error) throw error;
-  return (count ?? 0) > 0;
+  if (!data) return null;
+  return (Date.now() - new Date(data.logged_at).getTime()) / 3600000;
 }
 
 /** Read-only view of a venue's current live session for someone just

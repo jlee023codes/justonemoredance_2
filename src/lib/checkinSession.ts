@@ -1,15 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Pedometer } from "expo-sensors";
 import { supabase } from "./supabase";
-import { haversineDistanceMeters } from "./geoCheckin";
 import { VenueOption } from "../services/venues";
 import { Dance } from "../types";
-
-// How far (in meters) a user can drift from the checked-in venue
-// before a session auto-ends — 0.5 miles. Foreground-only, same
-// AppState-driven pattern as the proximity prompt in geoCheckin.ts —
-// no background location, no "Always" permission.
-export const GEOFENCE_EXIT_METERS = 804.7;
 
 const SESSION_KEY = "jomd.active-session";
 
@@ -186,18 +179,6 @@ export async function queryStepCount(session: ActiveSession): Promise<number | n
   } catch {
     return null;
   }
-}
-
-export function distanceFromVenueMeters(
-  session: ActiveSession,
-  position: { latitude: number; longitude: number },
-): number {
-  return haversineDistanceMeters(
-    position.latitude,
-    position.longitude,
-    session.venueLat,
-    session.venueLon,
-  );
 }
 
 /** Closes out a session: stamps the venue_checkins row and clears the
