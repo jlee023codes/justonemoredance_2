@@ -61,6 +61,19 @@ async function loadPresence(venueId: string): Promise<LiveParticipant[]> {
   }));
 }
 
+// The gap-detection RPC only resets retroactively — it finds the most
+// recent gap BETWEEN two logged dances, so until someone logs a fresh
+// one tonight, it still correctly returns the start of last night's
+// streak (there's no new row yet to create a gap against). That read
+// of "last session's dance list" while technically accurate was
+// confusing to open to on a new check-in — reported as "still seeing
+// last night's dances." If the MOST RECENT dance logged at this venue
+// (not the window's start — a long, still-genuinely-ongoing session's
+// start can itself be hours old) is already older than this, treat
+// the session as fresh and start empty instead of waiting for the
+// first new log to retroactively clear it.
+const STALE_WINDOW_HOURS = 4;
+
 /** The start of the venue's CURRENT ongoing dance list — purely a
  *  function of gaps in venue_live_dances.logged_at, via the
  *  venue_live_session_window_start SQL function (migration_venue_live_session_window.sql).
@@ -69,14 +82,26 @@ async function loadPresence(venueId: string): Promise<LiveParticipant[]> {
  *  has passed with nothing logged — not when any particular person
  *  leaves. A user checking in long after everyone else has gone still
  *  sees the full streak back to the last such gap. Falls back to
- *  `fallback` (the caller's own checked_in_at) only if the RPC itself
- *  errors or finds no rows yet (brand new session, nothing logged). */
+ *  `fallback` (the caller's own checked_in_at) if the RPC itself
+ *  errors, finds no rows yet (brand new session, nothing logged), or
+ *  — see STALE_WINDOW_HOURS above — nothing's been logged there in
+ *  4+ hours, even if the matching window itself is older still. */
 async function loadSessionWindowStart(venueId: string, fallback: string): Promise<string> {
-  const { data, error } = await supabase.rpc("venue_live_session_window_start", {
-    p_venue_id: venueId,
-  });
-  if (error || !data) return fallback;
-  return data as string;
+  const [{ data: windowStart, error }, { data: lastDance, error: lastError }] = await Promise.all([
+    supabase.rpc("venue_live_session_window_start", { p_venue_id: venueId }),
+    supabase
+      .from("venue_live_dances")
+      .select("logged_at")
+      .eq("venue_id", venueId)
+      .order("logged_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (error || !windowStart) return fallback;
+  if (lastError || !lastDance) return windowStart as string;
+  const hoursSinceLastDance = (Date.now() - new Date(lastDance.logged_at).getTime()) / 3600000;
+  if (hoursSinceLastDance >= STALE_WINDOW_HOURS) return fallback;
+  return windowStart as string;
 }
 
 /** Participants + the shared dance pool, in one go. Presence (who's

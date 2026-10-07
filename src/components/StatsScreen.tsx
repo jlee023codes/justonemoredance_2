@@ -42,6 +42,24 @@ function formatDate(iso: string): string {
   });
 }
 
+/** How many dances this user danced this session, and what percent of
+ *  the venue's whole playlist that is — prefers the live-tracked
+ *  snapshot (liveDancedCount/liveTotalCount, stamped once at
+ *  session-end) since that's scored against everyone's dances, not
+ *  just this user's own log; falls back to counting entry.dances
+ *  directly (danced !== false) for sessions with no live tracking
+ *  (backfilled nights, solo sessions where loadLivePercent returns
+ *  null) so the stat blocks always show a real number. */
+function sessionDancedTotal(entry: SessionHistoryEntry): { danced: number; percent: number } {
+  if (entry.liveTotalCount != null && entry.liveTotalCount > 0) {
+    const danced = entry.liveDancedCount ?? 0;
+    return { danced, percent: Math.round((danced / entry.liveTotalCount) * 100) };
+  }
+  const danced = entry.dances.filter((d) => d.danced !== false).length;
+  const total = entry.dances.length;
+  return { danced, percent: total > 0 ? Math.round((danced / total) * 100) : 0 };
+}
+
 /** History of past check-in sessions — how long you were out, how many
  *  dances you logged, and steps if the device reported any. Free for
  *  everyone, same as check-in itself. */
@@ -134,24 +152,16 @@ export function StatsScreen({
             <View style={s.statsRow}>
               <View style={s.stat}>
                 <Text style={s.statValue}>{formatDuration(entry.durationSeconds)}</Text>
-                <Text style={s.statLabel}>time there</Text>
+                <Text style={s.statLabel}>time</Text>
               </View>
-              {entry.liveTotalCount != null && entry.liveTotalCount > 1 ? (
-                <View style={s.stat}>
-                  <Text style={[s.statValue, s.statValueTight]} numberOfLines={1}>
-                    {entry.liveDancedCount ?? 0}/{entry.liveTotalCount} for{" "}
-                    {Math.round(((entry.liveDancedCount ?? 0) / entry.liveTotalCount) * 100)}%
-                  </Text>
-                  <Text style={s.statLabel}>your night</Text>
-                </View>
-              ) : (
-                <View style={s.stat}>
-                  <Text style={s.statValue}>{entry.dances.length}</Text>
-                  <Text style={s.statLabel}>
-                    {entry.dances.length === 1 ? "dance" : "dances"}
-                  </Text>
-                </View>
-              )}
+              <View style={s.stat}>
+                <Text style={s.statValue}>{sessionDancedTotal(entry).danced}</Text>
+                <Text style={s.statLabel}>danced</Text>
+              </View>
+              <View style={s.stat}>
+                <Text style={s.statValue}>{sessionDancedTotal(entry).percent}%</Text>
+                <Text style={s.statLabel}>of total</Text>
+              </View>
               {entry.stepCount != null ? (
                 <View style={s.stat}>
                   <Text style={s.statValue}>{entry.stepCount.toLocaleString()}</Text>
@@ -160,7 +170,7 @@ export function StatsScreen({
               ) : entry.endReason === "backfilled" ? (
                 <View style={s.stat}>
                   <Text style={s.statValueMuted}>N/A</Text>
-                  <Text style={s.statLabel}>not live tracked</Text>
+                  <Text style={s.statLabel}>steps</Text>
                 </View>
               ) : null}
             </View>
@@ -347,6 +357,32 @@ function SessionDancesModal({
           </Pressable>
         </View>
 
+        <View style={s.gridStatsRow}>
+          <View style={s.stat}>
+            <Text style={s.statValue}>{formatDuration(entry.durationSeconds)}</Text>
+            <Text style={s.statLabel}>time</Text>
+          </View>
+          <View style={s.stat}>
+            <Text style={s.statValue}>{sessionDancedTotal(entry).danced}</Text>
+            <Text style={s.statLabel}>danced</Text>
+          </View>
+          <View style={s.stat}>
+            <Text style={s.statValue}>{sessionDancedTotal(entry).percent}%</Text>
+            <Text style={s.statLabel}>of total</Text>
+          </View>
+          {entry.stepCount != null ? (
+            <View style={s.stat}>
+              <Text style={s.statValue}>{entry.stepCount.toLocaleString()}</Text>
+              <Text style={s.statLabel}>steps</Text>
+            </View>
+          ) : entry.endReason === "backfilled" ? (
+            <View style={s.stat}>
+              <Text style={s.statValueMuted}>N/A</Text>
+              <Text style={s.statLabel}>steps</Text>
+            </View>
+          ) : null}
+        </View>
+
         {entry.dances.length > 5 && (
           <SearchInput
             value={query}
@@ -441,11 +477,10 @@ const s = StyleSheet.create({
   },
   venueName: { color: colors.ink, fontSize: 17, fontWeight: "800", flex: 1, paddingRight: 10 },
   date: { color: colors.muted, fontSize: 12 },
-  statsRow: { flexDirection: "row", gap: 20 },
-  stat: { alignItems: "flex-start" },
-  statValue: { color: colors.gold, fontSize: 18, fontWeight: "900" },
-  statValueTight: { fontSize: 14 },
-  statValueMuted: { color: colors.muted, fontSize: 14, fontWeight: "800" },
+  statsRow: { flexDirection: "row" },
+  stat: { flex: 1, alignItems: "center" },
+  statValue: { color: colors.gold, fontSize: 17, fontWeight: "900" },
+  statValueMuted: { color: colors.muted, fontSize: 13, fontWeight: "800" },
   statLabel: { color: colors.muted, fontSize: 11, marginTop: 2 },
   autoEnded: { color: colors.muted, fontSize: 11, marginTop: 10, fontStyle: "italic" },
   chartRow: {
@@ -480,6 +515,11 @@ const s = StyleSheet.create({
     paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.line,
+  },
+  gridStatsRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingTop: 14,
   },
   gridCloseButton: {
     width: 36,
