@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import * as Location from "expo-location";
 import { Dance, DanceProgress } from "../types";
 import { colors } from "../styles";
+import { confirmAction } from "../lib/alerts";
 import { Tier } from "../lib/tier";
 import { haversineDistanceMeters, NEAR_ME_METERS } from "../lib/geoCheckin";
 import { QuickStatus } from "./DanceCard";
@@ -151,7 +152,19 @@ export function VenuesScreen({
       searchGlobalVenues(query, userId, effectiveLimit, dayFilters)
         .then((venues) => attachRepStatus(venues, userId, isAdmin))
         .then((venues) => {
-          if (!cancelled) setResults(venues);
+          if (cancelled) return;
+          // Re-merge anything recently added via mergeVenue that this
+          // fresh fetch didn't happen to include (see recentlyAddedRef)
+          // — a brand-new venue can easily miss a votes-sorted,
+          // default-limit query. Confirmed-present entries are dropped
+          // from the pending set so it doesn't grow unbounded.
+          const found = new Set(venues.map((v) => v.id));
+          const stillMissing: VenueOption[] = [];
+          for (const [id, venue] of recentlyAddedRef.current) {
+            if (found.has(id)) recentlyAddedRef.current.delete(id);
+            else stillMissing.push(venue);
+          }
+          setResults(stillMissing.length ? [...stillMissing, ...venues] : venues);
         })
         .catch((err: any) => {
           if (!cancelled) setError(err?.message ?? "Could not load venues.");
@@ -248,6 +261,17 @@ export function VenuesScreen({
     );
   };
 
+  // A venue just added/found this way needs to survive the search
+  // effect's own refetch (triggered by mergeVenue's setQuery("")
+  // right after) even if it doesn't come back in that fresh fetch —
+  // a brand-new venue has 0 votes, so a votes-sorted default-limit
+  // query can easily not include it yet. Without this, the venue
+  // visibly appeared for a moment (mergeVenue's own optimistic
+  // setResults) and then vanished once the refetch's setResults
+  // wholesale-replaced the list. Cleared once the venue is actually
+  // confirmed present in a real fetch, so this doesn't grow forever.
+  const recentlyAddedRef = useRef<Map<string, VenueOption>>(new Map());
+
   // Enriches and merges a just-found/created venue into the visible
   // list, prompting for a starting schedule if it's genuinely new.
   const mergeVenue = (venue: VenueOption, isNew: boolean) => {
@@ -255,6 +279,7 @@ export function VenuesScreen({
       .then((withNights) => attachRepStatus(withNights, userId, isAdmin))
       .then((withRep) => attachPublicCounts(withRep, userId))
       .then(([enriched]) => {
+        recentlyAddedRef.current.set(enriched.id, enriched);
         setResults((prev) =>
           prev.some((v) => v.id === enriched.id)
             ? prev.map((v) => (v.id === enriched.id ? enriched : v))
@@ -265,6 +290,12 @@ export function VenuesScreen({
   };
 
   const handleSelectPlace = async (suggestion: PlaceSuggestion) => {
+    const confirmed = await confirmAction(
+      "Add to your venues?",
+      suggestion.description,
+      "Add",
+    );
+    if (!confirmed) return;
     setAddingPlaceId(suggestion.placeId);
     setError("");
     try {
@@ -297,6 +328,8 @@ export function VenuesScreen({
   const handleAddFreeText = async () => {
     const trimmed = query.trim();
     if (!trimmed) return;
+    const confirmed = await confirmAction("Add to your venues?", trimmed, "Add");
+    if (!confirmed) return;
     setAddingFreeText(true);
     setError("");
     try {

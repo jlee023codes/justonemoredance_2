@@ -21,6 +21,16 @@ export type SessionHistoryEntry = {
   liveTotalCount: number | null;
 };
 
+/** Deletes a past session entirely — the venue_checkins row itself,
+ *  plus anything that cascades from it (any session_shares link,
+ *  venue_live_dances rows tied to this checkin_id). RLS already
+ *  limits this to the owner's own rows ("manage own checkins" is
+ *  `for all`), so no new migration is needed for this to work. */
+export async function deleteSession(checkinId: string): Promise<void> {
+  const { error } = await supabase.from("venue_checkins").delete().eq("id", checkinId);
+  if (error) throw error;
+}
+
 /** Past, closed-out check-in sessions for this user, newest first.
  *  Two-step fetch (checkins, then venue names) rather than an embedded
  *  select — keeps each query's select string a simple literal, same

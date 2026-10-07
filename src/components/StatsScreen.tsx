@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { colors } from "../styles";
-import { showError } from "../lib/alerts";
+import { confirmAction, showError } from "../lib/alerts";
 import { BackToTopHandle, BackToTopScrollView } from "./BackToTopScrollView";
 import { DifficultyPieChart } from "./DifficultyPieChart";
 import { SearchInput } from "./SearchInput";
@@ -22,6 +22,7 @@ import { matchesDanceName } from "../lib/danceListView";
 import { DanceProgress } from "../types";
 import { Tier } from "../lib/entitlements";
 import {
+  deleteSession,
   getOrCreateShareLink,
   loadSessionHistory,
   SessionHistoryEntry,
@@ -90,6 +91,26 @@ export function StatsScreen({
   const [addNightOpen, setAddNightOpen] = useState(false);
   const [addDanceFor, setAddDanceFor] = useState<SessionHistoryEntry | null>(null);
   const [localRefresh, setLocalRefresh] = useState(0);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDeleteSession = async (entry: SessionHistoryEntry) => {
+    const confirmed = await confirmAction(
+      "Delete this night?",
+      `${entry.venueName} — ${formatDate(entry.checkedInAt)}. This removes it from Stats permanently, including any share link.`,
+      "Delete",
+      true,
+    );
+    if (!confirmed) return;
+    setDeletingId(entry.id);
+    try {
+      await deleteSession(entry.id);
+      setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+    } catch (err: any) {
+      showError(err, "Could not delete that night.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -148,6 +169,18 @@ export function StatsScreen({
                 {entry.venueName}
               </Text>
               <Text style={s.date}>{formatDate(entry.checkedInAt)}</Text>
+              <Pressable
+                style={s.cardDeleteButton}
+                onPress={() => handleDeleteSession(entry)}
+                disabled={deletingId === entry.id}
+                hitSlop={8}
+              >
+                {deletingId === entry.id ? (
+                  <ActivityIndicator color={colors.muted} size="small" />
+                ) : (
+                  <Text style={s.cardDeleteButtonText}>🗑</Text>
+                )}
+              </Pressable>
             </View>
             <View style={s.statsRow}>
               <View style={s.stat}>
@@ -477,6 +510,14 @@ const s = StyleSheet.create({
   },
   venueName: { color: colors.ink, fontSize: 17, fontWeight: "800", flex: 1, paddingRight: 10 },
   date: { color: colors.muted, fontSize: 12 },
+  cardDeleteButton: {
+    marginLeft: 10,
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardDeleteButtonText: { fontSize: 14, opacity: 0.7 },
   statsRow: { flexDirection: "row" },
   stat: { flex: 1, alignItems: "center" },
   statValue: { color: colors.gold, fontSize: 17, fontWeight: "900" },
