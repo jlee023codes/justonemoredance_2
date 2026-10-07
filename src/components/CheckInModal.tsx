@@ -57,7 +57,10 @@ export function CheckInModal({
   const [tab, setTab] = useState<CheckInTab>("known");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [position, setPosition] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [position, setPosition] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
   const [searchStarted, setSearchStarted] = useState(false);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
@@ -68,7 +71,9 @@ export function CheckInModal({
   // indoors, in a dense area with many venues nearby, or for a place
   // just slightly too far for "nearby" to surface).
   const [placeQuery, setPlaceQuery] = useState("");
-  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>(
+    [],
+  );
   const [placesLoading, setPlacesLoading] = useState(false);
   const sessionToken = useRef(newSessionToken());
 
@@ -135,14 +140,21 @@ export function CheckInModal({
     (async () => {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) {
-        throw new Error("Location access is needed to search nearby — enable it in Settings.");
+        throw new Error(
+          "Location access is needed to search nearby — enable it in Settings.",
+        );
       }
       const loc = await Location.getCurrentPositionAsync({});
-      const pos = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+      const pos = {
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      };
       setPosition(pos);
       setPlaces(await searchNearby(pos.latitude, pos.longitude));
     })()
-      .catch((err: any) => setError(err?.message ?? "Could not find nearby places."))
+      .catch((err: any) =>
+        setError(err?.message ?? "Could not find nearby places."),
+      )
       .finally(() => setLoading(false));
   }, [visible, tab, searchStarted]);
 
@@ -160,7 +172,10 @@ export function CheckInModal({
     return () => clearTimeout(timer);
   }, [visible, venueQuery, userId]);
 
-  const checkIntoVenue = async (id: string, create: () => Promise<VenueOption>) => {
+  const checkIntoVenue = async (
+    id: string,
+    create: () => Promise<VenueOption>,
+  ) => {
     setCheckingInId(id);
     setError("");
     try {
@@ -169,7 +184,10 @@ export function CheckInModal({
       // coordinates when checking in manually without one (nearby
       // search failed, or location access was never granted) — picking
       // a venue is itself a claim "I'm here".
-      const pos = position ?? { latitude: venue.latitude, longitude: venue.longitude };
+      const pos = position ?? {
+        latitude: venue.latitude,
+        longitude: venue.longitude,
+      };
       if (pos.latitude == null || pos.longitude == null) {
         throw new Error("That venue doesn't have a location on file yet.");
       }
@@ -205,11 +223,15 @@ export function CheckInModal({
       return venue;
     });
 
-  const handleSelectMyVenue = (venue: VenueOption) => checkIntoVenue(venue.id, async () => venue);
+  const handleSelectMyVenue = (venue: VenueOption) =>
+    checkIntoVenue(venue.id, async () => venue);
 
   const handleSelectPlace = (suggestion: PlaceSuggestion) =>
     checkIntoVenue(suggestion.placeId, async () => {
-      const details = await getPlaceDetails(suggestion.placeId, sessionToken.current);
+      const details = await getPlaceDetails(
+        suggestion.placeId,
+        sessionToken.current,
+      );
       sessionToken.current = newSessionToken();
       const name = details.name || suggestion.description;
       const { venue } =
@@ -274,7 +296,7 @@ export function CheckInModal({
                 <TextInput
                   value={venueQuery}
                   onChangeText={setVenueQuery}
-                  placeholder="Search venues"
+                  placeholder="Search your venues"
                   placeholderTextColor={colors.muted}
                   style={s.venueSearch}
                   autoCapitalize="none"
@@ -342,7 +364,9 @@ export function CheckInModal({
                 {!placeQuery.trim() && (
                   <>
                     <Text style={s.sectionLabel}>NEARBY</Text>
-                    {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
+                    {loading && (
+                      <ActivityIndicator color={colors.gold} style={s.loader} />
+                    )}
                     {!loading &&
                       places.map((place) => (
                         <Pressable
@@ -354,13 +378,19 @@ export function CheckInModal({
                           <View style={s.placeOptionCopy}>
                             <Text style={s.placeOptionName}>{place.name}</Text>
                             {place.formattedAddress && (
-                              <Text style={s.placeOptionAddress} numberOfLines={1}>
+                              <Text
+                                style={s.placeOptionAddress}
+                                numberOfLines={1}
+                              >
                                 {place.formattedAddress}
                               </Text>
                             )}
                           </View>
                           {checkingInId === place.placeId && (
-                            <ActivityIndicator color={colors.gold} size="small" />
+                            <ActivityIndicator
+                              color={colors.gold}
+                              size="small"
+                            />
                           )}
                         </Pressable>
                       ))}
@@ -404,8 +434,20 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   closeButtonText: { color: colors.ink, fontSize: 15, fontWeight: "800" },
-  title: { color: colors.ink, fontSize: 23, fontWeight: "900", paddingHorizontal: 25, paddingRight: 46 },
-  subtitle: { color: colors.muted, fontSize: 12, marginTop: 4, paddingHorizontal: 25, marginBottom: 10 },
+  title: {
+    color: colors.ink,
+    fontSize: 23,
+    fontWeight: "900",
+    paddingHorizontal: 25,
+    paddingRight: 46,
+  },
+  subtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 4,
+    paddingHorizontal: 25,
+    marginBottom: 10,
+  },
   sheet: { paddingHorizontal: 25, paddingBottom: 30 },
   loader: { marginTop: 20 },
   tabRow: {

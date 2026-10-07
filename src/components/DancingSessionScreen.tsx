@@ -350,11 +350,47 @@ export function DancingSessionScreen({
       await saveVenueDance(userId, session.venueId, full, "");
       const next = await logDanceToSession(session, full);
       onSessionChange(next);
+
+      // Optimistic insert — the carousel/VENUE'S LOG used to wait on
+      // the full logLiveDance round-trip AND then a whole separate
+      // refreshLive() re-fetch (presence + dances + marks + profiles)
+      // before showing anything, which read as real lag between
+      // tapping a dance and seeing it appear. Show it immediately with
+      // a temporary id; logLiveDance's background write reconciles the
+      // real id in, and the next poll/Realtime refresh (or this same
+      // .then) corrects anything optimistic-vs-real ever drifts on.
+      const tempId = `pending-${Date.now()}`;
+      const myName = participants.find((p) => p.userId === userId)?.name ?? "You";
+      setLiveDances((current) => [
+        {
+          id: tempId,
+          danceId: full.id,
+          name: full.name,
+          song: full.defaultSong ?? null,
+          details: full.details || null,
+          difficulty: full.difficulty ?? null,
+          loggedBy: userId,
+          loggedByName: myName,
+          loggedAt: new Date().toISOString(),
+          dancedByMe: true,
+          dancedCount: 1,
+        },
+        ...current,
+      ]);
+
       // Shared live write — additive, own try/catch so a failure here
       // never blocks the already-working local/venue-tag writes above.
       logLiveDance(session.checkinId, session.venueId, full, userId)
-        .then(refreshLive)
-        .catch(() => {});
+        .then((realId) => {
+          setLiveDances((current) =>
+            current.map((d) => (d.id === tempId ? { ...d, id: realId } : d)),
+          );
+        })
+        .catch(() => {
+          // Couldn't actually write it — drop the optimistic row
+          // rather than leave a dance showing that was never saved.
+          setLiveDances((current) => current.filter((d) => d.id !== tempId));
+        });
       setLogQuery("");
       setBootResults([]);
       setShowBootSearch(false);

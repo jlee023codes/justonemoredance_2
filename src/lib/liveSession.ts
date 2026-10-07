@@ -272,7 +272,7 @@ export async function logLiveDance(
   venueId: string,
   dance: Dance,
   userId: string,
-): Promise<void> {
+): Promise<string> {
   const { data, error } = await supabase
     .from("venue_live_dances")
     .insert({
@@ -293,6 +293,8 @@ export async function logLiveDance(
     .from("venue_live_dance_marks")
     .insert({ live_dance_id: data.id, venue_id: venueId, user_id: userId });
   if (markError) throw markError;
+
+  return data.id as string;
 }
 
 /** Toggles the caller's own "danced this" mark on someone's (or
