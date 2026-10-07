@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,7 +13,14 @@ import {
 } from "react-native";
 import * as Location from "expo-location";
 import { colors } from "../styles";
-import { NearbyPlace, searchNearby } from "../lib/placesSearch";
+import {
+  getPlaceDetails,
+  NearbyPlace,
+  newSessionToken,
+  PlaceSuggestion,
+  searchNearby,
+  searchPlaces,
+} from "../lib/placesSearch";
 import { stampCooldown } from "../lib/geoCheckin";
 import { ActiveSession, startSession } from "../lib/checkinSession";
 import {
@@ -55,6 +62,16 @@ export function CheckInModal({
   const [searchStarted, setSearchStarted] = useState(false);
   const [checkingInId, setCheckingInId] = useState<string | null>(null);
 
+  // Type-to-search Google Places autocomplete, alongside the GPS
+  // "nearby" list above — lets the user find any place by name/address
+  // instead of only whatever's within the Nearby Search radius (useful
+  // indoors, in a dense area with many venues nearby, or for a place
+  // just slightly too far for "nearby" to surface).
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placesLoading, setPlacesLoading] = useState(false);
+  const sessionToken = useRef(newSessionToken());
+
   // Fallback "pick a venue" list — the full shared catalog (same source
   // VenuesScreen's own list uses), not just venues this user has already
   // danced at/verified. Those are the right (tighter) set for the
@@ -73,7 +90,40 @@ export function CheckInModal({
     setPosition(null);
     setSearchStarted(false);
     setVenueQuery("");
+    setPlaceQuery("");
+    setPlaceSuggestions([]);
   }, [visible]);
+
+  // Debounced Google Places autocomplete — same pattern as VenuesScreen's
+  // add-venue search (searchPlaces + a per-search session token, which
+  // Google bills as one session from the first keystroke through the
+  // final getPlaceDetails call).
+  useEffect(() => {
+    if (!visible || tab !== "search") return;
+    const trimmed = placeQuery.trim();
+    if (!trimmed) {
+      setPlaceSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    setPlacesLoading(true);
+    const timer = setTimeout(() => {
+      searchPlaces(trimmed, sessionToken.current)
+        .then((suggestions) => {
+          if (!cancelled) setPlaceSuggestions(suggestions);
+        })
+        .catch(() => {
+          if (!cancelled) setPlaceSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setPlacesLoading(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [visible, tab, placeQuery]);
 
   // Only runs once the user switches to the Search Venue tab — not on
   // every open, since most check-ins are at a venue already in the
@@ -157,6 +207,27 @@ export function CheckInModal({
 
   const handleSelectMyVenue = (venue: VenueOption) => checkIntoVenue(venue.id, async () => venue);
 
+  const handleSelectPlace = (suggestion: PlaceSuggestion) =>
+    checkIntoVenue(suggestion.placeId, async () => {
+      const details = await getPlaceDetails(suggestion.placeId, sessionToken.current);
+      sessionToken.current = newSessionToken();
+      const name = details.name || suggestion.description;
+      const { venue } =
+        details.latitude != null && details.longitude != null
+          ? await findOrCreateGlobalVenueFromPlace(
+              {
+                name,
+                placeId: suggestion.placeId,
+                latitude: details.latitude,
+                longitude: details.longitude,
+                formattedAddress: details.formattedAddress,
+              },
+              userId,
+            )
+          : await findOrCreateGlobalVenue(name, userId);
+      return venue;
+    });
+
   if (!visible) return null;
 
   return (
@@ -186,7 +257,7 @@ export function CheckInModal({
               onPress={() => setTab("search")}
             >
               <Text style={[s.tabText, tab === "search" && s.tabTextActive]}>
-                Search Venue
+                Find Venues
               </Text>
             </Pressable>
           </View>
@@ -238,30 +309,65 @@ export function CheckInModal({
               </>
             ) : (
               <>
-                {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
-                {!loading &&
-                  places.map((place) => (
-                    <Pressable
-                      key={place.placeId}
-                      style={s.placeOption}
-                      onPress={() => handleSelectNearby(place)}
-                      disabled={checkingInId === place.placeId}
-                    >
-                      <View style={s.placeOptionCopy}>
-                        <Text style={s.placeOptionName}>{place.name}</Text>
-                        {place.formattedAddress && (
-                          <Text style={s.placeOptionAddress} numberOfLines={1}>
-                            {place.formattedAddress}
-                          </Text>
-                        )}
-                      </View>
-                      {checkingInId === place.placeId && (
-                        <ActivityIndicator color={colors.gold} size="small" />
-                      )}
-                    </Pressable>
-                  ))}
-                {!loading && !places.length && (
-                  <Text style={s.empty}>No places found nearby.</Text>
+                <TextInput
+                  value={placeQuery}
+                  onChangeText={setPlaceQuery}
+                  placeholder="Search Google Maps"
+                  placeholderTextColor={colors.muted}
+                  style={s.venueSearch}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {placesLoading && !placeSuggestions.length && (
+                  <ActivityIndicator color={colors.gold} style={s.loader} />
+                )}
+                {placeSuggestions.map((suggestion) => (
+                  <Pressable
+                    key={suggestion.placeId}
+                    style={s.placeOption}
+                    onPress={() => handleSelectPlace(suggestion)}
+                    disabled={checkingInId === suggestion.placeId}
+                  >
+                    <View style={s.placeOptionCopy}>
+                      <Text style={s.placeOptionName} numberOfLines={2}>
+                        {suggestion.description}
+                      </Text>
+                    </View>
+                    {checkingInId === suggestion.placeId && (
+                      <ActivityIndicator color={colors.gold} size="small" />
+                    )}
+                  </Pressable>
+                ))}
+
+                {!placeQuery.trim() && (
+                  <>
+                    <Text style={s.sectionLabel}>NEARBY</Text>
+                    {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
+                    {!loading &&
+                      places.map((place) => (
+                        <Pressable
+                          key={place.placeId}
+                          style={s.placeOption}
+                          onPress={() => handleSelectNearby(place)}
+                          disabled={checkingInId === place.placeId}
+                        >
+                          <View style={s.placeOptionCopy}>
+                            <Text style={s.placeOptionName}>{place.name}</Text>
+                            {place.formattedAddress && (
+                              <Text style={s.placeOptionAddress} numberOfLines={1}>
+                                {place.formattedAddress}
+                              </Text>
+                            )}
+                          </View>
+                          {checkingInId === place.placeId && (
+                            <ActivityIndicator color={colors.gold} size="small" />
+                          )}
+                        </Pressable>
+                      ))}
+                    {!loading && !places.length && (
+                      <Text style={s.empty}>No places found nearby.</Text>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -316,6 +422,14 @@ const s = StyleSheet.create({
   tabActive: { backgroundColor: colors.pink },
   tabText: { color: colors.muted, fontSize: 13, fontWeight: "700" },
   tabTextActive: { color: "#fff" },
+  sectionLabel: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    marginTop: 18,
+    marginBottom: 4,
+  },
   venueSearch: {
     backgroundColor: "#00000033",
     borderWidth: 1,
