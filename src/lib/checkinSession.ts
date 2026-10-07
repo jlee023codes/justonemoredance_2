@@ -210,22 +210,32 @@ export function distanceFromVenueMeters(
  *  tapped to log. `livePercent` (from loadLivePercent) is a snapshot
  *  stamped once here, not live-recomputed later, so a Stats history
  *  card stays stable even if the underlying live-session rows are
- *  ever pruned. */
+ *  ever pruned.
+ *
+ *  `endedAt` defaults to now — pass an earlier Date for the "forgot to
+ *  end this" prompt (StaleSessionModal), where the user is backdating
+ *  to when they actually left rather than ending right now. Duration
+ *  is computed against this same timestamp, not Date.now(), so a
+ *  backdated end doesn't inflate the session's recorded length. */
 export async function endSession(
   session: ActiveSession,
-  reason: "manual" | "geofence",
+  reason: "manual" | "geofence" | "stale",
   stepCount: number | null,
   livePercent?: { dancedCount: number; totalCount: number } | null,
   finalDances?: LoggedDance[],
+  endedAt: Date = new Date(),
 ): Promise<SessionSummary> {
   const loggedDances = finalDances ?? session.loggedDances;
   const danceCount = loggedDances.length;
-  const durationSeconds = elapsedSeconds(session);
+  const durationSeconds = Math.max(
+    0,
+    Math.floor((endedAt.getTime() - new Date(session.startedAt).getTime()) / 1000),
+  );
 
   const { error } = await supabase
     .from("venue_checkins")
     .update({
-      ended_at: new Date().toISOString(),
+      ended_at: endedAt.toISOString(),
       end_reason: reason,
       step_count: stepCount,
       logged_dances: loggedDances,

@@ -154,6 +154,23 @@ export async function loadLiveSessionState(
   return { dances, participants };
 }
 
+/** Whether this specific check-in has logged anything at all, ever —
+ *  used by App.tsx's "did you forget to end this?" staleness prompt.
+ *  Deliberately checks the real server-side record rather than the
+ *  local ActiveSession.loggedDances field, which is only ever set
+ *  once at check-in time and never updated again now that the
+ *  session screen reads from the shared live pool instead — it would
+ *  always read as empty and make every long session look "stale,"
+ *  including a genuinely active one. */
+export async function hasLoggedAnyDance(checkinId: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from("venue_live_dances")
+    .select("id", { count: "exact", head: true })
+    .eq("checkin_id", checkinId);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
 /** Read-only view of a venue's current live session for someone just
  *  browsing the Venues screen — not checked in there themselves, so
  *  no `myUserId`/`dancedByMe` to compute. Relies on the public read

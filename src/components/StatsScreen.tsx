@@ -160,6 +160,9 @@ export function StatsScreen({
             {entry.endReason === "backfilled" && (
               <Text style={s.autoEnded}>Added after the fact — not tracked live</Text>
             )}
+            {entry.endReason === "stale" && (
+              <Text style={s.autoEnded}>Ended later, after a quiet stretch</Text>
+            )}
             {entry.liveTotalCount != null && entry.liveTotalCount > 1 && (
               <View style={s.livePercentPill}>
                 <Text style={s.livePercentText}>

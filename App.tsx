@@ -28,12 +28,14 @@ import { StatusLegendModal } from "./src/components/StatusLegendModal";
 import { HelpModal } from "./src/components/HelpModal";
 import { OfflineBanner } from "./src/components/OfflineBanner";
 import { OfflineListModal } from "./src/components/OfflineListModal";
+import { StaleSessionModal } from "./src/components/StaleSessionModal";
+import { hasLoggedAnyDance } from "./src/lib/liveSession";
 import { colors } from "./src/styles";
 import { AuthScreen } from "./src/components/AuthScreen";
 import { ProfileScreen } from "./src/components/ProfileScreen";
 import { ResetPasswordScreen } from "./src/components/ResetPasswordScreen";
 import { supabase } from "./src/lib/supabase";
-import { confirmAction, showAlert } from "./src/lib/alerts";
+import { confirmAction, showAlert, showError } from "./src/lib/alerts";
 import {
   findNearestCandidate,
   isOnCooldown,
@@ -176,6 +178,12 @@ function AppRoot() {
     // lines are sitting in it waiting to be imported.
     [offlineOpen, setOfflineOpen] = useState(false),
     [offlineCount, setOfflineCount] = useState(0),
+    // Shows the "still at this venue?" prompt once per session when a
+    // restored/ongoing check-in looks abandoned (see the staleness
+    // effect below) — null when nothing to ask about. Re-arms itself
+    // (via staleDismissedRef) only for a *different* checkinId, so
+    // dismissing "Still here" doesn't re-prompt every single poll.
+    [staleSession, setStaleSession] = useState<ActiveSession | null>(null),
     // Set when an offline import has been queued, so the Profile tab opens
     // straight into the matcher.
     [openImportOnProfile, setOpenImportOnProfile] = useState(false),
@@ -420,6 +428,42 @@ function AppRoot() {
     return () => subscription.remove();
   }, [session?.user.id]);
 
+  // "Did you forget to end this?" — ending a session otherwise relies
+  // entirely on the user reopening the app (manual "Done Dancing", or
+  // the geofence check above, which only fires on a foreground
+  // transition). Someone who checks in, dances a bit, then just closes
+  // the app for the night and doesn't come back near that venue stays
+  // "checked in" indefinitely — reported as other people still seeing
+  // them live at the venue hours later. Rather than guessing an end
+  // time server-side (no reliable per-user "last seen" signal exists —
+  // a quiet stretch looks identical whether someone left or is just
+  // dancing without logging), prompt the user themselves the next time
+  // they open the app, so THEY decide. Deliberately conservative:
+  // triggers only when NOTHING has EVER been logged this check-in
+  // (hasLoggedAnyDance — not "nothing recently"; a long quiet stretch
+  // after real logging is normal, not a sign of having left) AND it's
+  // been 2+ hours since check-in. A real, actively-logging session,
+  // even a very long one, is never second-guessed here.
+  const staleDismissedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const checkStale = async () => {
+      const current = activeSessionRef.current;
+      if (!current) return;
+      if (staleDismissedRef.current === current.checkinId) return;
+      const hoursSinceCheckIn = (Date.now() - new Date(current.startedAt).getTime()) / 3600000;
+      if (hoursSinceCheckIn < 2) return;
+      const everLogged = await hasLoggedAnyDance(current.checkinId).catch(() => true);
+      if (!everLogged && activeSessionRef.current?.checkinId === current.checkinId) {
+        setStaleSession(current);
+      }
+    };
+    void checkStale();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void checkStale();
+    });
+    return () => subscription.remove();
+  }, [activeSession?.checkinId]);
+
   // Native side of the password-reset flow. On web, supabase-js handles
   // the URL itself; on iOS/Android the deep link arrives here instead and
   // we exchange it for a session by hand. See src/lib/authLinks.ts.
@@ -608,6 +652,37 @@ function AppRoot() {
     setOfflineOpen(false);
     setOpenImportOnProfile(true);
     setTab("Profile");
+  };
+
+  // Dismissing "Still here" on the stale-session prompt — don't ask
+  // again for this same checkinId (staleDismissedRef), since nothing
+  // about the underlying staleness changed just because they answered
+  // once; it'll naturally re-arm for whichever session comes next.
+  const handleStaleStillHere = () => {
+    if (staleSession) staleDismissedRef.current = staleSession.checkinId;
+    setStaleSession(null);
+  };
+
+  const handleStaleEnd = async (endedAt: Date) => {
+    if (!staleSession) return;
+    try {
+      const stepCount = await queryStepCount(staleSession);
+      const summary = await endSession(staleSession, "stale", stepCount, null, undefined, endedAt);
+      setActiveSession(null);
+      setStaleSession(null);
+      setSessionScreenOpen(false);
+      setStatsRefreshKey((k) => k + 1);
+      showAlert(
+        "Session ended",
+        `Marked as ended at ${staleSession.venueName}.${
+          summary.durationSeconds > 0
+            ? ` You were there for ${Math.round(summary.durationSeconds / 60)} min.`
+            : ""
+        }`,
+      );
+    } catch (err: any) {
+      showError(err, "Could not end that session.");
+    }
   };
 
   const refreshRequestCount = () => {
@@ -1274,6 +1349,11 @@ function AppRoot() {
             refreshOfflineCount();
           }}
           onImport={handleOfflineImport}
+        />
+        <StaleSessionModal
+          session={staleSession}
+          onStillHere={handleStaleStillHere}
+          onEnd={handleStaleEnd}
         />
       </SafeAreaView>
     </SafeAreaProvider>
