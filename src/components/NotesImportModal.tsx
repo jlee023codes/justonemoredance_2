@@ -21,6 +21,7 @@ import {
 } from "../lib/planLimits";
 import { Tier } from "../lib/entitlements";
 import { DanceCard, QuickStatus } from "./DanceCard";
+import { ProgressBar } from "./ProgressBar";
 import { searchDances } from "../lib/bootstepper";
 import { removeDancesEverywhere, saveProgress, setDanceLink } from "../services/progress";
 import {
@@ -613,7 +614,9 @@ export function NotesImportModal({
                 Matching {bulkProgress.done} of {bulkProgress.total} dances.
                 Anything with no clean match will come back to you next.
               </Text>
-              <ActivityIndicator color={colors.gold} style={s.loader} />
+              <View style={s.progressBarWrap}>
+                <ProgressBar done={bulkProgress.done} total={bulkProgress.total} />
+              </View>
             </View>
           )}
 
@@ -928,6 +931,7 @@ const s = StyleSheet.create({
   statusButtonText: { color: colors.muted, fontWeight: "800", fontSize: 12 },
   statusButtonTextOn: { color: colors.pink },
   loader: { marginTop: 16 },
+  progressBarWrap: { marginTop: 20 },
   empty: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 6 },
   checkboxRow: {
     flexDirection: "row",

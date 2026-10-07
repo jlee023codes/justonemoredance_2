@@ -16,6 +16,7 @@ import { showError } from "../lib/alerts";
 import { Dance } from "../types";
 import { searchDances } from "../lib/bootstepper";
 import { DIFFICULTY_COLOR } from "./DanceCard";
+import { ProgressBar } from "./ProgressBar";
 import { parseNotesText } from "../services/notesImport";
 import { addManualDanceToSession, SessionHistoryEntry } from "../services/checkinSessions";
 
@@ -51,6 +52,7 @@ export function AddDanceToSessionModal({
 
   const [bulkText, setBulkText] = useState("");
   const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [bulkMissed, setBulkMissed] = useState<string[]>([]);
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export function AddDanceToSessionModal({
       setResults([]);
       setBulkText("");
       setBulkMissed([]);
+      setBulkProgress({ done: 0, total: 0 });
     }
   }, [entry]);
 
@@ -107,18 +110,21 @@ export function AddDanceToSessionModal({
     const parsed = parseNotesText(bulkText);
     if (!parsed.length) return;
     setBulkImporting(true);
+    setBulkProgress({ done: 0, total: parsed.length });
     const missed: string[] = [];
     let addedAny = false;
     try {
-      for (const line of parsed) {
+      for (let i = 0; i < parsed.length; i++) {
+        const line = parsed[i];
         const found = await searchDances(line.name).catch(() => []);
         const dance = found[0];
         if (!dance) {
           missed.push(line.name);
-          continue;
+        } else {
+          await addManualDanceToSession(entry.id, dance);
+          addedAny = true;
         }
-        await addManualDanceToSession(entry.id, dance);
-        addedAny = true;
+        setBulkProgress({ done: i + 1, total: parsed.length });
       }
       if (addedAny) onAdded();
       setBulkMissed(missed);
@@ -242,6 +248,14 @@ export function AddDanceToSessionModal({
                 )}
               </ScrollView>
               <View style={s.stickyFooter}>
+                {bulkImporting && (
+                  <View style={s.bulkProgressWrap}>
+                    <Text style={s.bulkProgressText}>
+                      Adding {bulkProgress.done} of {bulkProgress.total}…
+                    </Text>
+                    <ProgressBar done={bulkProgress.done} total={bulkProgress.total} />
+                  </View>
+                )}
                 <Pressable
                   style={[s.bulkAddButton, (!bulkText.trim() || bulkImporting) && s.disabled]}
                   onPress={handleBulkAdd}
@@ -312,6 +326,8 @@ const s = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
   },
+  bulkProgressWrap: { marginBottom: 12, gap: 6 },
+  bulkProgressText: { color: colors.muted, fontSize: 12.5, fontWeight: "700" },
   bulkAddButton: {
     backgroundColor: colors.pink,
     borderRadius: 12,
