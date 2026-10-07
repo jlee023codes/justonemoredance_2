@@ -1202,7 +1202,7 @@ function AppRoot() {
               setStatsRefreshKey((k) => k + 1);
               const livePercentLine =
                 summary.liveTotalCount != null && summary.liveTotalCount > 1
-                  ? `\n\nYou danced ${summary.liveDancedCount ?? 0} of ${summary.liveTotalCount} logged while you were there (${Math.round(
+                  ? `\n\nYou danced ${summary.liveDancedCount ?? 0} of ${summary.liveTotalCount} dances while you were there (${Math.round(
                       ((summary.liveDancedCount ?? 0) / summary.liveTotalCount) * 100,
                     )}%).`
                   : "";

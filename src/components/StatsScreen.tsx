@@ -136,12 +136,22 @@ export function StatsScreen({
                 <Text style={s.statValue}>{formatDuration(entry.durationSeconds)}</Text>
                 <Text style={s.statLabel}>time there</Text>
               </View>
-              <View style={s.stat}>
-                <Text style={s.statValue}>{entry.dances.length}</Text>
-                <Text style={s.statLabel}>
-                  {entry.dances.length === 1 ? "dance" : "dances"}
-                </Text>
-              </View>
+              {entry.liveTotalCount != null && entry.liveTotalCount > 1 ? (
+                <View style={s.stat}>
+                  <Text style={[s.statValue, s.statValueTight]} numberOfLines={1}>
+                    {entry.liveDancedCount ?? 0}/{entry.liveTotalCount} for{" "}
+                    {Math.round(((entry.liveDancedCount ?? 0) / entry.liveTotalCount) * 100)}%
+                  </Text>
+                  <Text style={s.statLabel}>your night</Text>
+                </View>
+              ) : (
+                <View style={s.stat}>
+                  <Text style={s.statValue}>{entry.dances.length}</Text>
+                  <Text style={s.statLabel}>
+                    {entry.dances.length === 1 ? "dance" : "dances"}
+                  </Text>
+                </View>
+              )}
               {entry.stepCount != null ? (
                 <View style={s.stat}>
                   <Text style={s.statValue}>{entry.stepCount.toLocaleString()}</Text>
@@ -162,15 +172,6 @@ export function StatsScreen({
             )}
             {entry.endReason === "stale" && (
               <Text style={s.autoEnded}>Ended later, after a quiet stretch</Text>
-            )}
-            {entry.liveTotalCount != null && entry.liveTotalCount > 1 && (
-              <View style={s.livePercentPill}>
-                <Text style={s.livePercentText}>
-                  ⚔️ Danced {entry.liveDancedCount ?? 0} of {entry.liveTotalCount} logged
-                  while you were there (
-                  {Math.round(((entry.liveDancedCount ?? 0) / entry.liveTotalCount) * 100)}%)
-                </Text>
-              </View>
             )}
 
             {entry.dances.length > 0 && (
@@ -245,16 +246,23 @@ export function StatsScreen({
   );
 }
 
+type ViewTab = "danced" | "all" | "new";
+const VIEW_TABS: { key: ViewTab; label: string }[] = [
+  { key: "danced", label: "I Danced" },
+  { key: "all", label: "Full Playlist" },
+  { key: "new", label: "What Was New" },
+];
+
 /** Pop-out list of everything logged during one session — minimal by
  *  design: plain dance names in text columns (no card chrome), so a
  *  long night (avid dancers can log 60-100+) still fits on screen
  *  without scrolling forever. Full-screen rather than a centered card
  *  — a fixed-width card was clipping the venue name on longer titles.
  *
- *  Defaults to just the dances this user actually danced — "Show all
- *  dances" toggles to the whole venue log for the night; "New to
- *  venue" is a separate, independent filter on top of whichever of
- *  those two is active. */
+ *  Three mutually-exclusive tabs instead of togglable filter chips:
+ *  "I Danced" (default) just this user's own dances, "Full Playlist"
+ *  everything logged at the venue that night, "What Was New"
+ *  specifically the dances new to the venue this session. */
 function SessionDancesModal({
   entry,
   onClose,
@@ -264,23 +272,21 @@ function SessionDancesModal({
 }) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const [newToVenueOnly, setNewToVenueOnly] = useState(false);
+  const [viewTab, setViewTab] = useState<ViewTab>("danced");
 
   useEffect(() => {
     if (entry) {
       setQuery("");
       setCopied(false);
-      setShowAll(false);
-      setNewToVenueOnly(false);
+      setViewTab("danced");
     }
   }, [entry]);
 
   if (!entry) return null;
 
   const baseDances = entry.dances.filter((d) => {
-    if (!showAll && d.danced === false) return false;
-    if (newToVenueOnly && !d.newToVenue) return false;
+    if (viewTab === "danced" && d.danced === false) return false;
+    if (viewTab === "new" && !d.newToVenue) return false;
     return true;
   });
   const trimmedQuery = query.trim();
@@ -350,23 +356,18 @@ function SessionDancesModal({
           />
         )}
 
-        <View style={s.gridFilterRow}>
-          <Pressable
-            style={[s.gridFilterChip, showAll && s.gridFilterChipOn]}
-            onPress={() => setShowAll((v) => !v)}
-          >
-            <Text style={[s.gridFilterChipText, showAll && s.gridFilterChipTextOn]}>
-              {showAll ? "✓ " : ""}Show all dances
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[s.gridFilterChip, newToVenueOnly && s.gridFilterChipOn]}
-            onPress={() => setNewToVenueOnly((v) => !v)}
-          >
-            <Text style={[s.gridFilterChipText, newToVenueOnly && s.gridFilterChipTextOn]}>
-              {newToVenueOnly ? "✓ " : ""}New to venue
-            </Text>
-          </Pressable>
+        <View style={s.viewTabRow}>
+          {VIEW_TABS.map((tab) => (
+            <Pressable
+              key={tab.key}
+              style={[s.viewTab, viewTab === tab.key && s.viewTabActive]}
+              onPress={() => setViewTab(tab.key)}
+            >
+              <Text style={[s.viewTabText, viewTab === tab.key && s.viewTabTextActive]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          ))}
         </View>
 
         <ScrollView contentContainerStyle={s.gridList}>
@@ -443,19 +444,10 @@ const s = StyleSheet.create({
   statsRow: { flexDirection: "row", gap: 20 },
   stat: { alignItems: "flex-start" },
   statValue: { color: colors.gold, fontSize: 18, fontWeight: "900" },
+  statValueTight: { fontSize: 14 },
   statValueMuted: { color: colors.muted, fontSize: 14, fontWeight: "800" },
   statLabel: { color: colors.muted, fontSize: 11, marginTop: 2 },
   autoEnded: { color: colors.muted, fontSize: 11, marginTop: 10, fontStyle: "italic" },
-  livePercentPill: {
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginTop: 10,
-  },
-  livePercentText: { color: colors.gold, fontSize: 12, fontWeight: "700", lineHeight: 17 },
   chartRow: {
     marginTop: 14,
     paddingTop: 14,
@@ -523,22 +515,24 @@ const s = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 14,
   },
-  gridFilterRow: {
+  viewTabRow: {
     flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    marginHorizontal: 20,
+    marginTop: 14,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
   },
-  gridFilterChip: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+  viewTab: {
+    flex: 1,
+    borderRadius: 9,
+    paddingVertical: 9,
+    alignItems: "center",
   },
-  gridFilterChipOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
-  gridFilterChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
-  gridFilterChipTextOn: { color: colors.pink },
+  viewTabActive: { backgroundColor: colors.pink },
+  viewTabText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
+  viewTabTextActive: { color: "#fff" },
   gridList: { padding: 20, paddingBottom: 50 },
   // Plain text, no card chrome — three columns via flexBasis so a
   // long night's list (60-100+ dances) still reads at a glance
