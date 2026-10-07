@@ -37,14 +37,38 @@ function labelFor(profile: { display_name: string | null; username: string | nul
 /** The current roster of everyone checked in right now — presence
  *  only decides WHO is here, never the dance list's time window (see
  *  loadSessionWindowStart below for why those two are now fully
- *  decoupled). */
+ *  decoupled). Filters out stale check-ins (same STALE_CHECKIN_HOURS
+ *  threshold as loadLiveVenueIds/loadLiveVenueView, but judged per
+ *  person here, not per venue — a check-in counts as live if EITHER
+ *  its own checked_in_at OR that specific user's own most recent
+ *  logged dance is within the window; one actively-dancing person
+ *  must not keep everyone else's stale check-ins alive in the
+ *  roster too). Without this, a check-in nobody ever properly ended
+ *  (app closed instead of tapping Done Dancing, no server-side
+ *  auto-end) stayed in this roster indefinitely, showing up to every
+ *  OTHER user still checked in at that venue as "N people dancing
+ *  here now" long after they'd actually left. The StaleSessionModal
+ *  prompt in App.tsx only catches this for the stale check-in's OWN
+ *  device; this is what keeps it from leaking into everyone else's
+ *  view in the meantime. */
 async function loadPresence(venueId: string): Promise<LiveParticipant[]> {
-  const { data: presence, error } = await supabase
-    .from("venue_live_presence")
-    .select("user_id")
-    .eq("venue_id", venueId);
+  const [{ data: presence, error }, { data: recentDances, error: dancesError }] =
+    await Promise.all([
+      supabase.from("venue_live_presence").select("user_id, checked_in_at").eq("venue_id", venueId),
+      supabase
+        .from("venue_live_dances")
+        .select("logged_by")
+        .eq("venue_id", venueId)
+        .gte("logged_at", new Date(Date.now() - STALE_CHECKIN_HOURS * 60 * 60 * 1000).toISOString()),
+    ]);
   if (error) throw error;
-  const rows = presence ?? [];
+  if (dancesError) throw dancesError;
+  const recentlyActiveUserIds = new Set((recentDances ?? []).map((d: any) => d.logged_by as string));
+  const staleCutoff = Date.now() - STALE_CHECKIN_HOURS * 60 * 60 * 1000;
+  const rows = (presence ?? []).filter(
+    (r: any) =>
+      new Date(r.checked_in_at).getTime() >= staleCutoff || recentlyActiveUserIds.has(r.user_id),
+  );
   const userIds = [...new Set(rows.map((r: any) => r.user_id as string))];
   if (!userIds.length) return [];
 
