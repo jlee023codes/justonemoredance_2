@@ -213,8 +213,10 @@ export function MyListScreen({
 
   // How many rows are still showing a bare snapshot (no choreographer/
   // counts/video yet) — App.tsx's background resolver is working
-  // through these; this just makes that visible instead of cards
-  // silently swapping in over several seconds with no explanation.
+  // through these. Only surfaced as a banner when showDetails is on
+  // (see the render below): with details hidden, none of what's still
+  // resolving is even visible on the cards, so the banner would just
+  // be noise about data the user isn't looking at.
   const pendingResolveCount = useMemo(
     () => rows.filter((r) => r.dance.snapshot).length,
     [rows],
@@ -883,7 +885,7 @@ export function MyListScreen({
           )}
         </View>
 
-        {pendingResolveCount > 0 && (
+        {showDetails && pendingResolveCount > 0 && (
           <View style={s.resolvingBanner}>
             <ActivityIndicator color={colors.gold} size="small" />
             <Text style={s.resolvingBannerText}>
