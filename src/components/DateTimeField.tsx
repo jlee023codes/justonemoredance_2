@@ -133,6 +133,13 @@ const webInputStyle: any = {
   fontSize: 16,
   fontFamily: "inherit",
   width: "100%",
+  // Native <input type="date"/"time"> has a browser-enforced intrinsic
+  // minimum width (room for the full date text + calendar icon) that
+  // can exceed what a flex:1 sibling column would otherwise compute —
+  // flex items default to min-width: auto, so that intrinsic size wins
+  // over width: 100% and the two side-by-side fields end up wider than
+  // the rest of the modal's content. min-width: 0 is the standard fix.
+  minWidth: 0,
   colorScheme: "dark",
 };
 

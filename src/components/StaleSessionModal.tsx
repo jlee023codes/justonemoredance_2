@@ -111,7 +111,12 @@ const s = StyleSheet.create({
   title: { color: colors.ink, fontSize: 18, fontWeight: "900", marginBottom: 10 },
   body: { color: colors.muted, fontSize: 14, lineHeight: 20, marginBottom: 18 },
   fieldRow: { flexDirection: "row", gap: 10, marginBottom: 18 },
-  field: { flex: 1 },
+  // minWidth: 0 alongside flex: 1 — without it, RN Web's flex items
+  // default to min-width: auto, so a wide native date/time <input>
+  // inside (see DateTimeField's own matching fix) can force this
+  // column wider than its fair share of fieldRow instead of actually
+  // sharing space evenly with its sibling.
+  field: { flex: 1, minWidth: 0 },
   primary: {
     backgroundColor: colors.pink,
     borderRadius: 12,
