@@ -53,12 +53,21 @@ usual reason a reset link "goes to the wrong place".
 In **Authentication → URL Configuration → Redirect URLs**, add all of these:
 
 ```
-http://localhost:8081/**          # expo start --web
-http://localhost:19006/**         # older Expo web port, if you use it
-https://<your-app>.expo.app/**    # the hosted web build
-justonemoredance://**             # iOS/Android standalone + dev client
-exp://**                          # Expo Go (its URL includes a LAN IP/port)
+http://localhost:8081/**            # expo start --web
+http://localhost:19006/**           # older Expo web port, if you use it
+https://<your-app>.expo.app/**      # the hosted Expo web build
+https://justonemoredance.com/**     # the Cloudflare Worker-served custom domain
+https://www.justonemoredance.com/** # same, www subdomain
+justonemoredance://**               # iOS/Android standalone + dev client
+exp://**                            # Expo Go (its URL includes a LAN IP/port)
 ```
+
+Also check **Site URL** at the top of the same page — this is the silent
+fallback used whenever `redirectTo` doesn't match anything on the allow-list
+above, so it should be `https://justonemoredance.com`, never a localhost dev
+port. (A reset link landing on `localhost:XXXX` after being requested from the
+real domain is exactly this: either the domain is missing from Redirect URLs,
+or Site URL itself is still pointed at someone's local dev server.)
 
 `src/lib/authLinks.ts` computes the right one at runtime: on web it's the page
 the user is currently on, on native it's `Linking.createURL("reset-password")`.
