@@ -675,14 +675,22 @@ export async function setHomeVenue(
 }
 
 /** Home bar first, then whatever order the list already had. */
-export function homeFirst<T extends { id: string }>(
+/** Reorders so the home venue (if any) always leads, with the rest
+ *  alphabetical by default — overriding searchGlobalVenues' own
+ *  votes-first ranking, since "where's my home bar, then everything
+ *  else A-Z" is a clearer mental model for browsing than vote order.
+ *  Pass `preserveOrder: true` to keep the incoming order for the rest
+ *  instead (Near Me's own distance-sorted order shouldn't be
+ *  re-alphabetized out from under it). */
+export function homeFirst<T extends { id: string; name: string }>(
   venues: T[],
   homeVenueId: string | null,
+  preserveOrder = false,
 ): T[] {
-  if (!homeVenueId) return venues;
-  const home = venues.filter((v) => v.id === homeVenueId);
-  const rest = venues.filter((v) => v.id !== homeVenueId);
-  return [...home, ...rest];
+  const home = homeVenueId ? venues.filter((v) => v.id === homeVenueId) : [];
+  const rest = homeVenueId ? venues.filter((v) => v.id !== homeVenueId) : venues;
+  const orderedRest = preserveOrder ? rest : [...rest].sort((a, b) => a.name.localeCompare(b.name));
+  return [...home, ...orderedRest];
 }
 
 export async function loadUserVenues(userId: string): Promise<VenueOption[]> {

@@ -362,7 +362,7 @@ export function VenuesScreen({
         .map((r) => r.venue)
     : results;
 
-  const ordered = homeFirst(withDistance, homeVenueId).filter(
+  const ordered = homeFirst(withDistance, homeVenueId, nearMeOnly).filter(
     (v) => !dancedOnly || dancedVenueIds.has(v.id),
   );
   const initialLoading = loading && !results.length;
