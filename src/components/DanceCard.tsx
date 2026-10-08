@@ -46,6 +46,13 @@ export function DanceCard({
   onDelete,
   note,
   dimmed,
+  // Choreographer, step-count details, and song-swaps are hidden when
+  // false — a plain-text "Show details" toggle on My List, defaulting
+  // off so the saved list reads as a dense name/song list rather than
+  // a wall of metadata. Defaults true for every other caller (search
+  // results, friend lists, venue dances, etc.) so this is opt-out, not
+  // a behavior change anywhere details weren't explicitly hidden.
+  showDetails = true,
 }: {
   dance: Dance;
   song: string;
@@ -59,6 +66,7 @@ export function DanceCard({
   /** Short line under the song, e.g. "Already in your list". */
   note?: string;
   dimmed?: boolean;
+  showDetails?: boolean;
 }) {
   const picking = selected !== undefined;
   const status = progress?.status;
@@ -102,7 +110,7 @@ export function DanceCard({
               {dance.name}
             </Text>
 
-            {choreographer && (
+            {showDetails && choreographer && (
               <Text style={s.choreographer} numberOfLines={1}>
                 by {choreographer}
               </Text>
@@ -112,13 +120,13 @@ export function DanceCard({
               {song}
             </Text>
 
-            {otherSongs.length > 0 && (
+            {showDetails && otherSongs.length > 0 && (
               <Text style={s.catalogSwaps} numberOfLines={1}>
                 Also danced to: {otherSongs.join(", ")}
               </Text>
             )}
 
-            {dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
+            {showDetails && dance.details ? <Text style={s.meta}>{dance.details}</Text> : null}
             {note ? <Text style={s.note}>{note}</Text> : null}
 
             {videoUrl ? (

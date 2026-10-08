@@ -168,6 +168,12 @@ export function MyListScreen({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Off by default so the saved list reads as a dense name/song list;
+  // "FROM BOOTSTEPPER" search results below always show full details
+  // regardless (they pass showDetails explicitly), since the whole
+  // point there is deciding whether to add a dance you don't know yet.
+  const [showDetails, setShowDetails] = useState(false);
+
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const exitSelect = () => {
@@ -803,7 +809,18 @@ export function MyListScreen({
         keyboardShouldPersistTaps="handled"
       >
         <View style={s.headerRow}>
-          <Text style={s.heading}>My List</Text>
+          <View style={s.headingWithToggle}>
+            <Text style={s.heading}>My List</Text>
+            <Pressable
+              style={[s.detailsToggle, showDetails && s.detailsToggleOn]}
+              onPress={() => setShowDetails((v) => !v)}
+              hitSlop={6}
+            >
+              <Text style={[s.detailsToggleText, showDetails && s.detailsToggleTextOn]}>
+                {showDetails ? "✓ " : ""}Show details
+              </Text>
+            </Pressable>
+          </View>
           {(spotifyStatus?.connected || appleMusicStatus?.connected || youtubeStatus?.connected) && (
             <View style={s.headerSyncButtons}>
               {appleMusicStatus?.connected && (
@@ -987,6 +1004,7 @@ export function MyListScreen({
                       `Remove "${dance.name}" from your lists and every venue you've tagged it to?`,
                     )
             }
+            showDetails={showDetails}
           />
         ))}
 
@@ -1029,6 +1047,7 @@ export function MyListScreen({
               song={dance.defaultSong}
               onPress={() => onOpenDance(dance)}
               onQuickStatus={(status) => onQuickStatus(dance, status)}
+              showDetails
             />
           ))}
         {search.trim().length > 0 &&
@@ -1126,6 +1145,17 @@ const s = StyleSheet.create({
     fontSize: 25,
     fontWeight: "900",
   },
+  headingWithToggle: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  detailsToggle: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
+  },
+  detailsToggleOn: { borderColor: colors.pink, backgroundColor: "#ff4e9b22" },
+  detailsToggleText: { color: colors.muted, fontSize: 11.5, fontWeight: "700" },
+  detailsToggleTextOn: { color: colors.pink },
   headerSyncButtons: { flexDirection: "row", flexWrap: "wrap", gap: 6, flexShrink: 0 },
   resolvingBanner: {
     flexDirection: "row",
