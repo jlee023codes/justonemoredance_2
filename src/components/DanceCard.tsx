@@ -98,14 +98,25 @@ export function DanceCard({
     </View>
   );
 
+  // Same reasoning as the picking-mode fix below: the delete button
+  // (onDelete, non-picking) ALSO sits in the top-right corner via
+  // normal flex flow, vertically centered across the whole card by
+  // mainRow's alignItems: center — for a short card (no
+  // choreographer/details showing) that lands right where the
+  // absolutely-positioned badge already is, overlapping it. Only use
+  // the absolute corner when neither picking nor onDelete claims that
+  // corner; otherwise the badge renders inline next to whichever
+  // control is there.
+  const badgeInCorner = !picking && !onDelete;
+
   return (
     <View style={[s.card, dimmed && s.dimmed]}>
-      {!picking && <View style={s.badgeCorner}>{badge}</View>}
+      {badgeInCorner && <View style={s.badgeCorner}>{badge}</View>}
 
       <View style={s.mainRow}>
         <Pressable style={s.main} onPress={onPress}>
           <Text style={s.icon}>{icon}</Text>
-          <View style={[s.copy, picking && s.copyPicking]}>
+          <View style={[s.copy, !badgeInCorner && s.copyInlineBadge]}>
             <Text style={s.title} numberOfLines={1}>
               {dance.name}
             </Text>
@@ -143,7 +154,7 @@ export function DanceCard({
           </View>
 
           {picking ? (
-            <View style={s.pickingControls}>
+            <View style={s.cornerControls}>
               {badge}
               <View style={[s.checkbox, selected && s.checkboxOn]}>
                 {selected && <Text style={s.checkmark}>✓</Text>}
@@ -155,9 +166,12 @@ export function DanceCard({
         </Pressable>
 
         {!picking && onDelete && (
-          <Pressable style={s.deleteButton} onPress={onDelete} hitSlop={8}>
-            <Text style={s.deleteIcon}>🗑</Text>
-          </Pressable>
+          <View style={s.cornerControls}>
+            {badge}
+            <Pressable style={s.deleteButton} onPress={onDelete} hitSlop={8}>
+              <Text style={s.deleteIcon}>🗑</Text>
+            </Pressable>
+          </View>
         )}
       </View>
 
@@ -205,11 +219,11 @@ const s = StyleSheet.create({
   // at badgeText's size/weight — 54 was sized for shorter labels like
   // "Easy"/"Hard" and let "Intermediate" overlap the truncated title.
   copy: { flex: 1, paddingRight: 78 },
-  // In picking mode the badge/checkbox already take their own flex
-  // space next to copy (pickingControls) — no need to additionally
-  // reserve room for the now-absolute-positioned badge that isn't
-  // there in this mode.
-  copyPicking: { paddingRight: 10 },
+  // Whenever the badge renders inline (cornerControls) instead of
+  // the absolute corner — picking mode, or onDelete — it already
+  // takes its own flex space next to copy, so no need to additionally
+  // reserve room for a badge that isn't floating there in this case.
+  copyInlineBadge: { paddingRight: 10 },
   title: { color: colors.ink, fontSize: 16, fontWeight: "800" },
   badge: {
     borderWidth: 1,
@@ -219,13 +233,15 @@ const s = StyleSheet.create({
   },
   // Fixed top-right corner regardless of title length — a structural
   // anchor rather than floating inline next to a (possibly truncated)
-  // title.
+  // title. Only used when nothing else (checkbox, delete button)
+  // already claims that corner — see badgeInCorner.
   badgeCorner: { position: "absolute", top: 13, right: 13 },
   badgeText: { fontSize: 10, fontWeight: "800" },
-  // Picking mode: badge and checkbox sit side by side in normal flex
-  // flow instead of the badge floating independently in the same
-  // corner the checkbox occupies (see the overlap this replaced).
-  pickingControls: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Badge sitting side by side with whichever control (checkbox or
+  // delete button) occupies the top-right corner, in normal flex
+  // flow, instead of floating independently in the same spot that
+  // control is in (see badgeInCorner — this is the overlap fix).
+  cornerControls: { flexDirection: "row", alignItems: "center", gap: 8 },
   choreographer: {
     color: colors.muted,
     fontSize: 12,
@@ -253,7 +269,6 @@ const s = StyleSheet.create({
   checkboxOn: { backgroundColor: colors.pink, borderColor: colors.pink },
   checkmark: { color: "#fff", fontSize: 14, fontWeight: "900" },
   deleteButton: {
-    marginLeft: 8,
     width: 34,
     height: 34,
     borderRadius: 10,
