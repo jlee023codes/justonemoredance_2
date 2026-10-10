@@ -152,7 +152,11 @@ export function DancingSessionScreen({
   const [searching, setSearching] = useState(false);
   const [ending, setEnding] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [dancedOnly, setDancedOnly] = useState(false);
+  // Full venue log (everyone's dances, not just this user's own) —
+  // opened on demand via "See All" instead of being the main screen's
+  // default view. The main list below the carousel now always shows
+  // just this user's own danced dances.
+  const [seeAllOpen, setSeeAllOpen] = useState(false);
 
   // The shared, collaborative "TONIGHT" list — server-backed, visible
   // to everyone currently checked in at this venue, refreshed by the
@@ -621,15 +625,10 @@ export function DancingSessionScreen({
 
           <View style={s.venueLogHeader}>
             <Text style={[s.sectionLabel, s.venueLogLabel]}>
-              VENUE'S LOG {liveLoading ? "" : `(${liveDances.length})`}
+              YOUR DANCES {liveLoading ? "" : `(${liveDances.filter((d) => d.dancedByMe).length})`}
             </Text>
-            <Pressable
-              style={[s.dancedFilterChip, dancedOnly && s.dancedFilterChipOn]}
-              onPress={() => setDancedOnly((v) => !v)}
-            >
-              <Text style={[s.dancedFilterChipText, dancedOnly && s.dancedFilterChipTextOn]}>
-                {dancedOnly ? "✓ " : ""}I Danced
-              </Text>
+            <Pressable style={s.dancedFilterChip} onPress={() => setSeeAllOpen(true)}>
+              <Text style={s.dancedFilterChipText}>See All →</Text>
             </Pressable>
           </View>
 
@@ -637,13 +636,12 @@ export function DancingSessionScreen({
             <ActivityIndicator color={colors.gold} style={s.liveLoader} />
           ) : (
             (() => {
-              const shown = dancedOnly ? liveDances.filter((d) => d.dancedByMe) : liveDances;
+              const shown = liveDances.filter((d) => d.dancedByMe);
               if (!shown.length) {
                 return (
                   <Text style={s.empty}>
-                    {dancedOnly
-                      ? "Nothing marked danced yet."
-                      : "Nothing logged yet — search above to add one."}
+                    Nothing marked danced yet — log a dance above, or tap
+                    "See All" to mark one from the venue's full list.
                   </Text>
                 );
               }
@@ -682,6 +680,40 @@ export function DancingSessionScreen({
           onSessionChange(next);
         }}
       />
+
+      <Modal visible={seeAllOpen} animationType="slide" onRequestClose={() => setSeeAllOpen(false)}>
+        <View style={s.seeAllScreen}>
+          <View style={s.seeAllTopRow}>
+            <Pressable style={s.seeAllCloseButton} onPress={() => setSeeAllOpen(false)} hitSlop={10}>
+              <Text style={s.seeAllCloseButtonText}>✕</Text>
+            </Pressable>
+            <Text style={s.seeAllTitle}>Venue's Log ({liveDances.length})</Text>
+          </View>
+          <ScrollView contentContainerStyle={s.seeAllList}>
+            {!liveDances.length ? (
+              <Text style={s.empty}>Nothing logged yet.</Text>
+            ) : (
+              liveDances.map((d) => (
+                <LoggedDanceRow
+                  key={d.id}
+                  dance={{
+                    danceId: d.danceId,
+                    name: d.name,
+                    song: d.song ?? "",
+                    details: d.details,
+                    loggedAt: d.loggedAt,
+                    difficulty: d.difficulty,
+                  }}
+                  loggedByName={participants.length > 1 ? d.loggedByName : undefined}
+                  dancedCount={participants.length > 1 ? d.dancedCount : undefined}
+                  dancedByMe={d.dancedByMe}
+                  onToggleDanced={() => handleToggleDanced(d)}
+                />
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -916,14 +948,34 @@ const s = StyleSheet.create({
   venueLogLabel: { marginTop: 0, marginBottom: 0 },
   dancedFilterChip: {
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.pink,
     borderRadius: 10,
     paddingVertical: 7,
     paddingHorizontal: 12,
   },
-  dancedFilterChipOn: { backgroundColor: colors.pink, borderColor: colors.pink },
-  dancedFilterChipText: { color: colors.muted, fontSize: 12, fontWeight: "700" },
-  dancedFilterChipTextOn: { color: "#fff" },
+  dancedFilterChipText: { color: colors.pink, fontSize: 12, fontWeight: "700" },
+  seeAllScreen: { flex: 1, backgroundColor: colors.bg, paddingTop: 60 },
+  seeAllTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  seeAllCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  seeAllCloseButtonText: { color: colors.muted, fontSize: 15, fontWeight: "800" },
+  seeAllTitle: { color: colors.ink, fontSize: 18, fontWeight: "900" },
+  seeAllList: { padding: 20, paddingBottom: 50 },
   search: {
     backgroundColor: colors.card,
     borderWidth: 1,
