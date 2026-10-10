@@ -392,11 +392,14 @@ function AppRoot() {
   // still seeing them live at the venue hours later. Rather than
   // silently auto-ending (same false-positive risk that just burned
   // the geofence feature), prompt the user themselves the next time
-  // they open the app, so THEY decide. Triggers once 4+ hours have
-  // passed since the most recent dance logged anywhere at this venue
-  // (not just by this user — someone else still logging keeps the
-  // venue's session genuinely alive), or since check-in itself if
-  // nothing's ever been logged there yet.
+  // they open the app, so THEY decide. Triggers once BOTH (a) this
+  // check-in is itself 4+ hours old AND (b) 4+ hours have passed
+  // since the most recent dance logged anywhere at this venue (not
+  // just by this user — someone else still logging keeps the venue's
+  // session genuinely alive). (a) is the floor: a venue's own dance
+  // history can be far older than this check-in (last real session
+  // days ago), so checking (b) alone would make a just-started
+  // check-in look stale instantly.
   const STALE_SESSION_HOURS = 4;
   const staleDismissedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -404,9 +407,18 @@ function AppRoot() {
       const current = activeSessionRef.current;
       if (!current) return;
       if (staleDismissedRef.current === current.checkinId) return;
+      // This check-in's own age is always the floor — a venue with
+      // old dance history (from a previous, already-ended night) must
+      // never make a just-started check-in look stale. Bug: this used
+      // to trust hoursSinceLastVenueDance alone, which answers "how
+      // long has it been since ANYONE logged a dance here, ever" —
+      // for a venue with no activity yet tonight, that's whatever gap
+      // exists back to the last real session, days old in practice,
+      // so the prompt fired the instant someone checked in fresh.
+      const hoursSinceCheckIn = (Date.now() - new Date(current.startedAt).getTime()) / 3600000;
+      if (hoursSinceCheckIn < STALE_SESSION_HOURS) return;
       const hoursSinceLastDance = await hoursSinceLastVenueDance(current.venueId).catch(() => null);
-      const hoursQuiet =
-        hoursSinceLastDance ?? (Date.now() - new Date(current.startedAt).getTime()) / 3600000;
+      const hoursQuiet = hoursSinceLastDance ?? hoursSinceCheckIn;
       if (hoursQuiet >= STALE_SESSION_HOURS && activeSessionRef.current?.checkinId === current.checkinId) {
         setStaleSession(current);
       }
