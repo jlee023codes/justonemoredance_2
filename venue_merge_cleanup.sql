@@ -100,8 +100,8 @@ begin
 
   -- Move per-user dance tags at this venue.
   insert into user_venue_dances
-    (user_id, venue_id, dance_id, dance_name, dance_song, dance_difficulty, song_swap, added_at)
-  select user_id, keep_id, dance_id, dance_name, dance_song, dance_difficulty, song_swap, added_at
+    (user_id, venue_id, dance_id, dance_name, dance_song, dance_difficulty, song_swap, added_at, first_added_at)
+  select user_id, keep_id, dance_id, dance_name, dance_song, dance_difficulty, song_swap, added_at, first_added_at
   from user_venue_dances
   where venue_id = old_id
   on conflict (user_id, venue_id, dance_id) do nothing;

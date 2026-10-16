@@ -459,11 +459,14 @@ export function DancingSessionScreen({
       // former confirmAction block, removed in favor of that + the
       // autoAddNewDances preference below.
       const danceIds = finalLiveDances.map((d) => d.danceId);
+      // null on failure, not an empty set — an empty set would flag the
+      // whole night as "new to the venue". Leaving newToVenue unset just
+      // keeps those dances out of What Was New instead.
       const alreadyAtVenue = await loadDancesAlreadyAtVenue(
         session.venueId,
         danceIds,
         session.startedAt,
-      ).catch(() => new Set<string>());
+      ).catch(() => null);
       const finalDances: LoggedDance[] = finalLiveDances.map((d) => ({
         danceId: d.danceId,
         name: d.name,
@@ -472,7 +475,7 @@ export function DancingSessionScreen({
         loggedAt: d.loggedAt,
         difficulty: d.difficulty,
         danced: d.dancedByMe,
-        newToVenue: !alreadyAtVenue.has(d.danceId),
+        newToVenue: alreadyAtVenue ? !alreadyAtVenue.has(d.danceId) : undefined,
         newToUser: !progress[d.danceId],
       }));
 

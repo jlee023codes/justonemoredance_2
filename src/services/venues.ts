@@ -990,28 +990,37 @@ export async function loadVenueDanceReports(
   }));
 }
 
-/** For each given dance id, whether ANY user_venue_dances row for
- *  (venueId, danceId) has added_at before `before` — i.e. it was
- *  already tagged at this venue by someone before this session
- *  started. Note saveVenueDance's upsert always bumps added_at to
- *  now() on every re-log, even for the same user on a later night —
- *  that's fine here, since this only checks for the EXISTENCE of a
- *  strictly earlier row from anyone, which an upsert can only ever
- *  move later, never earlier. */
+/** Which of the given dance ids were already on this venue's playlist
+ *  (tagged there by anyone) before `before` — i.e. before this session
+ *  started. Goes through the venue_dances_known_before RPC rather than
+ *  querying user_venue_dances directly: RLS only lets a user read their
+ *  own rows, and added_at is bumped to now() on every re-log, so a
+ *  direct query both missed other people's tags and lost your own the
+ *  moment you re-logged the dance tonight. The RPC checks
+ *  first_added_at across everyone instead — see
+ *  migration_venue_dance_first_added.sql. */
 export async function loadDancesAlreadyAtVenue(
   venueId: string,
   danceIds: string[],
   before: string,
 ): Promise<Set<string>> {
   if (!danceIds.length) return new Set();
-  const { data, error } = await supabase
-    .from("user_venue_dances")
-    .select("dance_id")
-    .eq("venue_id", venueId)
-    .in("dance_id", danceIds)
-    .lt("added_at", before);
+  const { data, error } = await supabase.rpc("venue_dances_known_before", {
+    p_venue_id: venueId,
+    p_dance_ids: danceIds,
+    p_before: before,
+  });
   if (error) throw error;
-  return new Set((data ?? []).map((r: any) => r.dance_id as string));
+  // A `setof text` function can come back as bare strings or as
+  // { venue_dances_known_before: "<id>" } rows depending on PostgREST
+  // version — accept either.
+  return new Set(
+    ((data ?? []) as unknown[]).map((row) =>
+      typeof row === "string"
+        ? row
+        : String((row as Record<string, unknown>).venue_dances_known_before),
+    ),
+  );
 }
 
 // A check-in with ended_at is null but no activity in this long is
