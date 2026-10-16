@@ -140,6 +140,16 @@ const webInputStyle: any = {
   // over width: 100% and the two side-by-side fields end up wider than
   // the rest of the modal's content. min-width: 0 is the standard fix.
   minWidth: 0,
+  // iOS Safari (including home-screen web apps) goes further: it sizes
+  // date/time inputs to its own native control width and ignores
+  // width / min-width entirely, so the DATE field still overlapped TIME
+  // and pushed it past the modal's edge. Dropping the native appearance
+  // makes it honor the box we give it; tapping still opens the iOS
+  // picker wheel.
+  WebkitAppearance: "none",
+  appearance: "none",
+  display: "block",
+  maxWidth: "100%",
   colorScheme: "dark",
 };
 
