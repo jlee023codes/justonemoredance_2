@@ -1,0 +1,32 @@
+iOS / TestFlight
+----------------
+
+Build a new native iOS binary (auto-increments the build number):
+npx eas build --platform ios --profile production
+
+Submit that build to App Store Connect / TestFlight:
+npx eas submit --platform ios --profile production --latest
+
+Or both in one command (build + auto-submit, no prompts):
+npx eas build --platform ios --profile production --auto-submit --non-interactive
+
+After a successful submit, Apple takes ~5-10 minutes to process
+before it shows up in TestFlight. You'll get an email when it's ready.
+
+Check status without re-running anything:
+npx eas build:list --platform ios --limit 1
+npx eas submit:list --platform ios --limit 1
+
+
+Web (justonemoredance.com)
+---------------------------
+
+Separate pipeline from the iOS build above — does NOT touch
+TestFlight. Only needed if public/ (marketing pages) or any other
+web-served file changed.
+
+Export the web build (writes to dist/):
+npx expo export --platform web
+
+Deploy dist/ to the Cloudflare Worker serving justonemoredance.com:
+npx wrangler deploy
