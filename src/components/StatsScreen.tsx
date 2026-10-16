@@ -234,7 +234,7 @@ export function StatsScreen({
                 </Pressable>
               )}
               <Pressable style={s.addDanceButton} onPress={() => setAddDanceFor(entry)}>
-                <Text style={s.addDanceButtonText}>＋ Add a dance</Text>
+                <Text style={s.addDanceButtonText}>＋ Add dances</Text>
               </Pressable>
             </View>
             {entry.dances.some((d) => d.newToUser) && (
