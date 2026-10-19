@@ -289,11 +289,10 @@ export function StatsScreen({
   );
 }
 
-type ViewTab = "danced" | "all" | "new";
+type ViewTab = "tonight" | "new";
 const VIEW_TABS: { key: ViewTab; label: string }[] = [
-  { key: "danced", label: "I Danced" },
-  { key: "all", label: "Full Playlist" },
-  { key: "new", label: "What Was New" },
+  { key: "tonight", label: "Tonight" },
+  { key: "new", label: "New To Venue" },
 ];
 
 /** Pop-out list of everything logged during one session — minimal by
@@ -302,10 +301,10 @@ const VIEW_TABS: { key: ViewTab; label: string }[] = [
  *  without scrolling forever. Full-screen rather than a centered card
  *  — a fixed-width card was clipping the venue name on longer titles.
  *
- *  Three mutually-exclusive tabs instead of togglable filter chips:
- *  "I Danced" (default) just this user's own dances, "Full Playlist"
- *  everything logged at the venue that night, "What Was New"
- *  specifically the dances new to the venue this session. */
+ *  Two tabs: "Tonight" (default) — everything logged at the venue that
+ *  night, with the dances this user actually danced in bold — and
+ *  "New To Venue", just the dances that weren't on the venue's
+ *  playlist before this session (same bolding). */
 function SessionDancesModal({
   entry,
   onClose,
@@ -315,23 +314,20 @@ function SessionDancesModal({
 }) {
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
-  const [viewTab, setViewTab] = useState<ViewTab>("danced");
+  const [viewTab, setViewTab] = useState<ViewTab>("tonight");
 
   useEffect(() => {
     if (entry) {
       setQuery("");
       setCopied(false);
-      setViewTab("danced");
+      setViewTab("tonight");
     }
   }, [entry]);
 
   if (!entry) return null;
 
-  const baseDances = entry.dances.filter((d) => {
-    if (viewTab === "danced" && d.danced === false) return false;
-    if (viewTab === "new" && !d.newToVenue) return false;
-    return true;
-  });
+  const baseDances =
+    viewTab === "new" ? entry.dances.filter((d) => d.newToVenue) : entry.dances;
   const trimmedQuery = query.trim();
   const visibleDances = trimmedQuery
     ? baseDances.filter((d) => matchesDanceName(d.name, trimmedQuery))
@@ -439,10 +435,22 @@ function SessionDancesModal({
           ))}
         </View>
 
+        {baseDances.length > 0 && (
+          <Text style={s.gridLegend}>
+            <Text style={s.gridLegendBold}>Bold</Text> = you danced it
+          </Text>
+        )}
+
         <ScrollView contentContainerStyle={s.gridList}>
           <View style={s.textGrid}>
             {visibleDances.map((d, i) => (
-              <Text key={`${d.danceId}-${i}`} style={s.textGridCell} numberOfLines={2}>
+              <Text
+                key={`${d.danceId}-${i}`}
+                // A missing `danced` means history from before danced vs.
+                // logged existed — counts as danced, same as everywhere else.
+                style={[s.textGridCell, d.danced === false ? s.textGridCellLogged : s.textGridCellDanced]}
+                numberOfLines={2}
+              >
                 {d.name}
               </Text>
             ))}
@@ -451,7 +459,9 @@ function SessionDancesModal({
             <Text style={s.empty}>
               {trimmedQuery.length > 0
                 ? `No dances match "${trimmedQuery}".`
-                : "No dances match the selected filters."}
+                : viewTab === "new"
+                  ? "Nothing new to the venue this night."
+                  : "No dances logged this night."}
             </Text>
           )}
         </ScrollView>
@@ -624,11 +634,19 @@ const s = StyleSheet.create({
   },
   textGridCell: {
     flexBasis: "33.333%",
-    color: colors.ink,
     fontSize: 13,
-    fontWeight: "600",
     textAlign: "center",
     paddingVertical: 10,
     paddingHorizontal: 4,
   },
+  textGridCellDanced: { color: colors.ink, fontWeight: "900" },
+  textGridCellLogged: { color: colors.muted, fontWeight: "400" },
+  gridLegend: {
+    color: colors.muted,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  gridLegendBold: { color: colors.ink, fontWeight: "900" },
 });
