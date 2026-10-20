@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { showAlert } from "../lib/alerts";
@@ -159,6 +160,22 @@ export function AuthScreen() {
     );
   };
 
+  // No-account mode (Supabase anonymous sign-in). App Review guideline
+  // 5.1.1(v) requires the app's non-account features — venues, check-in
+  // tracking, Stats, buying a subscription — to work without registering.
+  // A guest gets a real (anonymous) user id, so everything is stored the
+  // same way; Profile's "Create account" later attaches an email to that
+  // same id, keeping their dances and any purchase.
+  const continueAsGuest = async () => {
+    setError("");
+    setNotice("");
+    setLoading(true);
+    const { error: guestError } = await supabase.auth.signInAnonymously();
+    setLoading(false);
+    if (guestError) setError(guestError.message);
+    // onAuthStateChange in App.tsx takes it from here.
+  };
+
   const creating = mode === "createAccount";
 
   return (
@@ -261,6 +278,22 @@ export function AuthScreen() {
           <Text style={s.forgotText}>Forgot my password</Text>
         </Pressable>
       )}
+
+      {!creating && (
+        <View style={s.guestBlock}>
+          <Pressable
+            disabled={loading}
+            style={[s.guestButton, loading && s.disabled]}
+            onPress={continueAsGuest}
+          >
+            <Text style={s.guestButtonText}>Continue without an account</Text>
+          </Pressable>
+          <Text style={s.guestHint}>
+            You can create an account anytime from Profile to keep your
+            dances and subscription across devices.
+          </Text>
+        </View>
+      )}
       {loading && <ActivityIndicator color={colors.gold} style={s.loader} />}
     </KeyboardAvoidingView>
   );
@@ -309,6 +342,27 @@ const s = StyleSheet.create({
   link: { padding: 13, alignItems: "center" },
   linkText: { color: colors.gold, fontWeight: "800" },
   forgotText: { color: colors.muted, fontWeight: "700" },
+  guestBlock: {
+    marginTop: 18,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+  },
+  guestButton: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+  },
+  guestButtonText: { color: colors.ink, fontWeight: "800", fontSize: 15 },
+  guestHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+    marginTop: 10,
+  },
   notice: {
     color: colors.green,
     fontSize: 13,

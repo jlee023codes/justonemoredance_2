@@ -267,6 +267,14 @@ export function ProfileScreen({
   const [passwordError, setPasswordError] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
 
+  // Guest -> real account (see handleCreateAccount)
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [accountConfirm, setAccountConfirm] = useState("");
+  const [accountError, setAccountError] = useState("");
+  const [savingAccount, setSavingAccount] = useState(false);
+
   // Apple Notes import (also where an offline notepad import lands)
   const [importOpen, setImportOpen] = useState(false);
   const [pendingImport, setPendingImport] = useState(0);
@@ -635,6 +643,62 @@ export function ProfileScreen({
 
   // Apple/Google review requirement: account creation must come with an
   // in-app way to delete it, not just sign out. See
+  // Optional registration for a guest (anonymous) user. updateUser on an
+  // anonymous session attaches the email/password to the SAME user id —
+  // nothing is copied or migrated, so their dances, venues, Stats, and
+  // any subscription (RevenueCat is keyed to this id too) all simply
+  // stay theirs. Email auto-confirm is on in this Supabase project, so
+  // it takes effect immediately; App.tsx's onAuthStateChange picks up
+  // the now-non-anonymous user and Profile re-renders as signed in.
+  const handleCreateAccount = async () => {
+    setAccountError("");
+    const trimmed = accountEmail.trim();
+    if (!/^\S+@\S+\.\S+$/.test(trimmed)) {
+      return setAccountError("Enter a valid email address.");
+    }
+    if (accountPassword.length < 6) {
+      return setAccountError("Your password must be at least 6 characters.");
+    }
+    if (accountPassword !== accountConfirm) {
+      return setAccountError("Those passwords don't match.");
+    }
+    setSavingAccount(true);
+    const { error } = await supabase.auth.updateUser({
+      email: trimmed,
+      password: accountPassword,
+    });
+    setSavingAccount(false);
+    if (error) {
+      return setAccountError(
+        /already (been )?registered|already exists/i.test(error.message)
+          ? "That email already has an account. Sign out and sign in with it instead — note that dances saved as a guest won't carry over."
+          : error.message,
+      );
+    }
+    setAccountOpen(false);
+    setAccountPassword("");
+    setAccountConfirm("");
+    showAlert(
+      "Account created",
+      "Your dances and subscription are now saved to your account. Sign in with this email on any device.",
+    );
+  };
+
+  // Signing out of a guest session can't be undone — there's no email or
+  // password to ever sign back into that anonymous user with.
+  const handleSignOut = async () => {
+    if (!email) {
+      const ok = await confirmAction(
+        "Sign out of guest mode?",
+        "You don't have an account yet, so signing out permanently loses everything saved as a guest. Create an account first to keep it.",
+        "Sign out anyway",
+        true,
+      );
+      if (!ok) return;
+    }
+    onSignOut();
+  };
+
   // supabase/functions/delete-account/index.ts for what actually runs —
   // deleting auth.users cascades to every table tied to this user.
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -1034,7 +1098,94 @@ export function ProfileScreen({
               <Text style={s.changePasswordText}>Change password</Text>
             </Pressable>
           )
-        ) : null}
+        ) : accountOpen ? (
+          <View style={s.passwordBlock}>
+            <Text style={s.settingLabel}>CREATE ACCOUNT</Text>
+            <Text style={s.guestAccountHint}>
+              Optional — keeps your dances and subscription if you switch
+              devices or reinstall the app.
+            </Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="emailAddress"
+              placeholder="Email"
+              placeholderTextColor={colors.muted}
+              value={accountEmail}
+              onChangeText={(text) => {
+                setAccountEmail(text);
+                setAccountError("");
+              }}
+              style={s.passwordInput}
+              editable={!savingAccount}
+              autoFocus
+            />
+            <TextInput
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
+              placeholder="Password (6+ characters)"
+              placeholderTextColor={colors.muted}
+              value={accountPassword}
+              onChangeText={(text) => {
+                setAccountPassword(text);
+                setAccountError("");
+              }}
+              style={s.passwordInput}
+              editable={!savingAccount}
+            />
+            <TextInput
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="newPassword"
+              placeholder="Confirm password"
+              placeholderTextColor={colors.muted}
+              value={accountConfirm}
+              onChangeText={(text) => {
+                setAccountConfirm(text);
+                setAccountError("");
+              }}
+              style={[
+                s.passwordInput,
+                !!accountConfirm && accountConfirm !== accountPassword && s.inputBad,
+              ]}
+              editable={!savingAccount}
+            />
+            {accountError ? <Text style={s.error}>{accountError}</Text> : null}
+            <Pressable
+              style={[s.savePassword, savingAccount && s.disabled]}
+              onPress={handleCreateAccount}
+              disabled={savingAccount}
+            >
+              <Text style={s.savePasswordText}>
+                {savingAccount ? "Creating…" : "Create account"}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={s.cancelPassword}
+              onPress={() => {
+                setAccountOpen(false);
+                setAccountPassword("");
+                setAccountConfirm("");
+                setAccountError("");
+              }}
+            >
+              <Text style={s.cancelPasswordText}>Not now</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <Pressable style={s.changePassword} onPress={() => setAccountOpen(true)}>
+              <Text style={s.changePasswordText}>Create an account</Text>
+            </Pressable>
+            <Text style={s.guestAccountHint}>
+              Optional. Lets you sign in on other devices and add friends.
+            </Text>
+          </>
+        )}
 
         <View style={s.subscriptionRow}>
           <Text style={s.settingLabel}>SUBSCRIPTION</Text>
@@ -1058,7 +1209,7 @@ export function ProfileScreen({
           </Text>
         </Pressable>
 
-        <Pressable style={s.signOut} onPress={onSignOut}>
+        <Pressable style={s.signOut} onPress={() => void handleSignOut()}>
           <Text style={s.signOutText}>Sign out</Text>
         </Pressable>
         <Pressable
@@ -1322,6 +1473,7 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   changePasswordText: { color: colors.gold, fontWeight: "800" },
+  guestAccountHint: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 8 },
   passwordBlock: {
     marginTop: 17,
     paddingTop: 15,
