@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import Purchases, {
   CustomerInfo,
   LOG_LEVEL,
@@ -230,13 +230,30 @@ export async function redeemOfferCode(): Promise<void> {
   }
 }
 
-/** RevenueCat's self-service subscription management UI (cancel, change
- *  plan, request a refund, contact support, restore). */
+const STORE_SUBSCRIPTIONS_URL =
+  Platform.OS === "ios"
+    ? "https://apps.apple.com/account/subscriptions"
+    : "https://play.google.com/store/account/subscriptions";
+
+/** Opens the platform's own subscription management screen (cancel,
+ *  change plan) — on iOS, Apple's native Manage Subscriptions sheet.
+ *  This used to open RevenueCat's Customer Center, but that showed an
+ *  error to App Review (guideline 2.1(b), build 28) — it depends on
+ *  extra dashboard configuration and has nothing to show a sandbox
+ *  account with no purchase history. Apple's own sheet always works,
+ *  so it's the one place this goes now, falling back to the store's
+ *  subscriptions page if the SDK call itself fails. Kept under the old
+ *  name so the web implementation (revenuecat.web.ts) still matches. */
 export async function presentCustomerCenter(): Promise<void> {
-  if (!configured) return;
   try {
-    await RevenueCatUI.presentCustomerCenter();
+    if (configured && Platform.OS === "ios") {
+      await Purchases.showManageSubscriptions();
+      return;
+    }
   } catch (err) {
-    console.warn("[revenuecat] presentCustomerCenter failed", err);
+    console.warn("[revenuecat] showManageSubscriptions failed", err);
   }
+  await Linking.openURL(STORE_SUBSCRIPTIONS_URL).catch((err) =>
+    console.warn("[revenuecat] opening store subscriptions failed", err),
+  );
 }
